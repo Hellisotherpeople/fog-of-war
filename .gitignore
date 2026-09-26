@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# the game writes saves, settings and logs to ~/.fogofwar, but just in case
+*.pkl
+error.log
+
+# editors / OS
+.DS_Store
+.idea/
+.vscode/

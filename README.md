@@ -1,0 +1,161 @@
+<p align="center">
+  <img src="docs/media/title.png" alt="FOG OF WAR - a Second World War roguelike" width="760">
+</p>
+
+<p align="center">
+  <b>A Second World War roguelike. You are one soldier, and the whole war is simulated around you.</b><br>
+  Turn-based (one turn is one second) · procedurally generated and endless · sprites or ASCII ·
+  synthesised sound · deliberately unfair
+</p>
+
+<p align="center">
+  <img src="docs/media/battle.gif" alt="An infantry fight in the Normandy bocage" width="880">
+</p>
+
+You spawn as a rifleman in the Normandy hedgerows, a flamethrower operator at Kursk, a seaman on
+an AA mount on a carrier off Okinawa, the bomb aimer of a B-17, a Soviet sniper in Stalingrad,
+or a five-star general with a whole front under you. The battle goes on whether you're ready or
+not: squads fight with their own Dijkstra-map AI, orders travel by voice, runner and radio, the
+front moves at every strategic tick, and the numbers on the general's map are men you could walk
+over and count. It's in the spirit of *Cataclysm: Dark Days Ahead*, built on
+[python-tcod](https://github.com/libtcod/python-tcod).
+
+## Install
+
+You need **Python 3.10 or newer** ([python.org](https://www.python.org/downloads/); macOS and most
+Linux distributions already have it). Then:
+
+**macOS / Linux**
+
+```sh
+git clone https://github.com/Hellisotherpeople/fog-of-war.git
+cd fog-of-war
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+.venv/bin/python main.py
+```
+
+**Windows** (PowerShell or cmd)
+
+```bat
+git clone https://github.com/Hellisotherpeople/fog-of-war.git
+cd fog-of-war
+py -m venv .venv
+.venv\Scripts\pip install -r requirements.txt
+.venv\Scripts\python main.py
+```
+
+That's all: three packages (`tcod`, `numpy`, `pillow`), no other assets to download. Soldiers'
+shouts and radio traffic are spoken through your system's speech engine if it has one: built in on
+macOS, and on Linux or Windows install [espeak-ng](https://github.com/espeak-ng/espeak-ng)
+(`sudo apt install espeak-ng`). Without it the game is the same, just quieter.
+
+Saves, settings and the memorial to the fallen live in `~/.fogofwar/`.
+
+## Your first minutes
+
+Pick **Quick start** and the war picks everything for you, or **New game** to choose side,
+battle, nation, service, role, rank and kit. Then:
+
+- **Look at the panel on the right.** Your body, your weapon, and your **orders**. Press **Enter**
+  and you'll carry them out: walk to the objective, take the ammunition to the gunner, go to your
+  battle station.
+- Move with the arrow keys, numpad or `hjklyubn`; left-click to walk somewhere. `c` crouch, `p`
+  go prone. **Get down behind something that stops bullets.**
+- `f` to aim and fire (`a` aims longer), `r` reload, `t` throw, `B` bandage, `Y` shout for a medic.
+- `i` your kit, `g` pick up, `x` look (or just hover the mouse), `m` the map, `@` your health.
+- `?` or F1 for all the keys; Esc to save and quit. F2 switches sprites and ASCII, F3 sound.
+
+You will die. The memorial remembers.
+
+## A look around
+
+<table>
+<tr>
+<td width="50%"><img src="docs/media/tanks.gif" alt="Kursk"><br>
+<b>Kursk, July 1943.</b> Armour and infantry fighting over a village crossroads. Every vehicle has
+real armour per facing and a crew doing their own seat's job.</td>
+<td width="50%"><img src="docs/media/ascii.gif" alt="Stalingrad in ASCII"><br>
+<b>The same game in ASCII:</b> street fighting in Stalingrad. F2 switches between the two at any
+time.</td>
+</tr>
+</table>
+
+<p align="center"><img src="docs/media/carrier.gif" alt="A carrier's flight deck under air attack" width="880"></p>
+
+**One man on a carrier.** You aren't the ship: you're a seaman on a 270-metre Essex-class
+carrier with 2,600 men aboard, every deck built at real size. Here, general quarters, and a
+Japanese strike of dive bombers, torpedo planes and a kamikaze coming in over the flight deck.
+Hits land on the deck they would really hit; below decks you feel them through the hull.
+
+<table>
+<tr>
+<td width="50%"><img src="docs/media/gq.gif" alt="General quarters on a destroyer"><br>
+<b>General quarters.</b> Below in a destroyer's berthing compartment when the alarm goes: Enter
+takes you up the ladder and along the deck to your gun. Off watch, <code>Z</code> lets the hours go
+by until something needs you.</td>
+<td width="50%"><img src="docs/media/bomber.gif" alt="Inside a B-17"><br>
+<b>Inside a B-17</b> over the target: the crew at their stations, flak bursting outside, and
+fragments coming through the skin into the men at those stations.</td>
+</tr>
+</table>
+
+<p align="center"><img src="docs/media/general.gif" alt="The general staff, the command tree and the war map" width="880"></p>
+
+**Five stars.** The general staff (`G`): divisions, corps and armies with their historical
+commanders where history has them. The command tree (`C`): every formation down to the squads on
+the ground, all of which you can order. The war map (`m`): the front, sector by sector, with
+attacks you order fought where you can go and watch them.
+
+<table>
+<tr>
+<td width="50%"><img src="docs/media/kit.gif" alt="The kit screen and health"><br>
+<b>Kit and body.</b> A Tarkov-style grid for webbing, pack and pockets; searching the dead; and a
+body with no hit points: wounds, blood, pain, breath, cold and heat.</td>
+<td width="50%"><img src="docs/media/creator.gif" alt="The character creator"><br>
+<b>The creator.</b> Side, battle, nation, service, battle type, role, rank up to five stars,
+name, traits, weapon and kit. Leave any of it to chance.</td>
+</tr>
+</table>
+
+## What's in it
+
+- **26 battles, 1939-1945**, from the Bzura to Berlin, Guadalcanal to Kohima, playable on either
+  side; **16 nations**, each with its own rank ladder, names, decorations, doctrine and language.
+- **Period kit, filtered by nation and date**: 130 small arms that jam, overheat and ping; AT
+  weapons, flamethrowers, mortars, mines; 135 vehicles and guns; 56 aircraft; 45 classes of ship from PT boats
+  to fleet carriers.
+- **An endless world.** Walk off the edge of the battlefield and you're in the next sector: the front
+  runs on, the rear goes back to depots and airfields, the country changes. The war is simulated in
+  a wide bubble around you, and what you destroy has consequences beyond your map.
+- **Everything breaks**: craters, rubble, collapsing bridges, spreading fire, smoke, cooking-off
+  ammunition.
+- **Command at every level.** Orders travel by voice, hand signal, radio, relay or runner, and
+  arrive late or not at all. When your leader falls, the next man takes over, and sometimes that's
+  you. Promotion, battlefield commissions, and each nation's medals.
+- **Kinds of war**: front-line battles, the big push, holding the line, tank battles, night patrols,
+  commando raids, agents behind the lines in civilian clothes, partisans, encirclement, the
+  rearguard, captivity and escape; at sea, surface actions, carrier battles, convoys and submarine
+  patrols; in the air, fighter sweeps, interceptions and bomber raids.
+- **Honest time.** Aiming takes time, recoil throws off the next shot, captured weapons are clumsy
+  until you learn them, breath and fatigue and load govern your speed.
+- **The same rules for everyone.** Pace, breath, cold, heat, stealth and wounds apply to every
+  soldier on both sides. Snipers in ghillie suits, lying still in the right grass, may never be seen.
+- **Diegetic.** Menus open from your soldier. Without a watch you don't know the time; without a
+  map or compass, sounds are vague and objectives are wherever your sergeant points.
+- **Everything is generated**: the battlefields, the sprites (painted by code, soldiers drawn from
+  what they're actually carrying), and every sound.
+
+## Documentation
+
+- [**The manual**](docs/GAMEPLAY.md): everything the game does, and every key.
+- [**How it's built**](docs/ARCHITECTURE.md): the simulation, the AI, the war at sea, the renderer.
+- [**Working on it**](docs/DEVELOPMENT.md): running headless, tests, the fuzzer, making these GIFs,
+  adding weapons, ships and battles.
+
+## Credits
+
+Built on [python-tcod](https://github.com/libtcod/python-tcod) and SDL. The AI follows RogueBasin's
+[The Incredible Power of Dijkstra Maps](https://www.roguebasin.com/index.php/The_Incredible_Power_of_Dijkstra_Maps).
+Inspired by *Cataclysm: Dark Days Ahead*. Fonts: DejaVu Sans Mono and libtcod's bitmap sheets (see
+[`assets/CREDITS.md`](assets/CREDITS.md)).

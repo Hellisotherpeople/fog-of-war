@@ -1,0 +1,3 @@
+tcod>=21.0
+numpy>=1.24
+pillow>=10.0
