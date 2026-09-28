@@ -2207,6 +2207,13 @@ class PlayState:
         if v.dead:
             return [("destroyed", (200, 120, 100))]
         close = d < 45 or g.player_binoculars
+        # ours: what the crew would shout down to you - within shouting distance, over the radio, or aboard
+        told = p.vehicle is v or d <= 10 or (p.has_tool("radio") is not None and v.squad is not None and
+                                             v.squad is p.squad)
+        if friend and not told:
+            seen = VD.visible_damage(v) if close or v.burning else (["burning"] if v.burning else [])
+            return [(", ".join(seen) if seen else ("no damage that shows" if close else "too far to tell"),
+                     (230, 150, 110) if seen else FRIEND_COLOR)]
         if friend:
             dmg = VD.damage_list(v)
             r = v.hp / v.vt.hp
