@@ -309,7 +309,34 @@ you are:
 **Your body, in detail (@).** Every part and wound, blood lost, pain, drugs, deafness. Cold and heat
 matter too: core temperature follows the air, your clothes, whether you're wet, moving or under a
 roof. That means shivering hands, hypothermia and frostbite in the Russian winter, and heat
-exhaustion in the desert. Tab shows your service record and chain of command.
+exhaustion in the desert. Tab shows your skills, then your service record and chain of command.
+
+**Skills.** Every soldier - you, your men, the enemy - has twelve skills from 0 to 10, shown in words
+(untrained, a beginner, adequate, competent, skilled, expert, a master; the number too with numbers on):
+marksmanship, gunnery, stealth, observation, hand to hand, first aid, demolitions, driving, radio and
+fire calls, leadership, fitness and languages. Each starts as a roll around the man's general
+training, so any private might turn out a fine shot or a natural at creeping about. His job and unit
+then put a floor under what they drilled into him:
+
+- a sniper can stalk, see and shoot;
+- an agent can pass unseen, speak the language and work a set;
+- a medic can close a wound, and a surgeon operate;
+- an engineer knows charges;
+- a tank crewman can drive and lay a gun;
+- SAS, commandos, Rangers, Brandenburgers, the OSS and the Jedburghs are good at most of it.
+
+Traits shift them (a crack shot, a clumsy man, a veteran). They're used where they matter:
+
+- marksmanship steadies and speeds the aim;
+- gunnery lays the tank gun, the field gun and the mortar;
+- stealth makes you slower to be noticed, observation quicker to notice;
+- first aid closes wounds, demolitions sets a charge faster;
+- radio skill puts the guns nearer the target;
+- leadership steadies the men round you;
+- fitness decides how fast you tire;
+- languages help when you tell the enemy to surrender.
+
+They come on slowly with use, less so the better you are, and you're told when one improves.
 
 **Bigger battlefields.** New games default to a large battlefield: 270 x 180 tiles, about 540 x 360
 metres, with roughly twice the men on each side. A sector now holds a strong company or a weak

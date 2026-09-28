@@ -2591,6 +2591,10 @@ def transport_act(game, v, vis) -> int | None:
 
 def landing_craft_step(game, v) -> int:
     m = game.map
+    from .vdamage import can_move
+    if not can_move(v):
+        v.stuck += 1                     # dead in the water: the ramp goes down where she lies
+        return 100
     edge = game.home_edge(v.side)
     step = {"N": (0, 1), "S": (0, -1), "W": (1, 0), "E": (-1, 0)}.get(edge, (0, 1))
     tries = [step, (step[0] + (step[1] != 0), step[1] + (step[0] != 0)),
@@ -2599,7 +2603,7 @@ def landing_craft_step(game, v) -> int:
         x, y = v.x + dx, v.y + dy
         if not m.in_bounds(x, y):
             continue
-        if m.water[x, y] >= 1 and (x, y) not in game.vehicle_at and m.t[x, y] != T.ID["hedgehog"]:
+        if m.water[x, y] >= 1 and game.vehicle_at.get((x, y)) in (None, v) and m.t[x, y] != T.ID["hedgehog"]:
             v.stuck = 0
             return game.move_vehicle(v, dx, dy)
         if T.DEFS[int(m.t[x, y])].key == "hedgehog":
@@ -2611,15 +2615,19 @@ def landing_craft_step(game, v) -> int:
 
 
 def landing_craft_withdraw(game, v) -> int:
+    from .vdamage import can_move
+    if not can_move(v):
+        return 100                       # she's going nowhere: a wreck in the surf
     edge = game.home_edge(v.side)
     step = {"N": (0, -1), "S": (0, 1), "W": (-1, 0), "E": (1, 0)}.get(edge, (0, -1))
     x, y = v.x + step[0], v.y + step[1]
     m = game.map
-    if not m.in_bounds(x, y):
-        game.lift_vehicle(v)
+    gap = {"N": v.y, "S": m.h - 1 - v.y, "W": v.x, "E": m.w - 1 - v.x}.get(edge, 99)
+    if not m.in_bounds(x, y) or gap <= max(v.size):
+        game.lift_vehicle(v)                 # her stern's at the edge of the map: off she goes
         v.dead = True
         v.x = v.y = -1
         return 100
-    if m.water[x, y] >= 1 and (x, y) not in game.vehicle_at:
+    if m.water[x, y] >= 1 and game.vehicle_at.get((x, y)) in (None, v):
         return game.move_vehicle(v, step[0], step[1], reverse=True)
     return 100

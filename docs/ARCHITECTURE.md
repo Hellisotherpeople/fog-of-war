@@ -192,6 +192,26 @@ mission at the fighting in its reach. The player's battery (`player_battery`) ke
 mission for the player's gun (`player_left`), with `firing_data` for the orders and
 `fire_player_round` for Enter.
 
+## Skills
+
+`skills.py`: `a.skills` maps twelve keys to 0-10. `roll(rng, a)` (called by `spawn.make_soldier`) draws
+each around `0.55 * a.skill` with a spread, then raises the ones in `ROLE_SKILLS[a.role]` and
+`UNIT_SKILLS[unit_type]` to their floors (plus a little noise), then applies `TRAIT_SKILLS`;
+`spawn.apply_special` re-floors for special units. `level(a, k)` reads one (old saves without skills
+get a value worked out from `a.skill` and the role). `use(game, a, k, amount)` is practice: a gain that
+shrinks as the skill rises, and a message when the word for it changes. The skills act where the work
+is done, not through a central modifier:
+
+- marksmanship in `combat` (recoil, aim time, dispersion);
+- gunnery in `vehicle_fire_main`, `fires` and the mortar;
+- `stealth_mult` in `stealth.fieldcraft`, `observe_mult` in `stealth.notice`;
+- first aid in `medical.skill`, demolitions in `actions.place_charge`;
+- driving in `play.drive`, radio in `fires.start` (the observer's error);
+- leadership in `game._leadership`, `fitness_mult` in the fatigue drain;
+- languages in `prisoners.demand_surrender`.
+
+`StatusState` (`@`) shows them on its second page.
+
 ## Vehicles: parts
 
 `vdamage.py`: every vehicle has `parts` (tracks, engine, transmission, fuel, gun, turret, optics,
@@ -282,6 +302,7 @@ without a model ready falls back to the system engine line by line.
 | `fires.py` | real batteries, mortar platoons, ships and squadrons; fire missions; the gun line |
 | `tasks.py` | squad tasks: scavenging, the wounded, prisoners, a hand for the tanks |
 | `medevac.py` | calling stretcher-bearers, the evacuation chain, hospital time, back to duty |
+| `skills.py` | twelve skills per soldier: rolled at birth, floors from role and unit, practice, the helpers the systems use |
 | `fastpath.py` | Dijkstra maps: numba Dial's algorithm, or tcod |
 | `skysea.py`, `skysea_missions.py`, `skyseaui.py`, `skysea_exit.py` | the war at sea and in the air, its missions, the chart/flight view, coming back to earth |
 | `aboard.py`, `shipyard.py`, `shipboard.py` | one man aboard; ships built deck by deck; shipboard life |

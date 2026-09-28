@@ -73,6 +73,8 @@ def demand_surrender(game, p):
             chance *= 0.1
         if d > 10:
             chance *= 0.5                        # did he even hear it
+        from .skills import level
+        chance *= 0.6 + level(p, "languages") * 0.08   # understood - and meant - in his own tongue
         if chance > 0 and rng.random() < min(0.9, chance):
             a.ai["surrender_at"] = game.turn + rng.randint(1, 4)
             took += 1

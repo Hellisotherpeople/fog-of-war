@@ -185,8 +185,9 @@ class Fires:
                     continue
                 self._seen.add(key)
                 nat = game.side_nation(side)
+                # (the battalion's own: 81/82 mm and the British 3-inch - not the regiment's 120s, or the 320s)
                 types = [b for b in available(BATTERIES, nat, game.year) if ("mortar" in b.cal or "mortar" in b.name)
-                         and "120" not in b.cal and b.freq > 0]
+                         and not any(h in b.cal for h in ("120", "320")) and b.freq > 0]
                 if types:
                     self._add_battery(game, side, nat, rng.choice(types), (s.x, s.y))
         # ships off a landing beach (the attacker's), and air from the rear when there's no airfield near
@@ -239,7 +240,7 @@ class Fires:
         if kind == "mortar":
             return {"usa": f"81mm mortar platoon, {'HMD'[n - 1]} Company, {_ordinal(reg % 400 + 8)} Infantry",
                     "uk": f"mortar platoon, {_ordinal(n)} Battalion", "germany": f"Granatwerferzug, {n + 3}. Kompanie",
-                    "ussr": f"mortar company, {_ordinal(n)} rifle battalion, {reg}th Rifle Regiment",
+                    "ussr": f"mortar company, {_ordinal(n)} rifle battalion, {_ordinal(reg)} Rifle Regiment",
                     "japan": f"mortar platoon, {_ordinal(n)} Battalion", "italy": f"plotone mortai, {_ordinal(n)} battaglione",
                     }.get(nat, f"mortar platoon, {_ordinal(n)} Battalion")
         if kind == "rocket":
@@ -248,7 +249,7 @@ class Fires:
         return {"usa": f"{'ABC'[n - 1]} Battery, {_ordinal(reg)} Field Artillery Battalion",
                 "uk": f"{reg % 500 + 1} Battery, {_ordinal(reg % 150 + 1)} Field Regiment RA",
                 "canada": f"{reg % 100 + 1} Battery RCA", "germany": f"{n}./Artillerie-Regiment {reg % 300 + 1}",
-                "ussr": f"{_ordinal(n)} battery, {reg}th Artillery Regiment",
+                "ussr": f"{_ordinal(n)} battery, {_ordinal(reg)} Artillery Regiment",
                 "japan": f"{_ordinal(n)} Battery, {_ordinal(reg % 60 + 1)} Field Artillery Regiment",
                 "italy": f"{n}a batteria, {reg % 150 + 1}o reggimento artiglieria",
                 "france": f"{n}e batterie, {reg % 120 + 1}e RA", "poland": f"{n}. bateria, {reg % 30 + 1}. pal",
@@ -335,6 +336,9 @@ class Fires:
                 continue
             if kinds and b.kind not in kinds:
                 continue
+            if b.kind == "mortar" and self.here(game, b) and (sec != (game.sector.x, game.sector.y) or
+                                                              b.squad_id is None):
+                continue                          # men with tubes on your map: they fire on your map (if they're here)
             if self.km(game, b, sec, pos) > self.reach_km(game, b):
                 continue
             out.append(b)
@@ -369,12 +373,10 @@ class Fires:
         if smoke:
             cands = [b for b in cands if b.kind in ("gun", "mortar")] or cands     # (rockets and ships fire HE)
         b = min(cands, key=score)
-        self.start(game, b, ("map", here, (x, y)), caller, rounds, delay, silent)
-        if smoke:
-            b.mission["smoke"] = True
+        self.start(game, b, ("map", here, (x, y)), caller, rounds, delay, silent, smoke=smoke)
         return b
 
-    def start(self, game, b, target, caller=None, rounds=None, delay=None, silent=False):
+    def start(self, game, b, target, caller=None, rounds=None, delay=None, silent=False, smoke=False):
         rng = game.rng
         bt = b.bt
         per = {"gun": 3, "mortar": 4, "rocket": 16, "naval": 4}[b.kind]
@@ -383,7 +385,10 @@ class Fires:
         if caller is not None and grade >= 11:
             n = int(n * (1 + 0.15 * (grade - 10)))          # a senior caller gets the battalion
         n = max(1, min(n, b.ammo))
-        skill = getattr(caller, "skill", 5) if caller is not None else 5
+        from .skills import level, use
+        skill = level(caller, "radio") if caller is not None and hasattr(caller, "body") else 5
+        if caller is not None and hasattr(caller, "body"):
+            use(game, caller, "radio", 3)
         # a systematic error: map reading, wind, worn barrels - and now and then a wrong grid altogether
         bias_d = abs(rng.gauss(0, 3 + (8 - skill)))
         if rng.random() < 0.06:
@@ -399,6 +404,8 @@ class Fires:
                          bias=[math.cos(ba) * bias_d, math.sin(ba) * bias_d], spread=bt.spread + max(0, 7 - skill) * 0.5,
                          start=game.turn + max(0, proc), flight=flight, splashed=False, fired=0,
                          observer_skill=skill)
+        if smoke:
+            b.mission["smoke"] = True
         b.next_shot = {}
         if self.player_battery(game) is b:
             m = b.mission
@@ -454,6 +461,19 @@ class Fires:
     def update(self, game):
         """Every turn: the batteries with a mission fire it, gun by gun."""
         if game.map is None or game.__dict__.get("domain", "land") != "land":
+            # you're at sea or in the air: the war's batteries fire their missions all the same, out of your hearing
+            for b in self.batteries:
+                m = b.mission
+                if m is not None and game.turn >= m["start"] + 60:
+                    n = max(0, min(m["rounds"] + m.get("player_left", 0), b.ammo))
+                    b.ammo -= n
+                    b.fired += n
+                    m["fired"] += n
+                    m["rounds"] = m["player_left"] = m["player_total"] = 0
+                    if m["target"][0] == "sector":
+                        self._shell_sector(game, b, m["target"][1], n)
+                    m["player"] = False
+                    self._end(game, b, "done")
             return
         for b in self.batteries:
             m = b.mission
@@ -462,6 +482,11 @@ class Fires:
             if b.lost or b.guns <= 0 or b.ammo <= 0:
                 self._end(game, b, "out" if b.ammo <= 0 else "gone")
                 continue
+            if m.get("player_left", 0) > 0 and self.player_battery(game) is not b:
+                # you've left the gun (or the sector): your rounds go back to the crew
+                m["rounds"] += m["player_left"]
+                m["player_left"] = 0
+                m["player_total"] = 0
             if game.turn < m["start"]:
                 continue
             if m.get("player_left") and not m.get("announced"):
@@ -472,7 +497,9 @@ class Fires:
                          f"{m['player_left']} round{'s' if m['player_left'] > 1 else ''}!'", "shout")
                 game.update_orders(force=True)
             guns = self._guns_now(game, b)
-            if not guns:
+            if not guns and m.get("player_left", 0) > 0:
+                m["rounds"] = 0                   # yours is the only gun still firing: the mission is your rounds
+            elif not guns:
                 if self.here(game, b):
                     self._end(game, b, "gone")
                 continue
@@ -502,12 +529,12 @@ class Fires:
         """Its guns, as things that can fire: the vehicles on your map, the mortarmen of its squad, or (away
         from you) just its number."""
         if self.here(game, b):
-            if b.kind == "mortar" and b.squad_id is not None:
-                sq = next((s for s in game.squads if s.id == b.squad_id), None)
-                if sq is not None:
-                    men = [a for a in sq.members if a.active and not a.downed and a.weapon is not None
-                           and a.weapon.t.cat == "mortar" and not a.is_player]
-                    return men
+            if b.kind == "mortar":
+                sq = next((s for s in game.squads if s.id == b.squad_id), None) if b.squad_id is not None else None
+                if sq is None:
+                    return []                     # no tubes of its on this map: nothing fires
+                return [a for a in sq.members if a.active and not a.downed and a.weapon is not None
+                        and a.weapon.t.cat == "mortar" and not a.is_player]
             if b.vids:
                 vs = [v for v in game.vehicles if v.id in b.vids and not v.dead and not v.abandoned and v.crew > 0
                       and v.gun_ok]
@@ -595,7 +622,8 @@ class Fires:
             return 0
         b.ammo -= 1
         game.emit_sound(shooter.x, shooter.y, t.loud, "mortar", t.sound, shooter.side, shooter)
-        sig = dist * 0.06 + (8 - shooter.skill) * 0.3 + shooter.suppression / 40
+        from .skills import level
+        sig = dist * 0.06 + (8 - level(shooter, "gunnery")) * 0.3 + shooter.suppression / 40
         ix = int(round(tx + game.rng.gauss(0, sig)))
         iy = int(round(ty + game.rng.gauss(0, sig)))
         game.schedule_shell(ix, iy, 3 + int(dist / 15), t.blast, t.blast_r, t.frags, t.frag_dmg, shooter,
@@ -789,9 +817,20 @@ class Fires:
             if b.lost or b.kind == "naval":
                 continue
             s = st.at(*b.sec)
-            if s is None or s.control != b.side:
+            if b.kind == "mortar":
+                # a mortar platoon goes where its battalion goes - into the attack as well; it's lost with the
+                # battalion, or (here) when its tubes are
+                if s is game.sector and b.squad_id is not None:
+                    sq = next((q for q in game.squads if q.id == b.squad_id), None)
+                    gone = sq is None or not any(a.active and not a.downed for a in sq.members)
+                else:
+                    gone = s is None or (not s.units[b.side].get("inf") and s.control != b.side)
+            else:
+                gone = s is None or s.control != b.side
+            if gone:
                 b.lost = True
-                st.news.append(f"{b.name} was overrun at {s.name if s else 'its position'}; its guns are lost.")
+                st.news.append(f"{b.name} was overrun at {s.name if s else 'its position'}; "
+                               f"its {'mortars are' if b.kind == 'mortar' else 'guns are'} lost.")
                 continue
             if b.kind == "mortar" and b.mission is None and not st.is_front(s, b.side) and s is not game.sector:
                 b.sec = self._follow_front(game, b) or b.sec   # the battalion moved: its mortars went with it
@@ -807,6 +846,7 @@ class Fires:
             if a is not None and a.playable and a.control not in (None, q.side):
                 # the airfield's gone: what's left flies back to one further off
                 q.sec = self._rear_point(game, q.side)
+        self.link_mortars(game, spawn=False)            # a battalion come into your sector brings its tubes
         self._counter_battery_elsewhere(game)
         self._fire_at_the_front(game)
 
@@ -877,6 +917,8 @@ class Fires:
         for b in self.batteries:
             if b.lost or b.mission is not None or b.ammo < b.ammo_max * 0.3 or b.kind == "naval":
                 continue
+            if b.kind == "mortar" and self.here(game, b):
+                continue                          # (its company commanders call its missions: _call_from_front)
             if rng.random() > 0.5:
                 continue
             targets = [s for s in st.sectors() if s.playable and s.control not in (None, b.side) and
@@ -1061,7 +1103,10 @@ class Fires:
                 return None
             # laying: the first round of a mission takes setting the sights and cranking her round; after that,
             # a touch on the handwheels between rounds
-            lay = int((2000 if not m.get("laid") else 500) * max(0.6, 1.4 - p.skill * 0.06))
+            from .skills import level, use
+            gs = level(p, "gunnery")
+            use(g, p, "gunnery", 1.5)
+            lay = int((2000 if not m.get("laid") else 500) * max(0.6, 1.4 - gs * 0.06))
             m["laid"] = True
             from .gamemap import octant
             from .vdamage import reload_mult
@@ -1074,7 +1119,7 @@ class Fires:
             b.ammo = max(0, b.ammo - 1)
             b.fired += 1
             if on_map:
-                err = max(0.5, (8 - p.skill) * 0.4)
+                err = max(0.5, (8 - gs) * 0.4)
                 ix, iy = self._aim(g, m, pos)
                 ix, iy = int(round(ix + rng.gauss(0, err))), int(round(iy + rng.gauss(0, err)))
                 mm = g.map

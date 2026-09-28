@@ -194,6 +194,11 @@ def draw_map(con, game, cam, frame=0):
     m = game.map
     VW, VH = _view(con)
     x0, y0, ox, oy, w, h = view_window(m, cam, VW, VH)
+    # the whole view blank first (the map console lives from frame to frame): then the ground next door,
+    # then this map over it
+    con.rgb["ch"][:VW, :VH] = ord(" ")
+    con.rgb["fg"][:VW, :VH] = 0
+    con.rgb["bg"][:VW, :VH] = 0
     draw_beyond(con, game, cam, VW, VH)
     if w <= 0 or h <= 0:
         return
@@ -262,11 +267,6 @@ def draw_map(con, game, cam, frame=0):
     con.rgb["ch"][ox:ox + w, oy:oy + h] = glyph
     con.rgb["fg"][ox:ox + w, oy:oy + h] = np.clip(fg, 0, 255).astype(np.uint8)
     con.rgb["bg"][ox:ox + w, oy:oy + h] = np.clip(bg, 0, 255).astype(np.uint8)
-    if w < VW or h < VH:
-        con.rgb["ch"][w:VW, :VH] = ord(" ")
-        con.rgb["bg"][w:VW, :VH] = 0
-        con.rgb["ch"][:VW, h:VH] = ord(" ")
-        con.rgb["bg"][:VW, h:VH] = 0
 
 
 def put(con, sx, sy, ch, fg=None, bg=None):

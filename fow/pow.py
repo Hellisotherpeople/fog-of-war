@@ -51,6 +51,26 @@ def begin_captivity(game) -> str:
         rate = min(0.95, rate + 0.25)          # they've heard what you did to theirs
     if captor is not None and rng.random() < rate:
         return "shot"
+    # out of the hatch (or off the gun) with your hands up, and whoever you were carrying set down
+    v = p.vehicle
+    if v is not None:
+        from .actions import exit_vehicle
+        if exit_vehicle(game, p) is None:
+            from .spawn import free_tile_near
+            spot = free_tile_near(game, v.x, v.y, 8) or (v.x, v.y)
+            if p in v.passengers:
+                v.passengers.remove(p)
+            if p in v.crew_actors:
+                v.crew_actors.remove(p)
+                v.crew = max(0, v.crew - 1)
+            v.player_crewed = False
+            v.player_station = None
+            p.vehicle = None
+            p.x, p.y = spot
+            game.place_on_map(p)
+    if p.carrying is not None:
+        from .actions import put_down
+        put_down(game, p)
     # searched: weapons, ammunition, anything worth having
     taken = []
     for it in list(p.inv):
@@ -67,6 +87,8 @@ def begin_captivity(game) -> str:
             taken.append(it.name)
     p.weapon = None
     p.state = "captive"
+    from .base import excused
+    excused(game, "captured")
     camp = camp_for(cnat, p.nation)
     game.pow = dict(stage="march", guard=captor.id if captor is not None else None, captor=cnat,
                     start_turn=game.turn, camp=camp[2], death=camp[0], rations=camp[1], day=0, food=70.0,
@@ -282,6 +304,8 @@ def return_to_war(game, how):
     game.add_actor(p) if p not in game.actors else None
     p.squad = None
     game.command.organise(game)
+    from .base import back_in_service
+    back_in_service(game, how)
     game.update_orders(force=True)
     game.player_fov()
     return True

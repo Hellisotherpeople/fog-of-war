@@ -500,6 +500,74 @@ def clip_creator():
     rec.save("creator")
 
 
+def clip_gunline():
+    """Sprites: the gun line - an American howitzer battery firing a mission, and the enemy's answer."""
+    from fow.game import Game
+    rec = Recorder(sprites=True, zoom=2.6)
+    g = Game("bocage44", "usa", seed=6, setup={"battlefield": "standard", "scenario": "gunline"})
+    _daylight(g)
+    g.update_view_range()
+    ps = _play(rec, g)
+    _immortal(g.player)
+    f = g.support.fires
+    b = f.player_battery(g)
+    guns = [v for v in g.vehicles if v.id in b.vids] or [g.player]
+    cx = sum(v.x for v in guns) // len(guns)
+    cy = sum(v.y for v in guns) // len(guns)
+    cx = max(26, min(g.map.w - 27, cx))                  # keep the view over the map, not the void past its edge
+    cy = max(15, min(g.map.h - 16, cy))
+    _turn(g, 5)
+    g.player_fov()
+    _pin_camera(ps, cx, cy)
+    f._call_from_front(g, b)
+    if b.mission is not None:
+        b.mission["start"] = g.turn + 2
+    rec.snap(ps, 110)
+    rec.frames.pop()
+    _lift_fog()
+    for i in range(80):
+        if f.player_mission(g) is not None and i % 3 == 0 and i < 38:
+            ps._order_plan()[1]()
+        else:
+            _turn(g, 2)
+        if i == 38 and g.player.vehicle is not None:
+            from fow import actions as A
+            A.exit_vehicle(g, g.player)             # (off the gun and into a slit trench before the reply comes)
+        g.player_fov()
+        g.map.visible[:] = True
+        g.map.explored[:] = True
+        ps.view_center = ps._pin
+        ps.cam_c = list(ps._pin)
+        rec.snap(ps, 120)
+        g.effects = []
+        if i == 40:
+            enemy = "axis"
+            g._counter_battery = [(g.turn, enemy, b.pos[0], b.pos[1], False)]
+    rec.save("gunline")
+
+
+def clip_help():
+    """The help: "Right now" from a tank commander's seat, the keys in bold, and a search."""
+    from fow.game import Game
+    from fow.play import Key
+    from fow.ui import HelpState
+    rec = Recorder(sprites=True)
+    g = Game("kursk43", "ussr", role="tank_crew", seed=3, setup={"battlefield": "standard", "scenario": "armour"})
+    ps = _play(rec, g)
+    _turn(g, 3)
+    h = HelpState(rec.app, play=ps)
+    rec.app.states = [ps, h]
+    rec.snap(h, 3200)
+    h.on_key(Key(char="v"))
+    rec.snap(h, 3200)
+    h.on_key(Key(char="/"))
+    for c in "fire mission":
+        h.on_key(Key(char=c) if c != " " else Key(sym=E.KeySym.SPACE))
+        rec.snap(h, 90)
+    rec.hold(3000)
+    rec.save("help")
+
+
 def clip_title():
     """The title screen, as a still."""
     from fow.ui import MainMenuState
@@ -517,7 +585,7 @@ def clip_title():
 
 CLIPS = {"title": clip_title, "battle": clip_battle, "tanks": clip_tanks, "ascii": clip_ascii,
          "carrier": clip_carrier, "gq": clip_gq, "bomber": clip_bomber, "general": clip_general, "kit": clip_kit,
-         "creator": clip_creator}
+         "creator": clip_creator, "gunline": clip_gunline, "help": clip_help}
 
 
 def main(argv):

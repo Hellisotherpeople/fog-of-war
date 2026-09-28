@@ -435,6 +435,10 @@ def hatch_ai(game, v):
         return
     if v.player_crewed and v.player_station == seat:
         return                                        # yours to open and shut
+    from .crew import is_manned
+    if not is_manned(v, seat):
+        v.buttoned = True                             # nobody in the seat: nobody's head out of the hatch
+        return
     t = game.turn
     close_inf = any(getattr(e, "vt", None) is None and abs(e.x - v.x) + abs(e.y - v.y) < 14
                     for e in (v.visible or ()))

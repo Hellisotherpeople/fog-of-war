@@ -130,6 +130,8 @@ def quiet(game, v) -> bool:
 def helpers(game, v) -> list:
     """Men on foot beside the hull who aren't busy fighting: they lend a hand."""
     p = game.player
+    if p is not None and p.ai.get("helping") == v.id and (p.vehicle is not None or v.near(p.x, p.y) > 1):
+        p.ai.pop("helping", None)                     # you've walked off (or climbed in): you're not helping now
     out = []
     for a in game.near(v.x, v.y, 4, v.side):
         if not a.active or a.vehicle is not None or a.downed:
@@ -281,6 +283,8 @@ def tick(game):
             if os.environ.get("FOW_DEBUG"):
                 raise
     _trucks(game)
+    from .tasks import tick as _tasks_tick
+    _tasks_tick(game)
     if (game.turn // STEP) % 60 == 30:           # (called every STEP turns: once in five minutes)
         from .constants import SIDES
         for side in SIDES:
@@ -485,7 +489,7 @@ def _trucks(game):
         # keep up with the vehicles it came for
         low = [v for v in game.vehicles if v.side == t.side and v is not t and not v.dead and not v.abandoned
                and (low_on_ammo(v) or shells_short(v) > 0) and v.vt.vtype != "truck"]
-        if low and sq is not None and game.turn % 30 == 0:
+        if low and sq is not None and (game.turn // STEP) % 6 == 0:      # (twice a minute)
             c = min(low, key=lambda v: abs(v.x - t.x) + abs(v.y - t.y))
             if abs(c.x - t.x) + abs(c.y - t.y) > 6:
                 sq.order = Order("move", target=(c.x, c.y), radius=4, issued=game.turn)
@@ -493,7 +497,21 @@ def _trucks(game):
 
 
 def _gone(game, t):
-    """Off the map, back to the rear."""
+    """Off the map, back to the rear - but not with you in it."""
+    p = game.player
+    if p is not None and p.vehicle is t:
+        if t.player_crewed:
+            t.ai.pop("supply_run", None)                 # you've taken the wheel: it's yours now
+            return
+        from .actions import exit_vehicle
+        if exit_vehicle(game, p) is None:
+            return                                       # nowhere to set you down: the driver waits
+        game.msg(f"The {t.vt.name} stops at the edge of the map. \"End of the line, mate - I'm off back.\" "
+                 f"You climb down.", "info")
+    if t.passengers:
+        game.disembark_all(t)
+        if t.passengers:
+            return
     try:
         game.lift_vehicle(t)
     except Exception:

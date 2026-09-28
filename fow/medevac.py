@@ -57,8 +57,7 @@ def _radio_near(game, p) -> bool:
 
 def _safe(game, p) -> tuple[bool, str]:
     """Out of the enemy's sight and fire: nobody's carrying a stretcher into a fire-fight."""
-    vis = [e for e in (getattr(p, "visible", None) or []) if getattr(e, "alive", True)
-           and math.hypot(e.x - p.x, e.y - p.y) < 40]
+    vis = [e for e in game.seen_enemies(40) if math.hypot(e.x - p.x, e.y - p.y) < 40]
     if vis:
         return False, "the enemy can see you"
     if p.suppression > 15 or game.turn - p.ai.get("hit_turn", -999) < 30:
@@ -157,7 +156,7 @@ def update(game):
         return
     p = game.player
     bs = _bearers(game, st)
-    if not bs:
+    if not bs and st["stage"] != "arrived":
         if st["stage"] == "carrying" and p.ai.get("carried_by") is not None:
             from . import actions as A
             carrier = next((a for a in game.actors if a.id == p.ai.get("carried_by")), None)
@@ -205,15 +204,32 @@ def bearer_act(game, a) -> int | None:
                 return c
             return 100
         return path_step(game, a, p.x, p.y, margin=30) or 100
-    # carrying: the man with you on his shoulder leads; the others walk beside
+    if st["stage"] == "arrived":
+        return 100                                   # handing you over (medevac.hospital, between turns)
+    # carrying: the man with you on his shoulder leads; the others walk beside.  If he's hit, he drops you,
+    # and the nearest of the others takes the stretcher up again
+    carrier = next((o for o in game.actors if o.id == st.get("carrier")), None)
+    if carrier is not None and carrier.carrying is p and (carrier.downed or not carrier.active):
+        A.put_down(game, carrier)
+    if p.ai.get("carried_by") is None and a.carrying is None:
+        if max(abs(a.x - p.x), abs(a.y - p.y)) <= 1:
+            c = A.pick_up(game, a, p)
+            if c:
+                if carrier is not a and (carrier is None or not carrier.active or carrier.downed):
+                    game.msg(f"{a.rank_short} {a.last_name} takes the stretcher up again.", "info")
+                st["carrier"] = a.id
+                return c
+        return path_step(game, a, p.x, p.y) or 100
     if a.carrying is p:
         dest = st["src"]
         if st["where"] == "the rear":
             e = game.home_edge(a.side)
             if e is not None and game._edge_gap(e, a.x, a.y) <= 2:
-                return hospital(game) or 100
+                st["stage"] = "arrived"
+                return 100
         elif max(abs(a.x - dest[0]), abs(a.y - dest[1])) <= 3:
-            return hospital(game) or 100
+            st["stage"] = "arrived"
+            return 100
         brain = game.brains[a.side]
         if st["where"] == "the rear" and brain.home is not None:
             from .ai import best_step, do_step
@@ -221,14 +237,8 @@ def bearer_act(game, a) -> int | None:
             if c:
                 return c
         return path_step(game, a, dest[0], dest[1], margin=30) or 100
-    carrier = next((o for o in game.actors if o.id == st.get("carrier")), None)
-    if carrier is None or not carrier.active:
-        # he's been hit: one of us takes the stretcher
-        if max(abs(a.x - p.x), abs(a.y - p.y)) <= 1 and p.ai.get("carried_by") is None:
-            c = A.pick_up(game, a, p)
-            if c:
-                st["carrier"] = a.id
-                return c
+    carrier = next((o for o in game.actors if o.id == p.ai.get("carried_by")), None)
+    if carrier is None:
         return path_step(game, a, p.x, p.y) or 100
     if max(abs(a.x - carrier.x), abs(a.y - carrier.y)) > 2:
         return path_step(game, a, carrier.x, carrier.y) or 100
@@ -258,6 +268,8 @@ def hospital(game) -> int | None:
     for a in _bearers(game, st):
         game.exit_map(a, "withdrew")
     game.__dict__["medevac"] = None
+    from .base import excused
+    excused(game, "hospital")
     nat = p.nation
     chain = CHAIN.get(nat) or CHAIN.get(game.side_nation(p.side)) or CHAIN["usa"]
     amputated = set(p.ai.get("amputated", []))
@@ -344,9 +356,19 @@ def _back_to_duty(game, days):
         p.squad = sq
         p.unit = sq.members[0].unit if sq.members and getattr(sq.members[0], "unit", None) else p.unit
     game.command.organise(game)
-    game.msg(f"{days} days later you're discharged, fit for duty: {via}. You report to {sector.name}"
-             + (f" and join {p.squad.name}" if p.squad is not None else "") + ". The faces are new; the war isn't.",
-             "good")
+    from .base import back_in_service
+    from .data.roles import service_of
+    if service_of(p.role) != "army":
+        if p.squad is not None and p in p.squad.members:
+            p.squad.members.remove(p)
+        p.squad = None
+        game.command.organise(game)
+        game.msg(f"{days} days later you're discharged, fit for duty: {via}.", "good")
+        back_in_service(game, "hospital")
+    else:
+        game.msg(f"{days} days later you're discharged, fit for duty: {via}. You report to {sector.name}"
+                 + (f" and join {p.squad.name}" if p.squad is not None else "") + ". The faces are new; the war isn't.",
+                 "good")
     game.update_orders(force=True)
     game.player_fov()
 

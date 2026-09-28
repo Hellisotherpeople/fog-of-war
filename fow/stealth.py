@@ -53,17 +53,10 @@ def camo_mult(game, a) -> float:
 
 
 def fieldcraft(a) -> float:
-    """1 for most soldiers; less for the ones trained to go unseen."""
-    f = FIELDCRAFT.get(a.role, 1.0)
-    ut = a.__dict__.get("unit_type") or ""
-    if ut in ("sas", "commando", "rangers", "brandenburg", "oss", "jedburgh", "lrdg", "chindits", "raiders",
-              "kempeitai", "razvedka", "night_witches"):
-        f = min(f, 0.75)
-    if "camouflaged" in getattr(a, "traits", ()):
-        f *= 0.85
-    if "clumsy" in getattr(a, "traits", ()):
-        f *= 1.2
-    return f
+    """How much a man's movement and shape give him away: his stealth skill (skills.py) - about 1 for most
+    soldiers, much less for the ones trained or born to go unseen."""
+    from .skills import stealth_mult
+    return stealth_mult(a)
 
 
 def alertness(game, viewer) -> float:
@@ -104,6 +97,10 @@ def notice(game, viewer, target, dist, fr) -> bool:
     if target.moved_turn >= t - 1:
         rate *= 1.6
     rate *= 0.4 + 0.6 * fieldcraft(target)
+    if hasattr(viewer, "body"):
+        from .skills import observe_mult
+        rate *= observe_mult(viewer)             # a sharp eye picks him out sooner
+    target.ai["near_enemy_turn"] = t
     lvl = min(1.0, lvl + rate)
     aw[target.id] = (lvl, t)
     if lvl >= 1.0:

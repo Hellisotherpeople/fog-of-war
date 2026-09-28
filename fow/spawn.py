@@ -105,6 +105,8 @@ def make_soldier(game, nation: str, role: str, rank: int | None = None, para=Fal
     kit = build_kit(rng, nation, game.year, role, para=para, winter=game.map is not None and game.map.climate == "winter",
                     pacific=pac)
     apply_kit(a, kit, game.year)
+    from .skills import roll
+    roll(rng, a)                       # his skills: a roll round his training, with his job's floors under it
     return a
 
 
@@ -297,6 +299,11 @@ def apply_special(game, a, sid, unit_text=None):
         a.traits.add(t)
     a.skill = max(1.0, min(10.0, a.skill + d.get("skill", 0)))
     a.morale = max(10.0, min(100.0, a.morale + d.get("morale", 0)))
+    from .skills import UNIT_SKILLS, roll
+    if a.__dict__.get("skills") is None:
+        roll(rng, a)
+    for k, floor in UNIT_SKILLS.get(sid, {}).items():
+        a.skills[k] = round(min(10.0, max(a.skills.get(k, 0), floor + rng.gauss(0, 0.7))), 1)
     if "female" in d.get("flags", []):
         a.female = True
         if a.nation == "ussr":
@@ -924,8 +931,9 @@ def spawn_installation(game, rec, things=True):
             rear_staff(game, side, nat, x, y, "quartermaster", "supply depot")
         elif kind == "intel":
             rear_staff(game, side, nat, x, y, "intel", "intelligence")
-    from .base import spawn_staff
-    spawn_staff(game, rec)
+    if not rec.get("no_staff"):
+        from .base import spawn_staff
+        spawn_staff(game, rec)
 
 
 def rear_staff(game, side, nat, x, y, role, name):
@@ -997,8 +1005,10 @@ def ensure_aid_posts(game):
             if m.in_bounds(xx, yy) and m.walk[xx, yy] and (xx, yy) not in game.soldier_at:
                 m.t[xx, yy] = T.ID["bed"]
         m.refresh()
-        recs.append(dict(kind="aid", side=side, x=x, y=y, rect=rect, name="the battalion aid post", spots=[]))
-        aid_staff(game, side, pick_nation(game, side), x, y)
+        rec = dict(kind="aid", side=side, x=x, y=y, rect=rect, name="the battalion aid post",
+                   spots=[("aidstaff", x, y)], no_staff=True)      # (the doctor and his orderlies: no chaplain)
+        recs.append(rec)
+        spawn_installation(game, rec)
 
 
 # ====================================================================== player
@@ -1077,7 +1087,9 @@ def create_player(game, nation: str, role: str | None = None) -> tuple[Actor, li
         v.crew_actors.append(p)
         v.player_crewed = True
         from .crew import stations
-        v.player_station = "commander" if "commander" in stations(v.vt) else stations(v.vt)[0]
+        from .vdamage import hatch_user
+        # the commander's seat - or, in a two-man tank, the gunner's, who commands as well
+        v.player_station = "commander" if "commander" in stations(v.vt) else hatch_user(v) or stations(v.vt)[0]
         game.actors.append(p)
         p.squad = sq
         sq.members.append(p)

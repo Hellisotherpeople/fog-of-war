@@ -149,6 +149,12 @@ def move(game, a, dx: int, dy: int, allow_swap=True):
         drain += 1.5
     if getattr(a.body, "temp", 37.0) > 38.5:
         drain *= 1.4                           # labouring in the heat
+    from .skills import fitness_mult, use
+    drain *= fitness_mult(a)                   # the fit keep their wind
+    if drain > 0.6 and game.rng.random() < 0.05:
+        use(game, a, "fitness", 1.0)
+    if pace == "sneak" and game.rng.random() < 0.08 and a.ai.get("near_enemy_turn", -99) > game.turn - 30:
+        use(game, a, "stealth", 1.0)           # creeping with the enemy close: it teaches you
     a.stamina = max(0.0, getattr(a, "stamina", 100.0) - drain)
     a.fatigue = min(100.0, getattr(a, "fatigue", 0.0) + PACE_FATIGUE[pace] * load * (T.COST[tid] / 100.0)
                     * (2.0 if a.carrying is not None else 1.0))
@@ -340,7 +346,9 @@ def place_charge(game, a, item, x, y) -> int | None:
     if a.is_player:
         game.msg(f"You set the {t.name}. {t.fuse} seconds. MOVE!", "warn")
     a.say(game.shout(a, "grenade"), game.turn)
-    return 250
+    from .skills import level, use
+    use(game, a, "demolitions", 3.0)
+    return int(250 * max(0.55, 1.35 - level(a, "demolitions") * 0.09))   # the trained set it fast
 
 
 def peek(game, a, dx, dy) -> int | None:
@@ -775,9 +783,8 @@ def enter_vehicle(game, a, v) -> int | None:
     game.remove_from_map(a)
     a.vehicle = v
     a.x, a.y = v.x, v.y
-    v.passengers.append(a)
-    if not v.vt.seats:
-        a.ai["rider"] = True                     # on the outside: fast, and exposed to everything that hits it
+    v.passengers.append(a)                       # (no seat inside: on the outside - entities.riding)
+    a.ai.pop("rider", None)
     return 150
 
 

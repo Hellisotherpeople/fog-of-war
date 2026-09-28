@@ -244,7 +244,7 @@ def _adjutant(ps, who):
     fatigue = getattr(p, "fatigue", 0)
     leave_ok = rep >= 8 and g.turn - _state(g)["leave"] > 7 * DAY and not bo
     opts.append(("Ask for a pass to the rear" + ("" if leave_ok else " (not now)"), "leave",
-                 None, leave_ok or fatigue > 70))
+                 None, leave_ok or (fatigue > 70 and not bo)))
     _menu(ps, who, "Adjutant", lines, opts, lambda v: _adjutant_choice(ps, who, v))
 
 
@@ -274,6 +274,9 @@ def _adjutant_choice(ps, who, v):
     if v == "situation":
         return _situation(ps, who)
     if v == "leave":
+        if g.__dict__.get("base_order") and not _done(g, g.base_order):
+            g.msg(f"{who.last_name}: 'A pass? You've got orders. Carry them out first.'", "info")
+            return
         return _leave(ps, who)
 
 
@@ -864,7 +867,9 @@ def _port(ps, who):
     if g.__dict__.get("awol"):
         opts.insert(0, ("Report yourself: you missed your ship", "turnin", (240, 180, 120), True))
     navy = service_of(p.role) == "navy"
-    opts.append(("Ask for a ship", "ship", None, navy and ctx is None))
+    awol = bool(g.__dict__.get("awol"))
+    opts.append(("Ask for a ship" + (" (report yourself first)" if awol else ""), "ship", None,
+                 navy and ctx is None and not awol))
     if not navy:
         opts.append(("Passage out to the fleet", "fleet", None, True))
     _menu(ps, who, "Naval base", lines, opts, lambda v: _port_choice(ps, who, v))
@@ -878,6 +883,8 @@ def _port_choice(ps, who, v):
     if v == "turnin":
         return turn_yourself_in(ps, who)
     if v in ("ship", "fleet"):
+        if g.__dict__.get("awol"):
+            turn_yourself_in(ps, who)          # asking the port director for a berth is reporting in
         g.msg(f"{who.last_name}: 'There's a boat going out now. Here are your orders.'", "radio")
         return ps._to_the_fleet()
 
@@ -980,7 +987,7 @@ def offer_orders(game, who):
     if sv == "navy":
         from . import naval as NV
         port = NV.nearest_port(game)
-        if port is not None:
+        if port is not None and NV.ship_ashore(game) is None:      # (on liberty you've a ship already)
             out.append(dict(kind="report_port", sector=(port.x, port.y),
                             text=f"Report to the port director at the naval base, {port.name}, for a ship.",
                             menu=f"Report to the naval base at {port.name} for a ship", reward=dict(merit=0, rep=1),
@@ -1085,7 +1092,8 @@ def order_line(game):
     left = max(0, o["deadline"] - game.turn)
     when = f"{left // HOUR} h {left % HOUR // 60} min" if left >= HOUR else f"{left // 60} min"
     if o["kind"] == "patrol" and o.get("stage") == "back":
-        return f"Get back and report what you saw in {_sector_name(game, o['sector'])}. ({when} left)"
+        return f"Get back and report what you saw in {_sector_name(game, o.get('scouted_name') or o['sector'])}. " \
+               f"({when} left)"
     if o["kind"] == "guard" and o.get("start") is not None:
         rest = max(0, o["start"] + o["secs"] - game.turn)
         return f"On guard at {o['by'].get('base')}: {rest // 60} min to go. Stay at your post."
@@ -1131,6 +1139,7 @@ def update(game):
                        for a in game.actors)
             if seen or game.turn - o["arrived"] > 180:
                 o["stage"] = "back"
+                o["scouted_name"] = tgt
                 o["sector"] = o["by"]["sector"]
                 s = game.strategic.at(*tgt)
                 if s is not None:
@@ -1162,6 +1171,74 @@ def update(game):
             o["stage"] = "done"
             game.msg("Your relief comes. Go and tell the adjutant.", "info")
             game.update_orders(force=True)
+
+
+def excused(game, why):
+    """You've been taken out of it through no doing of your own - carried off wounded, captured: the orders
+    you had lapse, and a ship you were ashore from sails without you, which nobody calls desertion."""
+    o = game.__dict__.get("base_order")
+    if o:
+        game.__dict__["base_order"] = None
+        game.msg(f"({o['by']['name']}'s orders go to somebody else.)", "info")
+    duty = getattr(game, "duty", None)
+    if duty is not None and getattr(duty, "task", None) is not None:
+        duty.task = None
+    ctx = game.__dict__.get("ship_ashore")
+    if ctx:
+        game.__dict__["ship_ashore"] = None
+        game.__dict__["lost_ship"] = ctx.get("ship_name")
+
+
+def back_in_service(game, how):
+    """Back from hospital or a prison camp: a sailor or an airman is sent to report to his own service, not
+    handed a rifle."""
+    from .data.roles import service_of
+    p = game.player
+    sv = service_of(p.role)
+    by = dict(name="the replacement depot", role="clerk", sector=(game.sector.x, game.sector.y),
+              base="the replacement depot")
+    o = None
+    if sv == "navy":
+        from . import naval as NV
+        port = NV.nearest_port(game)
+        if port is not None:
+            o = dict(kind="report_port", sector=(port.x, port.y), by=by, report_to_any=False,
+                     text=f"Report to the port director at the naval base, {port.name}, for a ship.",
+                     reward=dict(merit=0, rep=1), hours=48)
+    elif sv == "air":
+        af = _all_with(game, "airfield")
+        if af:
+            o = dict(kind="report_airfield", sector=(af[0].x, af[0].y), by=by, report_to_any=False,
+                     text=f"Report to the operations officer at the airfield, {af[0].name}.",
+                     reward=dict(merit=0, rep=1), hours=48)
+    if o is None:
+        return False
+    o["issued"] = game.turn
+    o["deadline"] = game.turn + int(o["hours"] * HOUR)
+    o["stage"] = "go"
+    game.__dict__["base_order"] = o
+    game.msg(f"Your papers say: {o['text']}", "radio")
+    game.update_orders(force=True)
+    return True
+
+
+def left_behind(game, riding):
+    """You're crossing into the next sector without the vehicle the motor pool signed out to you: it doesn't
+    wait there for you (the motor pool sends a driver for it) - and a supply run without its truck is over."""
+    p = game.player
+    o = game.__dict__.get("base_order")
+    if o and o["kind"] == "supply_run" and not _done(game, o):
+        t = _supply_truck(game, o)
+        if t is not None and t is not riding:
+            game.msg(f"You've left the {t.vt.name} and its shells behind. The motor pool sends a driver for it, and "
+                     f"the supply run goes to somebody else. {o['by']['name']} will hear about it.", "warn")
+            game.duty.rep -= 2
+            game.__dict__["base_order"] = None
+            game.update_orders(force=True)
+    for v in game.vehicles:
+        if v.ai.get("issued_to") == p.id and v is not riding and not v.dead and not v.ai.get("player_run"):
+            v.ai.pop("issued_to", None)
+            game.msg(f"You leave the {v.vt.name} you signed out; the motor pool will collect it.", "info")
 
 
 def _supply_truck(game, o):
@@ -1251,8 +1328,7 @@ def _deliverable(game, who) -> bool:
     if tuple(o.get("sector") or ()) != here:
         return False
     if o["kind"] == "dispatch":
-        return who.rank >= 8 and who.role in ("adjutant", "intel", "ops_officer", "port_officer") or \
-            (who.rank >= 8 and who.ai.get("base_kind") == "hq")
+        return _takes_dispatches(who) or (who.role == "clerk" and not _officers_here(game))
     if o["kind"] == "patrol" and o.get("stage") == "back":
         return who.role in ("adjutant", "intel")
     if o["kind"] == "report_port":
@@ -1380,12 +1456,23 @@ def _thirsty_tank(game):
     return min(c, key=lambda v: abs(v.x - p.x) + abs(v.y - p.y)) if c else None
 
 
+def _takes_dispatches(a) -> bool:
+    """Who can sign for dispatches: the staff officers - or, with them gone, any line officer (not the doctor,
+    not the padre)."""
+    return a.alive and a.active and a.rank >= 8 and (a.role in ("adjutant", "intel", "ops_officer", "port_officer") or
+                                                     a.role not in ("surgeon", "chaplain", "politruk", "medic"))
+
+
+def _officers_here(game):
+    return [a for a in game.actors if a.side == game.player.side and not a.is_player and _takes_dispatches(a)]
+
+
 def _who_to_see(game, o):
     if _done(game, o) or (o["kind"] == "patrol" and o.get("stage") == "back"):
         cands = staff_here(game, "adjutant") or staff_here(game, "intel")
     elif o["kind"] == "dispatch":
-        cands = staff_here(game, "adjutant") or staff_here(game, "intel") or \
-            [a for a in game.actors if a.alive and a.side == game.player.side and a.rank >= 8]
+        cands = staff_here(game, "adjutant") or staff_here(game, "intel") or _officers_here(game) or \
+            staff_here(game, "clerk")                    # (the clerk signs, and passes them up)
     elif o["kind"] == "report_port":
         cands = staff_here(game, "port_officer")
     elif o["kind"] == "report_airfield":
