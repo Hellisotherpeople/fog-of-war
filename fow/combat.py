@@ -464,6 +464,8 @@ def suppress_line(game, x0, y0, x1, y1, amount, shooter_side, exclude=None):
         f = (1 - d[k] / 2.2)
         mult = 0.35 if (shooter_side is not None and a.side == shooter_side) else 1.0
         a.suppression = min(100.0, a.suppression + amount * f * mult * (0.6 if a.stance == 2 else 1.0))
+        if shooter_side is not None and a.side != shooter_side:
+            a.ai["fired_on"] = (int(x0), int(y0), game.turn)      # the crack and the thump: where it came from
         if a.is_player and d[k] < 1.3 and game.turn != game.ai_last_whizz:
             game.ai_last_whizz = game.turn
             game.near_miss()
@@ -683,6 +685,9 @@ def destroy_vehicle(game, v, attacker, source, catastrophic=False):
         return
     v.dead = True
     v.hp = 0
+    if v.ai.get("convoy"):
+        from .rear import convoy_hit
+        convoy_hit(game, v, attacker)             # a cut in the road on the war map
     m = game.map
     rng = game.rng
     cells = v.cells()
@@ -777,8 +782,16 @@ def explode(game, x: int, y: int, power: float, radius: int, *, frags: int = 0,
         game.audio("splash", x, y, 70)
     # ---- blast on soldiers
     pos, actors = game.actor_array()
+    if power >= 20:
+        imp = game.__dict__.setdefault("impacts", [])      # (where the shells are falling: ai.beaten_zone)
+        imp.append((x, y, game.turn))
+        if len(imp) > 60:
+            del imp[:len(imp) - 60]
     if actors:
         d = np.sqrt(((pos - np.array([x, y], np.float32)) ** 2).sum(axis=1))
+        if power >= 20:
+            for k in np.nonzero(d <= radius + 10)[0]:
+                actors[k].ai["near_shell"] = game.turn          # close enough to throw yourself flat
         for k in np.nonzero(d <= radius + 0.5)[0]:
             a = actors[k]
             if not a.alive or a.vehicle is not None:

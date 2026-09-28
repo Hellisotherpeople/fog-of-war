@@ -363,9 +363,31 @@ class SideBrain:
         goals &= self.cost > 0
         if not goals.any():
             goals[o.x, o.y] = True
-        mp = dijkstra(goals, self.exp_cost if covered else self.cost)
+        cost = self.exp_cost if covered else self.cost
+        if covered and o.owner != self.side:
+            cost = cost + self._open_ground(o)
+        mp = dijkstra(goals, cost)
         self.obj_maps[key] = (self.game.turn, mp)
         return mp
+
+    def _open_ground(self, o):
+        """Going for ground the enemy holds, a man keeps off the open fields in front of it whether or not
+        he's seen anyone there yet: along the hedge, the wall, the edge of the wood, the dead ground - the
+        covered approach.  Open ground near the objective costs extra (nothing where men can't walk)."""
+        m = self.game.map
+        key = ("open", o.x, o.y, m.__dict__.get("walk_version", m.version))
+        c = self.__dict__.get("_open_cache")
+        if c is not None and c[0] == key:
+            return c[1]
+        xs = np.arange(m.w)[:, None] - o.x
+        ys = np.arange(m.h)[None, :] - o.y
+        near = np.clip(1.0 - np.sqrt(xs * xs + ys * ys) / 60.0, 0.0, 1.0)
+        beside = m.cover_dir.max(axis=0)                  # (the best cover beside the tile, from any side)
+        bare = (1.0 - m.conceal / 100.0) * (1.0 - np.maximum(m.pos_cover, beside) / 100.0)
+        pen = np.rint(near * np.clip(bare, 0.0, 1.0) * 5).astype(np.int32)
+        pen[self.cost == 0] = 0
+        self._open_cache = (key, pen)
+        return pen
 
     def point_map(self, x: int, y: int, covered=True, radius=1) -> np.ndarray:
         key = ("pt", x // 2, y // 2, covered, radius)

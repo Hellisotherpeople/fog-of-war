@@ -52,6 +52,8 @@ direction keys.
 | `<` / `>` | on stairs: up a floor / down one (a church tower, a flat roof, a hayloft at the top); on a cellar trapdoor: `>` down into the cellar, `<` up again |
 | `o` | shut an open door beside you (walk through a door to open it) |
 | Enter | carry out your current order: walk there and do it (the panel says what Enter will do) |
+| `T` | the orders book: every order you hold, with who gave it and how, when it's due, and what doing it or not doing it brings; Enter on one makes it the order Enter carries out |
+| `A` | autopilot: your soldier acts on his training and his orders, the same AI as every man on the field; `A` or Esc takes him back (looking, the map, the books and help still work meanwhile) |
 | `!` | safe mode off / on |
 | `'` | ignore the dangers you can see now (safe mode won't stop you for them) |
 

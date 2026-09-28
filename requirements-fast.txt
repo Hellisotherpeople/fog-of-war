@@ -1,2 +1,2 @@
 -r requirements.txt
-numba>=0.59      # optional: compiled route-finding (fow/fastpath.py)
+numba>=0.59      # optional: compiled route-finding and lines of sight (fow/fastpath.py)

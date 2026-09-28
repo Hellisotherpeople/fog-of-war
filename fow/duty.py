@@ -67,10 +67,13 @@ def standing_word(rep: float) -> str:
     return "They'd shoot you as soon as look at you."
 
 
+MAX_TASKS = 3                    # orders outstanding at once (from different men, as a rule)
+
+
 class Duty:
     def __init__(self):
         self.rep = 0.0
-        self.task = None
+        self.tasks = []                # the orders you've been given and not yet carried out (orders.py shows them)
         self.strikes = 0
         self.next_task = 60
         self.done = 0
@@ -85,6 +88,38 @@ class Duty:
         self.desert_warn = 0        # warnings for running from the fight
         self.last_desert = -999
         self.neglect = {}           # comrade id -> checks he's bled next to you
+
+    # ------------------------------------------------------------ the orders outstanding
+    def _tasks(self) -> list:
+        t = self.__dict__.get("tasks")
+        if t is None:                  # (a save from when there was only ever one)
+            old = self.__dict__.pop("task", None)
+            t = self.__dict__["tasks"] = [old] if old else []
+        return t
+
+    @property
+    def task(self):
+        """The order you're getting on with: the one you chose (the orders book), else the most pressing."""
+        ts = self._tasks()
+        if not ts:
+            return None
+        f = self.__dict__.get("focus")
+        for t in ts:
+            if t.get("uid") == f:
+                return t
+        return min(ts, key=lambda t: t["deadline"])
+
+    @task.setter
+    def task(self, v):
+        ts = self._tasks()
+        ts.clear()
+        if v is not None:
+            ts.append(v)
+
+    def _drop(self, t):
+        ts = self._tasks()
+        if t in ts:
+            ts.remove(t)
 
     # ------------------------------------------------------------ who's in charge of you
     def superiors(self, game):
@@ -136,18 +171,25 @@ class Duty:
         if self.arrest is not None:
             self._arrest_check(game)
         self._desertion(game)
-        if self.task is not None:
-            self._check_task(game)
-        elif p.body.conscious and not p.downed and p.vehicle is None and t >= self.next_task and \
-                not getattr(game, "renegade", False):
+        for task in list(self._tasks()):
+            if task in self._tasks():
+                self._check_task(game, task)
+        if len(self._tasks()) < MAX_TASKS and p.body.conscious and not p.downed and p.vehicle is None and \
+                t >= self.next_task and not getattr(game, "renegade", False):
             self._maybe_task(game)
         self._neglect(game)
 
     # ------------------------------------------------------------ personal orders
     def give(self, game, kind, sup, target=None, **data):
-        self.task = dict(kind=kind, by=sup.id, by_name=f"{sup.rank_short} {sup.last_name}", target=target,
-                         issued=game.turn, deadline=game.turn + int(DEADLINE[kind] / STRICT.get(sup.nation, 1.0)),
-                         nagged=False, **data)
+        ts = self._tasks()
+        if any(t["kind"] == kind for t in ts) or len(ts) >= MAX_TASKS:
+            return                     # (he's already told you; or you've enough on)
+        uid = self.__dict__.get("_uid", 0) + 1
+        self._uid = uid
+        ts.append(dict(kind=kind, by=sup.id, by_name=f"{sup.rank_short} {sup.last_name}", target=target,
+                       by_role=sup.role_name, by_nation=sup.nation, uid=uid,
+                       issued=game.turn, deadline=game.turn + int(DEADLINE[kind] / STRICT.get(sup.nation, 1.0)),
+                       nagged=False, **data))
         self._say(game, sup, TASK_PHRASE[kind], TASK_TEXT[kind])
         game.update_orders(force=True)
 
@@ -157,8 +199,8 @@ class Duty:
             return None
         return f"{t['by_name']}: '{TASK_TEXT[t['kind']]}'"
 
-    def task_point(self, game):
-        t = self.task
+    def task_point(self, game, t=None):
+        t = t or self.task
         if t is None:
             return None
         tg = t.get("target")
@@ -244,9 +286,8 @@ class Duty:
                     return self.give(game, "scout", sup, (tx, ty), leg="out")
         self.next_task = game.turn + rng.randint(60, 180)
 
-    def _check_task(self, game):
+    def _check_task(self, game, t):
         p = game.player
-        t = self.task
         k = t["kind"]
         tgt = t.get("target")
         m = game.map
@@ -259,20 +300,20 @@ class Duty:
                 if t.get("tried"):
                     done = True
                 else:
-                    return self._fail(game, "He died while you stood there.")
+                    return self._fail(game, t, "He died while you stood there.")
             else:
                 done = a.body.bleed_rate() < 0.1 or a.ai.get("carried_by") is not None or a.ai.get("at_aid") is not None
         elif k == "ammo":
             done = t.get("given", False)
             a = self._actor(game, tgt)
             if a is None or not a.alive:
-                self.task = None
+                self._drop(t)
                 return
         elif k in ("track", "shells"):
             from . import maintenance as MT
             v = next((v for v in game.vehicles if v.id == t.get("vid")), None)
             if v is None or v.dead or v.abandoned:
-                self.task = None
+                self._drop(t)
                 return
             if k == "track":
                 if v.near(p.x, p.y) <= 1 and p.vehicle is None:
@@ -286,7 +327,7 @@ class Duty:
             done = w is not None and w is t.get("item")
             if not done and t.get("item") is not None and t["item"] not in [i for its in m.items.values() for i in its] \
                     and t["item"] not in p.inv:
-                self.task = None          # somebody else picked it up
+                self._drop(t)             # somebody else picked it up
                 return
         elif k == "fire":
             last = p.ai.get("last_shot")
@@ -300,7 +341,7 @@ class Duty:
         elif k == "runner":
             a = self._actor(game, tgt)
             if a is None or not a.alive:
-                self.task = None
+                self._drop(t)
                 return
             done = max(abs(a.x - p.x), abs(a.y - p.y)) <= 1
             if done:
@@ -318,7 +359,7 @@ class Duty:
         elif k == "escort":
             done = self.good["delivered"] >= t.get("need", 1)
         if done:
-            return self._complete(game)
+            return self._complete(game, t)
         if game.turn > t["deadline"]:
             if not t["nagged"]:
                 t["nagged"] = True
@@ -328,12 +369,15 @@ class Duty:
                     self._say(game, sup, "rebuke", "I gave you an order!")
                     self.rep -= 1
                 return
-            return self._fail(game)
+            return self._fail(game, t)
 
-    def _complete(self, game):
-        t = self.task
-        self.task = None
+    def _complete(self, game, t):
+        self._drop(t)
         self.done += 1
+        if self.done % 5 == 0:
+            from .orders import reward_record
+            reward_record(game, f"commended by {t['by_name']} for orders carried out in the field.")
+            game.command.merit += 1
         r = REWARD.get(t["kind"], 2)
         self.rep = min(100.0, self.rep + r)
         game.command.merit += r * 0.3
@@ -349,9 +393,8 @@ class Duty:
         self.next_task = game.turn + game.rng.randint(60, 160)
         game.update_orders(force=True)
 
-    def _fail(self, game, why=None):
-        t = self.task
-        self.task = None
+    def _fail(self, game, t, why=None):
+        self._drop(t)
         self.failed += 1
         self.strikes += 1
         self.rep -= 4 * STRICT.get(game.player.nation, 1.0)
@@ -361,11 +404,24 @@ class Duty:
         game.update_orders(force=True)
 
     def _escalate(self, game, who):
+        from .orders import punish
         p = game.player
-        if self.strikes == 3:
-            game.msg(f"{who} puts you on report. A formal reprimand goes in your record.", "warn")
-            game.command.merit -= 3
+        if self.strikes < 3:
+            words = punish(game, 0, who)
+            game.msg(f"{who}: {words}. (You'll serve any extra duty at the next base.)", "warn")
+        elif self.strikes == 3:
+            words = punish(game, 1, who)
+            game.msg(f"{who} puts you on report: {words}.", "warn")
         elif self.strikes >= 5:
+            if p.nation == "ussr" and p.rank <= 1 and not self.__dict__.get("penal"):
+                self.penal = True
+                p.unit = "a penal company (shtrafnaya rota)"
+                rec = game.command.__dict__.setdefault("record", [])
+                rec.append(f"{game.datetime_str()}: sentenced to a penal company - to atone in blood.")
+                game.msg("The tribunal sits for ten minutes. You're sent to a penal company, to atone in blood.",
+                         "death")
+                self.strikes = 2
+                return
             self.strikes = 2
             if p.rank > 0:
                 from .data.ranks import rank_title
@@ -384,7 +440,7 @@ class Duty:
         sq = p.squad
         if sq is None or p.vehicle is not None or sq.player_led or game.turn - sq.last_contact > 60:
             return
-        if p.ai.get("carried_by") is not None or p.carrying is not None or self.task is not None:
+        if p.ai.get("carried_by") is not None or p.carrying is not None or self._tasks():
             return
         brain = game.brains[p.side]
         if brain.home is None or sq.leader is None or not sq.leader.active:
@@ -432,10 +488,12 @@ class Duty:
         self.good[kind] = self.good.get(kind, 0) + 1
         gain = {"patched": 3, "rescue": 6, "ammo": 2, "prisoner": 2, "delivered": 3}.get(kind, 1)
         self.rep = min(100.0, self.rep + gain)
-        if self.task is not None and self.task["kind"] == "help" and who is not None and self.task["target"] == who.id:
-            self.task["tried"] = True
-        if self.task is not None and self.task["kind"] == "ammo" and who is not None and self.task["target"] == who.id:
-            self.task["given"] = True
+        for t in self._tasks():
+            if who is not None and t.get("target") == who.id:
+                if t["kind"] == "help":
+                    t["tried"] = True
+                if t["kind"] == "ammo":
+                    t["given"] = True
         if who is not None and who.alive:
             who.morale = min(100.0, who.morale + 8)
 
@@ -459,7 +517,7 @@ class Duty:
             seen[a.id] = n
             if n == 4:
                 sup = self.watcher(game)
-                if sup is not None and self.task is None:
+                if sup is not None and not any(t["kind"] == "help" for t in self._tasks()):
                     self.rep -= 2
                     self.give(game, "help", sup, a.id)
                 elif a.active:
@@ -628,7 +686,7 @@ class Duty:
         game.msg(f"{_cap(game.name_of(prisoner))} is your prisoner. Search him, and bring him back to our lines. "
                  f"(he'll follow you; right-click him for more)", "good")
         sup = self.watcher(game)
-        if sup is not None and self.task is None and game.rng.random() < 0.5:
+        if sup is not None and len(self._tasks()) < MAX_TASKS and game.rng.random() < 0.5:
             self.give(game, "escort", sup, need=self.good["delivered"] + 1)
 
     def on_prisoner_delivered(self, game, prisoner):

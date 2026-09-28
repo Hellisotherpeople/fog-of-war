@@ -8,8 +8,13 @@ import tcod
 
 from . import tiles as T
 from .constants import COMPASS
+from . import fastpath as FP
 from .entities import riding
-from .relief import body_height, eye_height
+from .floors import inside
+from .floors import open_top as _open_top
+from .relief import body_height, crest_clear, elevation, eye_height, flat, over_the_top
+from .stealth import camo_mult, fieldcraft
+from .stealth import notice as _notice
 
 DAY_RANGE = 62
 NIGHT_RANGE = 7
@@ -230,7 +235,6 @@ def _concealment(game, target) -> float:
         f *= 0.7
     elif st == 1:
         f *= 0.9
-    from .stealth import camo_mult, fieldcraft
     f *= camo_mult(game, target)
     if target.moved_turn >= game.turn - 1:
         move = {"sneak": 0.05, "walk": 0.2, "run": 0.35, "sprint": 0.5}.get(target.ai.get("pace_now", "walk"), 0.2)
@@ -285,7 +289,6 @@ def _line_clear(see, x0, y0, x1, y1, m=None, h0=1.6, h1=1.6) -> bool:
     if not bool(see[inner[:, 0], inner[:, 1]].all()):
         return False
     if m is not None:
-        from .relief import crest_clear
         return crest_clear(m, pts, h0, h1)          # and no crest between (relief.py)
     return True
 
@@ -300,7 +303,6 @@ def los_clear(game, x0, y0, x1, y1, high=False, h0=1.6, h1=1.6) -> bool:
     m = game.map
     if abs(x1 - x0) <= 1 and abs(y1 - y0) <= 1:
         return True
-    from .relief import flat, over_the_top
     rel = not flat(m)
     if rel and not high:
         high = over_the_top(m, x0, y0, x1, y1, h0) or over_the_top(m, x1, y1, x0, y0, h1)
@@ -368,8 +370,7 @@ def can_detect(game, viewer, target, dist=None, r=None, conceal=None) -> bool:
 def _sight_line(game, viewer, target) -> bool:
     """The line between two men, for seeing: the terrain, the crests, and - for a man up in an open belfry or
     on a roof - not the walls of his own building."""
-    from .floors import inside, open_top
-    tops = [r for r in (open_top(game, viewer), open_top(game, target)) if r is not None]
+    tops = [r for r in (_open_top(game, viewer), _open_top(game, target)) if r is not None]
     if not tops:
         return los_clear(game, viewer.x, viewer.y, target.x, target.y, _high(viewer) or _high(target),
                          eye_height(viewer), body_height(target))
@@ -379,7 +380,6 @@ def _sight_line(game, viewer, target) -> bool:
     for x, y in pts[1:-1]:
         if not see[x, y] and not any(inside(r, x, y) for r in tops):
             return False
-    from .relief import crest_clear
     return crest_clear(m, pts, eye_height(viewer), body_height(target))
 
 
@@ -414,21 +414,65 @@ def update_actor_vision(game, a):
         idx = idx[np.argsort(row[idx])][:40]
     elif len(idx) > 1:
         idx = idx[np.argsort(row[idx])]
-    from .stealth import notice
     ax, ay = a.x, a.y
-    for k in idx:
-        e = ents[k]
-        dk = math.hypot(e.x - ax, e.y - ay)
-        if dk > r:
-            continue
-        cf = concealment_factor(game, a, e)
-        if can_detect(game, a, e, dk, r=r_eye, conceal=cf):
-            # in plain sight, or not yet made out: seeing takes a moment (see stealth.py)
-            fr = r * cf if getattr(e, "vt", None) is None else r
-            if not notice(game, a, e, dk, fr):
+    if getattr(a, "z", 0) < 0:
+        a.visible = vis                               # (down in the cellar)
+        return vis
+    m = game.map
+    batch = FP.lines_ready() and _open_top(game, a) is None
+    seen = []                                         # (e, distance, concealment), nearest first
+    wait = []                                         # ... the ones whose line of sight is still to be drawn
+    if batch:
+        dark = game.is_dark
+        turn = game.turn
+        for k in idx:
+            e = ents[k]
+            dk = math.hypot(e.x - ax, e.y - ay)
+            if dk > r or getattr(e, "z", 0) < 0:
                 continue
-            vis.append(e)
-            a.known[e.id] = (e.x, e.y, game.turn, e)
+            cf = concealment_factor(game, a, e)
+            if peek_point(e) is not None or _open_top(game, e) is not None:
+                if can_detect(game, a, e, dk, r=r_eye, conceal=cf):
+                    seen.append((e, dk, cf, True))
+                continue
+            fr = r_eye * cf                           # (as can_detect has it)
+            if dark:
+                if e.fired_turn >= turn - 1:
+                    fr = max(fr, 45)
+                if lit_at(game, e.x, e.y):
+                    fr = max(fr, DAY_RANGE * WEATHER_VIS.get(game.weather, 1.0) * 0.6 * cf)
+            if dk > fr:
+                continue
+            item = (e, dk, cf, dk <= 1.5)
+            seen.append(item)
+            if dk > 1.5:
+                wait.append(item)
+        if wait:
+            ok = FP.sight_lines(m.see, m.high(), elevation(m), not flat(m), ax, ay, eye_height(a), _high(a),
+                             np.array([w[0].x for w in wait], np.int64), np.array([w[0].y for w in wait], np.int64),
+                             np.array([body_height(w[0]) for w in wait], np.float64),
+                             np.array([_high(w[0]) for w in wait], np.bool_))
+            clear = {id(w[0]): bool(v) for w, v in zip(wait, ok)}
+            seen = [s_ if s_[3] else (s_[0], s_[1], s_[2], clear.get(id(s_[0]), False)) for s_ in seen]
+    else:
+        # (without numba: one line at a time)
+        seen = []
+        for k in idx:
+            e = ents[k]
+            dk = math.hypot(e.x - ax, e.y - ay)
+            if dk > r:
+                continue
+            cf = concealment_factor(game, a, e)
+            seen.append((e, dk, cf, can_detect(game, a, e, dk, r=r_eye, conceal=cf)))
+    for e, dk, cf, ok in seen:
+        if not ok:
+            continue
+        # in plain sight, or not yet made out: seeing takes a moment (see stealth.py)
+        fr = r * cf if getattr(e, "vt", None) is None else r
+        if not _notice(game, a, e, dk, fr):
+            continue
+        vis.append(e)
+        a.known[e.id] = (e.x, e.y, game.turn, e)
     a.visible = vis
     return vis
 

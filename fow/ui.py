@@ -698,6 +698,98 @@ class TextState:
         self.app.pop()
 
 
+class OrdersState:
+    """The orders book: every order you hold, written up as you'd keep it in a field notebook - who gave it, how
+    it reached you, when, by when, what's in it for you and what happens if you don't.  Enter makes one the order
+    you get on with (and Enter on the map then does it)."""
+    PAPER = (58, 52, 38)
+    INK = (225, 210, 170)
+    FAINT = (160, 145, 110)
+    LEFT = 34
+
+    def __init__(self, app, play):
+        from .orders import book
+        self.app = app
+        self.play = play
+        self.orders = book(play.game)
+        self.sel = 0
+
+    def render(self, con):
+        from .orders import _clock, _left
+        con.clear()
+        g = self.play.game
+        W, H = SCREEN_W, SCREEN_H
+        con.draw_rect(1, 1, W - 2, H - 2, ord(" "), bg=self.PAPER)
+        con.print(3, 2, f"ORDERS - {g.now().strftime('%H:%M, %d %B %Y')}", fg=self.INK, bg=self.PAPER)
+        con.print(3, 3, "(the ones you hold; Enter: get on with this one; Esc: close)", fg=self.FAINT, bg=self.PAPER)
+        if not self.orders:
+            con.print(3, 6, "Nothing. For once, nobody wants anything of you.", fg=self.INK, bg=self.PAPER)
+            return
+        y = 5
+        for k, o in enumerate(self.orders):
+            who = o["who"].split(",")[0]
+            due = _left(g, o["due"]) if o["due"] is not None else ""
+            mark = "!" if o["urgent"] else "-"
+            fg = (250, 200, 120) if o["urgent"] else self.INK
+            bg = (95, 82, 55) if k == self.sel else self.PAPER
+            con.print(3, y, f"{mark} {who}"[:self.LEFT - 4], fg=fg, bg=bg)
+            if due:
+                con.print(self.LEFT - len(due) - 1, y, due, fg=self.FAINT, bg=bg)
+            y += 2
+            if y > H - 4:
+                break
+        o = self.orders[self.sel % len(self.orders)]
+        x = self.LEFT + 2
+        wdt = W - x - 4
+        y = 5
+        con.draw_rect(self.LEFT, 5, 1, H - 8, ord("│"), fg=self.FAINT, bg=self.PAPER)
+
+        def put(label, text, col=None):
+            nonlocal y
+            if not text:
+                return
+            con.print(x, y, label, fg=self.FAINT, bg=self.PAPER)
+            for line in textwrap.wrap(str(text), wdt - 12) or [""]:
+                con.print(x + 12, y, line, fg=col or self.INK, bg=self.PAPER)
+                y += 1
+            y += 1
+        put("From", o["who"])
+        put("How", o["how"])
+        put("Given", _clock(g, o["issued"]) if o.get("issued") is not None and o["issued"] <= g.turn else "")
+        if o["due"] is not None:
+            put("By", f"{_clock(g, o['due'])} ({_left(g, o['due'])})", (250, 200, 120) if o["due"] - g.turn < 120
+                else None)
+        put("Order", o["text"], (240, 230, 190))
+        put("If done", o["reward"], (180, 220, 150))
+        put("If not", o["penalty"], (240, 160, 130))
+        foc = g.__dict__.get("order_focus")
+        if foc == o["key"]:
+            con.print(x, y, "This is the order you're getting on with.", fg=(180, 220, 150), bg=self.PAPER)
+
+    def on_key(self, key):
+        from .orders import focus
+        if key.sym == E.KeySym.ESCAPE or key.char in ("T", "q"):
+            self.app.pop()
+        elif key.sym in (E.KeySym.DOWN, E.KeySym.KP_2) or key.char == "j":
+            self.sel = (self.sel + 1) % max(1, len(self.orders))
+        elif key.sym in (E.KeySym.UP, E.KeySym.KP_8) or key.char == "k":
+            self.sel = (self.sel - 1) % max(1, len(self.orders))
+        elif key.sym in (E.KeySym.RETURN, E.KeySym.KP_ENTER) and self.orders:
+            o = self.orders[self.sel % len(self.orders)]
+            focus(self.play.game, o["key"])
+            self.play.game.msg(f"You'll see to it: {o['text']}", "info")
+            self.play.game.update_orders(force=True)
+            self.app.pop()
+
+    def on_click(self, tx, ty, b):
+        if ty >= 5 and tx < self.LEFT:
+            k = (ty - 5) // 2
+            if 0 <= k < len(self.orders):
+                self.sel = k
+                return
+        self.app.pop()
+
+
 class HelpState:
     """How to play: the sections down the left, the keys (bold, on keycaps) and what they do on the right.
     Opened from play it starts at "Right now" - the keys for where you are this moment.  / searches everything."""
@@ -1253,6 +1345,8 @@ class CharState(TextState):
             lines.append((f"  {len(cmd.chain_squads(game))} units answer to you on this field.", UI_DIM))
         if cmd.medals:
             lines.append(("Decorations: " + ", ".join(cmd.medals), (240, 210, 110)))
+        for entry in (cmd.__dict__.get("record") or [])[-8:]:
+            lines.append(("  " + entry, (220, 190, 150) if "report" in entry or "penal" in entry else (190, 210, 160)))
         if cmd.promotions:
             from .data.ranks import rank_title
             lines.append(("Promotions: " + "; ".join(f"{rank_title(p.nation, gr, False)} ({when})"
@@ -1371,7 +1465,19 @@ class OptionsState:
              "huge: 360 x 240, three times the men - slow on most machines. Takes effect when you start a new "
              "game.", sizes),
             ("Autosave", "autosave", "toggle", "Save every five minutes of real time, as well as when you quit. "
-             "There's still only one life.", None),
+             "There's still only one life - unless succession is on.", None),
+            ("WHEN YOU DIE", None, "head", "", None),
+            ("Succession", "succession", "cycle", "off: death is the end.  on: the battle goes on and you're someone "
+             "else, chosen by the rule below - the same field, the same men, the dead where they fell.  choose: a "
+             "list of who could carry on, and you pick.", ("off", "on", "choose")),
+            ("Who carries on", "succession_rule", "cycle", "squad: a man of your squad (then your unit, then anyone "
+             "near).  unit: your company or battery.  nearest: whoever's nearest.  role: the nearest man in your job. "
+             " rank: the most senior man near.  random: anyone on the field.  killer: the man who killed you.",
+             ("squad", "unit", "nearest", "role", "rank", "random", "killer")),
+            ("Which side", "succession_side", "cycle", "own: always your own side (the killer rule still crosses "
+             "over).  any: nearest and random may be a man of either side.", ("own", "any")),
+            ("Lives", "succession_lives", "cycle", "How many deaths before it really is the end (0: none - the war "
+             "goes on as long as anyone's alive).", (0, 3, 5, 10, 25)),
             ("Back", "__back__", "action", "", None),
         ]
 

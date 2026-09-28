@@ -591,6 +591,10 @@ def _spawn_convoy(game, ms):
         tx, ty = edge_band_point(game, e1, rng, depth=(0, 1))
         sq.order = Order("move", target=(tx, ty), issued=game.turn)
         sq.no_count = True
+        info = dict(kind="ammunition" if cls == "truck" else "armour", side=enemy, to=e1, n=len(sq.vehicles),
+                    lost=0, cargo="supplies", dest="the front", start=game.turn, sq=sq.id)
+        for v in sq.vehicles:
+            v.ai["convoy"] = info                 # (burn it, and their front goes short: rear.py)
         ids += [v.id for v in sq.vehicles]
     ms["convoy"] = ids
 

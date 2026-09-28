@@ -68,7 +68,8 @@ class Body:
 
     def downed(self) -> bool:
         """Can't stand: crawl only."""
-        return self.legs_ok() < 2 or self.effective_pain() >= 120 or self.blood < 3400
+        hp = self.hp
+        return hp["l_leg"] <= 0 or hp["r_leg"] <= 0 or self.pain - self.morphine >= 120 or self.blood < 3400
 
     def bleed_rate(self) -> float:
         return sum(w.bleed for w in self.wounds if not w.bandaged and not w.tourniquet)

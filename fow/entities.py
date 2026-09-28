@@ -265,11 +265,13 @@ class Actor:
     @property
     def active(self) -> bool:
         """Alive, conscious, not surrendered - can act."""
-        return self.body.alive and self.body.conscious and self.state == "ok"
+        b = self.body                                 # (body.alive and body.conscious, without the calls:
+        return not b.dead and b.unconscious <= 0 and self.state == "ok"    # this is asked millions of times)
 
     @property
     def downed(self) -> bool:
-        return self.body.downed() or not self.body.conscious
+        b = self.body
+        return b.dead or b.unconscious > 0 or b.downed()
 
     @property
     def pos(self):

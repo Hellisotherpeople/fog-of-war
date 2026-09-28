@@ -1020,6 +1020,199 @@ def test_walk_through_unseen_ground():
     assert arrived >= 1
 
 
+def test_rear_roads_and_supply():
+    """Behind the line the roads are busy; cut them and the fronts they feed go short."""
+    from fow import rear as RR
+    from fow.combat import destroy_vehicle
+    from fow.skysea_exit import to_land
+    g = Game("kursk43", "ussr", seed=3, setup={"battlefield": "standard"})
+    st = g.strategic
+    p = g.player
+    st.compute_supply()
+    # interdiction on the war map: a busy road in the rear, cut, starves the fronts beyond it
+    lanes = [(v, k) for k, v in st.traffic.items() if k[0] == p.side and
+             not st.is_front(st.at(k[1], k[2]), p.side) and st.at(k[1], k[2]).playable]
+    assert lanes
+    v, k = max(lanes)
+    s = st.at(k[1], k[2])
+    fed = st.fed_by(p.side, s)
+    assert fed
+    before = {f.name: st.supply_of(p.side, f) for f in fed}
+    st.interdict(p.side, s, 1.0, "a test")
+    assert st.cut_of(p.side, s) > 0.9
+    after = {f.name: st.supply_of(p.side, f) for f in fed}
+    assert sum(after.values()) < sum(before.values()) - 0.05
+    for _ in range(12):                                      # the engineers mend it, in a few hours
+        st.interdiction = {kk: vv * 0.94 for kk, vv in st.interdiction.items()}
+    st.interdiction = {kk: vv * 0.3 for kk, vv in st.interdiction.items()}
+    st.compute_supply()
+    assert sum(st.supply_of(p.side, f) for f in fed) > sum(after.values())
+    st.interdiction = {}
+    st.compute_supply()
+    # and on the ground: convoys come and go, and a burnt-out lorry is a cut
+    g.map = None
+    to_land(g, s)
+    assert RR.lanes(g, p.side) is not None
+    kinds = set()
+    trucks = []
+    for i in range(4000):
+        g.player.moves = 0
+        g.world_turn()
+        for c in g.__dict__.get("rear", {}).get("convoys", {}).values():
+            kinds.add(c["kind"])
+        if i % 50 == 0:
+            trucks = [v for v in g.vehicles if v.ai.get("convoy") and not v.dead and v.side == p.side]
+            if trucks and len(kinds) > 1:
+                break
+    assert kinds and trucks and RR.describe(trucks[0])
+    cut0 = st.cut_of(p.side, s)
+    destroy_vehicle(g, trucks[0], None, "a test")
+    assert st.cut_of(p.side, s) > cut0
+
+
+def test_orders_book_autopilot_and_succession():
+    """Several orders at once, with who gave them and what follows; the autopilot; carrying on as someone
+    else when you die."""
+    import tcod
+    from fow.combat import hit_actor
+    from fow.constants import SCREEN_H, SCREEN_W
+    from fow.orders import book
+    from fow.play import Key, PlayState
+    from fow import base as BASE
+    fa = FakeApp()
+    fa.settings.update(succession="on", succession_rule="squad", succession_side="own", succession_lives=0)
+    g = Game("bocage44", "usa", role="rifleman", seed=5, setup={"battlefield": "standard"})
+    ps = PlayState(fa, g)
+    fa.states = [ps]
+    p = g.player
+    sup = p.squad.leader
+    g.duty.give(g, "dig", sup)
+    g.duty.give(g, "scout", sup, (p.x + 10, p.y), leg="out")
+    g.update_orders(force=True)
+    b = book(g)
+    duties = [o for o in b if o["key"].startswith("duty:")]
+    assert len(duties) >= 2 and all(o["who"] and o["reward"] and o["penalty"] for o in duties)
+    ps.on_key(Key(char="T"))
+    assert type(fa.states[-1]).__name__ == "OrdersState"
+    con = tcod.console.Console(SCREEN_W, SCREEN_H, order="F")
+    fa.states[-1].render(con)
+    fa.states[-1].on_key(Key(sym=tcod.event.KeySym.ESCAPE))
+    assert fa.states[-1] is ps
+    t = g.duty._tasks()[0]
+    t["deadline"] = g.turn - 1
+    t["nagged"] = True
+    g.duty._check_task(g, t)
+    assert BASE._state(g).get("fatigues", 0) > 0             # a chewing-out, and extra duty at the next base
+    # the autopilot: he goes on without you
+    for a in g.actors:
+        if a.side != p.side and a.alive:
+            a.body.dead = True
+            g.kill(a, None)
+    ps.on_key(Key(char="A"))
+    assert g.autopilot
+    t0 = g.turn
+    for _ in range(60):
+        ps.anim = ps.anim_next = 0
+        ps.tick()
+    assert g.turn > t0 + 30
+    ps.on_key(Key(char="A"))
+    assert not g.autopilot
+    # succession: the war goes on
+    ps.on_key(Key(char="A"))
+    hit_actor(g, p, 999, "gunshot", None, "a test", part="head")
+    assert not p.alive and g.player is not p and g.player.alive and not g.game_over
+    assert not g.autopilot and len(g.lives) == 1 and g.player.side == p.side
+    assert not p.is_player and g.player.is_player
+    _turns(g, 20)
+    fa.settings["succession"] = "choose"
+    second = g.player
+    hit_actor(g, second, 999, "gunshot", None, "a test", part="head")
+    assert g.__dict__.get("succession_pending") and not g.game_over
+    ps.anim = ps.anim_next = 0
+    ps.tick()
+    assert ps.popups
+    ps.popup_select()
+    assert g.player is not second and g.player.alive and len(g.lives) == 2
+    fa.settings["succession_lives"] = 2
+    hit_actor(g, g.player, 999, "gunshot", None, "a test", part="head")
+    assert g.game_over                                        # (out of lives)
+
+
+def test_sight_lines_compiled_match():
+    """The compiled look-round (numba) sees exactly what the one-line-at-a-time path sees."""
+    import math
+    import numpy as np
+    from fow import fastpath as FP
+    from fow import senses as S
+    from fow.relief import body_height, elevation, eye_height, flat
+    if not FP.lines_ready():
+        return                                    # (no numba: only the one path exists)
+    n = bad = 0
+    for th, nat in (("kursk43", "ussr"), ("stalingrad42", "germany")):
+        g = Game(th, nat, seed=5, setup={"battlefield": "standard"})
+        _turns(g, 40)
+        m = g.map
+        m.smoke[:] = 0
+        m.update_see(force=True)
+        for a in [x for x in g.actors if x.alive and x.vehicle is None and not getattr(x, "z", 0)][:60]:
+            es = [e for e in g.actors if e.side != a.side and e.alive and not getattr(e, "z", 0) and
+                  math.hypot(e.x - a.x, e.y - a.y) < 70][:30]
+            if not es:
+                continue
+            ok = FP.sight_lines(m.see, m.high(), elevation(m), not flat(m), a.x, a.y, eye_height(a), S._high(a),
+                                np.array([e.x for e in es], np.int64), np.array([e.y for e in es], np.int64),
+                                np.array([body_height(e) for e in es], np.float64),
+                                np.array([S._high(e) for e in es], np.bool_))
+            for e, v in zip(es, ok):
+                n += 1
+                bad += bool(v) != bool(S._sight_line(g, a, e))
+    assert n > 500 and bad == 0
+
+
+def test_squad_tactics():
+    """Being shot at is contact; the section leader calls the machine gun; a tank waits for its infantry."""
+    from fow import ai as AI
+    from fow.combat import suppress_line
+    g = Game("bocage44", "usa", seed=3, setup={"battlefield": "standard"})
+    for b in g.support.fires.batteries:
+        b.ammo = 0
+    sq = next(q for q in g.squads if q.side == g.player_side and q.kind == "rifle" and q.members and
+              q is not g.player.squad)
+    man = next(mm for mm in sq.members if mm.active)
+    sq.last_contact = -999
+    suppress_line(g, man.x + 30, man.y, man.x, man.y, 40, "axis" if man.side == "allies" else "allies")
+    assert man.ai.get("fired_on") and man.ai["fired_on"][:2] == (man.x + 30, man.y)
+    AI.squad_update(g, sq)
+    assert sq.last_contact == g.turn and sq.__dict__.get("fired_from")
+    # fire control: an enemy machine gunner in view
+    mg = next(e for e in g.actors if e.side != sq.side and e.active and e.weapon is not None and
+              e.weapon.t.cat in ("lmg", "hmg"))
+    for mm in sq.members:
+        mm.visible = [mg]
+        mm.vis_turn = g.turn
+    AI.designate(g, sq)
+    assert sq.focus[0] == mg.id
+    assert AI.choose_target(g, man, [mg] + [e for e in g.actors if e.side == mg.side][:3]) is not None
+    # a tank far ahead of the riflemen going for the same place halts for them
+    tanks = [v for v in g.vehicles if v.squad is not None and v.squad.kind == "tank" and not v.dead]
+    assert tanks
+    tank = tanks[0]
+    inf = min((q for q in g.squads if q.side == tank.side and q.kind == "rifle" and q.anchor() is not None),
+              key=lambda q: max(abs(q.anchor()[0] - tank.x), abs(q.anchor()[1] - tank.y)))
+    for q in g.squads:                            # (only that one squad, 20 tiles behind the tank)
+        if q is not inf and q.side == tank.side and q.kind == "rifle":
+            q.gone = True
+    g.soldier_at.pop((inf.leader.x, inf.leader.y), None)
+    inf.leader.x, inf.leader.y = tank.x, max(0, tank.y - 20) if tank.y >= 20 else tank.y + 20
+    anc = inf.anchor()
+    ahead = (tank.x, tank.y + (tank.y - anc[1]) * 2)
+    tank.ai.pop("inf_wait", None)
+    tank.ai.pop("hit_turn", None)
+    assert AI.waits_for_infantry(g, tank, ahead)
+    tank.ai.pop("inf_wait", None)
+    assert not AI.waits_for_infantry(g, tank, anc)                # (going back toward them: no waiting)
+
+
 if __name__ == "__main__":
     import time
     tests = [(k, v) for k, v in dict(globals()).items() if k.startswith("test_") and callable(v)]

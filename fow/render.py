@@ -679,6 +679,21 @@ DOLL = [
 ]
 
 
+def _book(game):
+    """The orders book, worked out once a turn (orders.py)."""
+    c = game.__dict__.get("_book_cache")
+    if c is None or c[0] != game.turn or c[2] != game.player_orders:
+        from .orders import book
+        try:
+            c = game.__dict__["_book_cache"] = (game.turn, book(game), game.player_orders)
+        except Exception:
+            import os
+            if os.environ.get("FOW_DEBUG"):
+                raise
+            c = (game.turn, [], game.player_orders)
+    return c[1]
+
+
 def draw_panel(con, game):
     p = game.player
     x0 = VIEW_W
@@ -891,11 +906,18 @@ def draw_panel(con, game):
           "sandstorm": "sandstorm"}.get(game.weather, game.weather)
     con.print(x, y, f"{tstr}, {wx}"[:wdt], fg=UI_TEXT, bg=UI_BG)
     y += 2
-    # orders
-    con.print(x, y, "Orders", fg=UI_FRAME, bg=UI_BG)
+    # orders: the one you're on, and the others you hold (T: the orders book)
+    book = _book(game)
+    con.print(x, y, "Orders" + (f" ({len(book)})  T: all" if len(book) > 1 else ""), fg=UI_FRAME, bg=UI_BG)
     y += 1
-    for line in textwrap.wrap(game.player_orders or "None.", wdt)[:9 if game.__dict__.get("aboard") else 5]:
+    for line in textwrap.wrap(game.player_orders or "None.", wdt)[:9 if game.__dict__.get("aboard") else 4]:
         con.print(x, y, line, fg=(200, 190, 150), bg=UI_BG)
+        y += 1
+    shown = game.player_orders or ""
+    more = [o for o in book if (o["text"] or "")[:30] not in shown][:2]
+    for o in more:
+        who = o["who"].split(",")[0]
+        con.print(x, y, f"· {who}: {o['text']}"[:wdt], fg=(240, 170, 110) if o["urgent"] else (160, 150, 120), bg=UI_BG)
         y += 1
     hint = game.__dict__.get("_order_hint")
     if hint:

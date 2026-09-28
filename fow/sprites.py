@@ -1079,6 +1079,38 @@ def paint_vehicle(vclass: str, camo: str, facing: int, part: str = "hull", burni
                 c.line(P([(x, 32 - hw + 3), (x, 32 + hw - 3)]), fill=shade(col, 0.8) + (255,))
         elif vclass == "car":
             c.poly(P([(32 + 2, 32 - hw + 3), (32 + 4, 32 - hw + 3), (32 + 4, 32 + hw - 3), (32 + 2, 32 + hw - 3)]), fill=(150, 180, 200, 255))
+    elif vclass == "ambulance":
+        hl, hw = 24, 11
+        c.shadow((32 - hl, 32 - hw + 6, 32 + hl, 32 + hw + 8), 100, 3)
+        for fx in (-0.6, 0.6):
+            for s in (-1, 1):
+                c.ellipse(rot_box(32 + fx * hl, 32 + s * hw, 5, 3, ang), fill=(25, 25, 25, 255))
+        c.poly(P([(32 - hl, 32 - hw + 2), (32 + hl, 32 - hw + 2), (32 + hl, 32 + hw - 2), (32 - hl, 32 + hw - 2)]),
+               fill=col + (255,), outline=dark + (255,))
+        c.poly(P([(32 - hl + 3, 32 - 7), (32 + 6, 32 - 7), (32 + 6, 32 + 7), (32 - hl + 3, 32 + 7)]), fill=(235, 235, 230, 255))
+        c.poly(P([(32 - 12, 32 - 2), (32 - 2, 32 - 2), (32 - 2, 32 + 2), (32 - 12, 32 + 2)]), fill=(200, 30, 30, 255))
+        c.poly(P([(32 - 9, 32 - 5), (32 - 5, 32 - 5), (32 - 5, 32 + 5), (32 - 9, 32 + 5)]), fill=(200, 30, 30, 255))
+    elif vclass == "wagon":
+        # a wagon behind a pair of horses
+        c.shadow((10, 24, 58, 46), 80, 3)
+        horse = (110, 75, 45)
+        for s in (-5, 5):
+            c.ellipse(rot_box(32 + 16, 32 + s, 9, 3.5, ang), fill=horse + (255,))
+            c.ellipse(rot_box(32 + 26, 32 + s, 3, 2.2, ang), fill=shade(horse, 0.8) + (255,))
+        c.line(P([(32 + 6, 32), (32 + 12, 32)]), fill=(90, 70, 45, 255), width=2)
+        wood = (125, 100, 65)
+        c.poly(P([(32 - 22, 32 - 9), (32 + 6, 32 - 9), (32 + 6, 32 + 9), (32 - 22, 32 + 9)]), fill=wood + (255,),
+               outline=shade(wood, 0.6) + (255,))
+        c.poly(P([(32 - 20, 32 - 7), (32 + 4, 32 - 7), (32 + 4, 32 + 7), (32 - 20, 32 + 7)]), fill=(185, 175, 150, 255))
+        for fx in (-17, 1):
+            for s in (-1, 1):
+                c.ellipse(rot_box(32 + fx, 32 + s * 10, 4, 1.8, ang), fill=(60, 45, 30, 255))
+    elif vclass == "motorcycle":
+        c.shadow((18, 28, 48, 40), 80, 2)
+        c.line(P([(32 - 12, 32), (32 + 12, 32)]), fill=(40, 40, 38, 255), width=4)
+        for fx in (-12, 12):
+            c.ellipse(rot_box(32 + fx, 32, 4, 2.5, ang), fill=(20, 20, 20, 255))
+        c.ellipse(rot_box(32 - 2, 32, 4, 3, ang), fill=col + (255,))
     elif vclass in ("lc", "amtrac"):
         hl, hw = 27, 13
         c.shadow((32 - hl, 32 - hw + 6, 32 + hl, 32 + hw + 8), 60, 4)
@@ -1293,6 +1325,12 @@ def paint_effect(kind: str, frame: int = 0) -> np.ndarray:
 
 def vehicle_class(vt) -> str:
     v = vt.vtype
+    if vt.id in ("horse_wagon", "panje_wagon"):
+        return "wagon"
+    if vt.id == "ambulance":
+        return "ambulance"
+    if vt.id == "motorcycle":
+        return "motorcycle"
     if v == "tank" and vt.armor[0] >= 100:
         return "heavy"
     return {"tank": "tank", "ltank": "ltank", "tankette": "tankette", "td": "td", "spg": "spg",

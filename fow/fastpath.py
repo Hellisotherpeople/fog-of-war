@@ -132,3 +132,98 @@ def accelerated() -> bool:
     if _fast is None:
         _compile()
     return bool(_fast)
+
+
+# ============================================================================ lines of sight, many at once
+_lines = None
+
+
+def _compile_lines():
+    """One man looking at everyone he might see: every line checked in one compiled call (senses.py's
+    update_actor_vision).  The same answer, tile for tile, as senses.los_clear: tcod's Bresenham line drawn
+    from the lesser end, the see-through mask (or the high one, for a man up in a vehicle or looking down
+    from a height), and the ground not rising above the sight line (relief.crest_clear)."""
+    global _lines
+    if os.environ.get("FOW_NO_NUMBA"):
+        _lines = False
+        return
+    try:
+        import numba
+    except Exception:
+        _lines = False
+        return
+
+    @numba.njit(cache=True, nogil=True)
+    def lines(see, high, elev, rel, ax, ay, h0, vhigh, tx, ty, h1, thigh, out):
+        for k in range(tx.shape[0]):
+            bx = tx[k]
+            by = ty[k]
+            hb = h1[k]
+            if abs(bx - ax) <= 1 and abs(by - ay) <= 1:
+                out[k] = True
+                continue
+            hi = vhigh or thigh[k]
+            if rel and not hi:
+                zm = elev[(ax + bx) // 2, (ay + by) // 2]
+                hi = h0 >= 2.5 or hb >= 2.5 or elev[ax, ay] + h0 - zm >= 4.0 or elev[bx, by] + hb - zm >= 4.0
+            if ax < bx or (ax == bx and ay <= by):
+                x0, y0, x1, y1, ha, hz = ax, ay, bx, by, h0, hb
+            else:
+                x0, y0, x1, y1, ha, hz = bx, by, ax, ay, hb, h0
+            mask = high if hi else see
+            dx = x1 - x0
+            dy = y1 - y0
+            sx = 1 if dx > 0 else (-1 if dx < 0 else 0)
+            sy = 1 if dy > 0 else (-1 if dy < 0 else 0)
+            n = max(abs(dx), abs(dy))
+            za = np.float32(0.0)
+            dz = np.float32(0.0)
+            if rel:
+                fa = elev[x0, y0] + ha
+                za = np.float32(fa)
+                dz = np.float32(elev[x1, y1] + hz - fa)
+            ok = True
+            x = x0
+            y = y0
+            DX = 2 * dx
+            DY = 2 * dy
+            xmajor = sx * dx > sy * dy
+            e = sx * dx if xmajor else sy * dy
+            for i in range(1, n):
+                if xmajor:
+                    x += sx
+                    e -= sy * DY
+                    if e < 0:
+                        y += sy
+                        e += sx * DX
+                else:
+                    y += sy
+                    e -= sx * DX
+                    if e < 0:
+                        x += sx
+                        e += sy * DY
+                if not mask[x, y]:
+                    ok = False
+                    break
+                if rel:
+                    t = np.float32(i) / np.float32(n)
+                    if elev[x, y] > za + dz * t + np.float32(0.25):
+                        ok = False
+                        break
+            out[k] = ok
+
+    _lines = lines
+
+
+def lines_ready() -> bool:
+    if _lines is None:
+        _compile_lines()
+    return bool(_lines)
+
+
+def sight_lines(see, high, elev, rel, ax, ay, h0, vhigh, tx, ty, h1, thigh):
+    """[clear?] for the lines from (ax, ay) at eye height h0 to each (tx, ty) at height h1 (lines_ready()
+    first: without numba, senses.py checks them one at a time)."""
+    out = np.zeros(len(tx), np.bool_)
+    _lines(see, high, elev, rel, ax, ay, h0, vhigh, tx, ty, h1, thigh, out)
+    return out

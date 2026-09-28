@@ -35,6 +35,11 @@ DEFAULTS = {
     "battlefield": "large",   # for new games: standard / large / huge (see game.BATTLEFIELDS)
     "autosave": True,         # save every few minutes of real time as well as on quitting
     "minimap": False,         # the minimap is open when a game starts
+    # when you die (succession.py): off - the end; on - carry on as someone else; choose - pick who
+    "succession": "off",
+    "succession_rule": "squad",   # squad / unit / nearest / role / rank / random / killer
+    "succession_side": "own",     # own / any
+    "succession_lives": 0,        # 0: no limit
 }
 ANIM_SPEEDS = ("fast", "normal", "slow", "very slow")
 ANIM_FRAME = {"fast": 0.035, "normal": 0.07, "slow": 0.16, "very slow": 0.32}

@@ -569,18 +569,33 @@ def clip_help():
 
 
 def clip_title():
-    """The title screen, as a still."""
-    from fow.ui import MainMenuState
-    rec = Recorder(sprites=True)
-    m = MainMenuState(rec.app)
-    rec.app.states = [m]
-    rec.snap(m, 1000)
-    rec.crop()
-    img = rec.frames[-1][0]
+    """The title screen, as a still: the console drawn straight through the game's tileset (not through the window,
+    which crops a console bigger than it), then trimmed evenly round what's on it so it sits centred."""
+    from fow.ui import App, MainMenuState
+    app = App()
+    m = MainMenuState(app)
+    app.states = [m]
+    con = app.console
+    con.clear()
+    m.render(con)
+    px = app.tileset.render(con)                              # (h, w, 4) RGBA
+    img = Image.fromarray(np.ascontiguousarray(px[:, :, :3]))
+    # the box round the menu and the logo (the credit line at the foot is left out of the reckoning)
+    arr = np.asarray(img).max(axis=2)
+    ch = img.height // con.height
+    body = arr[: img.height - 2 * ch]
+    ys, xs = np.nonzero(body > 24)
+    x0, x1, y0, y1 = int(xs.min()), int(xs.max()), int(ys.min()), int(ys.max())
+    pad = 36
+    # centre horizontally on the content; keep the credit line if it fits
+    cx = (x0 + x1) // 2
+    half = max(cx - x0, x1 - cx) + pad
+    box = (max(0, cx - half), max(0, y0 - pad), min(img.width, cx + half), min(img.height, y1 + pad))
+    img = img.crop(box)
+    img = img.resize((int(img.width * 0.8), int(img.height * 0.8)), Image.LANCZOS)
     os.makedirs(OUT, exist_ok=True)
     img.save(os.path.join(OUT, "title.png"), optimize=True)
-    print("  title.png")
-    rec.ctx.close()
+    print(f"  title.png {img.size}")
 
 
 CLIPS = {"title": clip_title, "battle": clip_battle, "tanks": clip_tanks, "ascii": clip_ascii,

@@ -1588,7 +1588,16 @@ class Game:
                 self.command.on_kill(self, a)
         if a.is_player:
             self.player_died(killer)
-            return
+            if self.game_over or a.is_player:
+                return
+            # someone else carries on (succession.py): this body is one of the war's dead like any other
+        self.body_falls(a, killer, seen)
+
+    def body_falls(self, a, killer, seen=None):
+        """A dead man's body and kit: where they fall, who notices, what it does to the men round him."""
+        m = self.map
+        if seen is None:
+            seen = self.can_see(a.x, a.y)
         if seen and not self.__dict__.get("_quiet_kill"):      # (hand to hand tells it its own way: melee.py)
             if killer is self.player:
                 self.msg(f"You kill {self.name_of(a)}.", "hit")
@@ -1682,6 +1691,11 @@ class Game:
             self.death_text += f" Posthumously awarded the {award}."
         self.msg("You die...", "death")
         self.write_memorial()
+        from .succession import on_death
+        cfg = self.__dict__.get("_prefs") or {}
+        if on_death(self, cfg, k):
+            if self.__dict__.get("succession_pending"):
+                self.game_over = False            # (the chooser: PlayState shows it)
 
     def write_memorial(self):
         try:
@@ -2693,6 +2707,7 @@ class Game:
         m = self.map
         text = ""
         cmd = self.command
+        self._squad_order_text = self._command_order_text = None      # (for the orders book: orders.py)
         pb = self.support.fires.player_battery(self) if self.support is not None else None
         gun = next((v for v in (sq.vehicles if sq is not None else ()) if v.ai.get("battery") and not v.dead), None)
         if sq is None:
@@ -2710,6 +2725,7 @@ class Game:
             if enemy_obj and cmd.billet.echelon in ("platoon", "company"):
                 o = min(enemy_obj, key=lambda o: abs(o.x - p.x) + abs(o.y - p.y))
                 text = f"You command {cmd.billet_title(self)}. Battalion wants {o.name} taken. (C: command)"
+                self._command_order_text = f"Take {o.name}."
         elif sq.player_led:
             text = "You lead. Press O to give your men orders."
             enemy_obj = [o for o in m.objectives if o.owner != p.side]
@@ -2731,6 +2747,7 @@ class Game:
                 text = f"{lname}: 'Stay on me.'"
             else:
                 text = f"{lname}: 'Hold here and keep your eyes open.'"
+            self._squad_order_text = text.split(": ", 1)[-1].strip("'")
         from . import base as _BASE
         bo = _BASE.order_line(self)
         if bo:
@@ -2885,8 +2902,8 @@ class Game:
             if not a.alive:
                 continue
             a.moves += a.speed(self.turn) if a is not p else a.speed()
-            if a is p:
-                continue
+            if a is p and not self.__dict__.get("autopilot"):
+                continue                          # (on autopilot, you're one of them: succession.py)
             guard = 0
             while a.moves > 0 and a.alive and guard < 4:
                 guard += 1
@@ -3029,6 +3046,9 @@ class Game:
         if self.__dict__.get("agent"):
             from .agents import tick as _agents_tick
             _agents_tick(self)
+        if self.turn % 10 == 7 and not aboard and self.map is not None:
+            from .rear import tick as _rear_tick
+            _rear_tick(self)                      # the traffic on the supply roads
         self._environment()
         if self.terrain_dirty:
             m.refresh()
