@@ -138,6 +138,18 @@ attacks you order fought where you can go and watch them.
 
 <table>
 <tr>
+<td width="50%"><img src="docs/media/gunline.gif" alt="An American howitzer battery on the gun line"><br>
+<b>The gun line.</b> A real battery with its own guns and its own rounds. Fire missions come down with
+the charge, azimuth and elevation; the observer reports what they did. Then the enemy's
+sound-rangers find you, and the counter-battery fire comes back from their guns.</td>
+<td width="50%"><img src="docs/media/help.gif" alt="The help screen"><br>
+<b>Help that knows where you are.</b> F1 opens at "Right now": the keys for your seat, your orders
+and whatever's beside you, in bold. Every other key is a section or a search away.</td>
+</tr>
+</table>
+
+<table>
+<tr>
 <td width="50%"><img src="docs/media/kit.gif" alt="The kit screen and health"><br>
 <b>Kit and body.</b> A Tarkov-style grid for webbing, pack and pockets; searching the dead; and a
 body with no hit points: wounds, blood, pain, breath, cold and heat.</td>

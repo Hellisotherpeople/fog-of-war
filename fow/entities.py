@@ -449,6 +449,12 @@ class Actor:
         return w is not None and w.t.kind == "gun" and not w.jammed and w.loaded > 0
 
 
+def riding(a) -> bool:
+    """On the outside of a vehicle - a tank's engine deck, with no seat inside - rather than in it."""
+    v = a.vehicle
+    return v is not None and not v.vt.seats and a in v.passengers
+
+
 class Vehicle:
     def __init__(self, vid: str, side: str, nation: str, x: int, y: int, facing: int = 0):
         self.id = next(_ids)
@@ -528,6 +534,10 @@ class Vehicle:
     def __setstate__(self, st):
         # saves from before vehicles had parts: engine / tracks / gun_ok were plain flags
         eng, trk, gun = st.pop("engine", True), st.pop("tracks", True), st.pop("gun_ok", True)
+        for k, d in (("buttoned", True), ("kills", 0), ("state", "ok"), ("ammo_choice", "ap"), ("stuck", 0),
+                     ("known", {}), ("visible", []), ("vis_turn", -99), ("crew_actors", [])):
+            if k not in st:
+                st[k] = d.copy() if isinstance(d, (dict, list)) else d
         self.__dict__.update(st)
         if "parts" not in st:
             from .vdamage import parts_for

@@ -241,6 +241,8 @@ class Game:
         start = rng.choice(cands)
         from . import scenarios as SC
         forced = SC.choose_start(self, self.scenario, side)
+        if forced is None and not any(k.startswith("paradrop") or k == "landing" for k in special):
+            forced = self._headquarters_start(role, side)     # a general's headquarters is behind the line
         if forced is not None:
             start = forced
         # attacker front sectors: the battle is in the enemy sector next door
@@ -267,9 +269,9 @@ class Game:
                     # the enemy attacks us
                     src = rng.choice(enemy_nb)
                     start.units[other_side(side)].update(st._detach(src.units[other_side(side)], 0.6))
-        # make sure there is a fight (not at the gun line: the fight there is miles away, for now)
+        # make sure there is a fight (not at the gun line, or a headquarters: the fight there is miles away)
         for s2 in SIDES:
-            if self.scenario == "gunline":
+            if self.scenario == "gunline" or self.__dict__.get("_hq_start"):
                 break
             if sum(start.units[s2].values()) == 0:
                 start.units[s2]["inf"] += st.sc(rng.randint(3, 6))
@@ -307,6 +309,38 @@ class Game:
         self.briefing = self._make_briefing(notes)
         self.update_orders(force=True)
         self.player_fov()
+
+    def _headquarters_start(self, role, side):
+        """Regiment commanders and up command from a headquarters behind the front - a regiment's a sector or
+        so back, a division's two, a corps' or an army's three or more - with the fighting next door and the
+        staff screen (G) to go forward and see.  None for everyone else."""
+        from .spawn import COMMAND_ROLES
+        grade = COMMAND_ROLES.get(role or "", 0)
+        if grade < 13:
+            return None
+        st = self.strategic
+        depth = {13: 1, 14: 2, 15: 2, 16: 3, 17: 3, 18: 4}.get(grade, 2)
+        own = [s for s in st.sectors() if s.playable and s.control == side]
+        if not own:
+            return None
+        def gap(s):
+            return st._front_distance(s, side)
+        cands = [s for s in own if s.installs(side, "hq") and gap(s) >= 1]
+        near = [s for s in cands if gap(s) <= depth + 1] or cands
+        if not near:
+            near = [s for s in own if gap(s) >= min(depth, max(gap(o) for o in own))]
+        if not near:
+            return None
+        s = min(near, key=lambda s: (abs(gap(s) - depth), self.rng.random()))
+        if not s.installs(side, "hq"):
+            s.installations.append(["hq", side, True])
+        for sd in SIDES:
+            if sd != side:
+                s.units[sd] = Counter()                  # no enemy at headquarters
+        s.units[side]["hq"] = max(1, s.units[side].get("hq", 0))
+        s.units[side]["inf"] = max(2, s.units[side].get("inf", 0))
+        self._hq_start = True
+        return s
 
     def _apply_setup(self, p, notes):
         """The creator's choices: name, rank, traits, weapon, extra kit, and whether the start is kind."""
@@ -448,7 +482,17 @@ class Game:
         self.sound_marks = []
         if self.support is not None:
             self.support.queue = []
-            self.support.aircraft = []
+            self.support.clear_air()
+        # a litter team on its way to where you were won't find you here
+        mv = self.__dict__.get("medevac")
+        if mv is not None and mv.get("stage") in ("coming", "carrying"):
+            self.__dict__["medevac"] = None
+            if self.player is not None:
+                self.player.ai.pop("carried_by", None)
+            self.msg("(The litter team you called won't find you here. Call again if you need them.)", "info")
+        # shells on their way to the last place, and warnings about them, stay there
+        self.__dict__.pop("_counter_battery", None)
+        self.__dict__.pop("_cb_warn", None)
         fresh = sector.saved is None
         if not fresh:
             self.map = self._load_map(sector)
@@ -623,6 +667,14 @@ class Game:
                     self.stats["sent_forward"] = self.stats.get("sent_forward", 0) + 1
             for v in list(sq.vehicles):
                 if v.active and self._edge_gap(e, v.x, v.y) <= 5 and not v.player_crewed:
+                    rider = self.player if self.player.vehicle is v else None
+                    if rider is not None:
+                        # you only hitched a ride: at the start line they put you off before they go over
+                        from .actions import exit_vehicle
+                        if exit_vehicle(self, rider) is None:
+                            continue                       # nowhere to set you down: they wait
+                        self.msg(f"The {v.vt.name} halts at the start line. \"Off! This is as far as you ride.\" "
+                                 f"You climb down and it grinds on over the edge of the map.", "warn")
                     for pa in list(v.passengers):
                         self.remove_actor(pa)
                         pa.state = "departed"
@@ -1022,6 +1074,8 @@ class Game:
                     a.squad.members.remove(a)
                 if a in self.actors:
                     self.actors.remove(a)
+        from .base import left_behind
+        left_behind(self, vehicle)
         # store what's left behind (the companions and player are no longer part of it)
         old_sq_ref = p.squad
         if old_sq_ref is not None:
@@ -1056,10 +1110,26 @@ class Game:
         self.squads.append(sq)
         ex, ey = self._edge_entry_point(OPP[edge])
         if vehicle is not None:
-            from .spawn import vehicle_spot
-            spot = vehicle_spot(self, ex, ey, vehicle.vt, 12, vehicle.body_facing)
-            if spot:
-                vehicle.x, vehicle.y = spot
+            spot, f = self._vehicle_entry(vehicle, OPP[edge], ex, ey)
+            if spot is None:
+                # no way in for it on this side (a river, a town, a wood): it's left behind, you go on foot
+                self.msg(f"There's no way through for the {vehicle.vt.name} here - you leave it at the edge "
+                         f"and go on on foot.", "warn")
+                vehicle.passengers = []
+                vehicle.crew_actors = []
+                vehicle.player_crewed = False
+                vehicle.player_station = None
+                for a in [p] + riders:
+                    a.vehicle = None
+                    a.x = a.y = -1
+                comp += riders                               # (placed round you below, with the others)
+                vehicle = None
+        if vehicle is not None:
+            vehicle.x, vehicle.y = spot
+            if f is not None and f != vehicle.facing:
+                vehicle.turret = f if not vehicle.vt.turret else (vehicle.turret + f - vehicle.facing) % 8
+                vehicle.facing = f
+            vehicle.ai.pop("supply_run", None)          # yours now: it goes where you go
             self.add_vehicle(vehicle)
             vehicle.squad = sq
             sq.vehicles.append(vehicle)
@@ -1116,6 +1186,25 @@ class Game:
                  + (f" ({held} ground)." if p.has_tool("map") else "."), "info")
         self.player_fov()
         return True
+
+    def _vehicle_entry(self, v, edge, ex, ey):
+        """Room for a vehicle coming in over an edge: near where you cross, else anywhere along that edge.
+        Returns (pivot, facing) or (None, None)."""
+        from .spawn import spot_and_facing
+        m = self.map
+        pts = [(ex, ey)]
+        n = 8
+        for i in range(1, n):
+            if edge in ("N", "S"):
+                pts.append((int(m.w * i / n), ey))
+            else:
+                pts.append((ex, int(m.h * i / n)))
+        pts.sort(key=lambda q: abs(q[0] - ex) + abs(q[1] - ey))
+        for x, y in pts:
+            spot, f = spot_and_facing(self, x, y, v.vt, 12, v.body_facing)
+            if spot is not None:
+                return spot, f
+        return None, None
 
     def _edge_entry_point(self, edge):
         m = self.map
@@ -1391,6 +1480,24 @@ class Game:
         elif self.can_see(actor.x, actor.y):
             self.msg(f"{cap(self.name_of(actor))} {verb}.", cat)
 
+    def seen_enemies(self, within=60) -> list:
+        """The enemy soldiers and vehicles you can see from where you are (the player has no 'visible' list of
+        his own: what he sees is the field of view)."""
+        p = self.player
+        if p is None or self.map is None:
+            return []
+        from .senses import player_can_see_actor
+        out = []
+        for a in self.actors:
+            if a.side != p.side and a.active and not a.downed and a.state != "surrendered" and \
+                    abs(a.x - p.x) <= within and abs(a.y - p.y) <= within and player_can_see_actor(self, a):
+                out.append(a)
+        for v in self.vehicles:
+            if v.side != p.side and not v.dead and not v.abandoned and abs(v.x - p.x) <= within and \
+                    abs(v.y - p.y) <= within and self.can_see(v.x, v.y):
+                out.append(v)
+        return out
+
     def can_see(self, x, y) -> bool:
         m = self.map
         return self.player is not None and m is not None and m.in_bounds(x, y) and bool(m.visible[x, y])
@@ -1619,7 +1726,8 @@ class Game:
             if e:
                 dx, dy = EDGE_VEC[e]
                 n = self.strategic.at(self.sector.x + dx, self.sector.y + dy)
-                if n is not None and a.squad is not None and a.squad.leader is a:
+                if n is not None and a.squad is not None and a.squad.leader is a and \
+                        not getattr(a.squad, "no_count", False):   # (litter teams, staff: not a unit of the line)
                     n.units[a.side]["inf"] += 1
 
     def bail_out(self, v, survivors, catastrophic):
@@ -1669,7 +1777,8 @@ class Game:
             spot = self.free_around(v, self.brain_enemy_center(v.side))
             if spot is None:
                 break
-            c = make_soldier(self, v.nation, "tank_crew")
+            # a gun's crew are gunners; everything else with a crew, tank crewmen (and drivers)
+            c = make_soldier(self, v.nation, "artilleryman" if v.vt.vtype == "fieldgun" else "tank_crew")
             c.x, c.y = spot
             c.stance = 2
             c.suppression = 70
@@ -1703,6 +1812,7 @@ class Game:
                     continue
             v.passengers.remove(p)
             p.vehicle = None
+            p.ai.pop("rider", None)
             p.x, p.y = spot
             self.place_on_map(p)
             p.stance = 1
@@ -1765,6 +1875,8 @@ class Game:
             return True
         if v.vt.static:
             v.facing = facing
+            if not v.vt.turret:
+                v.turret = facing         # (a gun on a carriage: the barrel is the trail's direction)
             return True
         if not can_move(v):
             return False                  # a broken track or a dead engine: it doesn't pivot either
@@ -1772,7 +1884,9 @@ class Game:
         if room is None or room[1] or room[2]:
             return False
         self.lift_vehicle(v)
-        if v.vt.turret and not turret_turns(v):
+        if not v.vt.turret:
+            v.turret = facing                                  # a gun in the hull points where the hull does
+        elif not turret_turns(v):
             v.turret = (v.turret + facing - v.facing) % 8      # a jammed turret swings with the hull
         v.facing = facing
         self.place_vehicle(v)
@@ -1845,7 +1959,9 @@ class Game:
             self.emit_sound(cx, cy, 60, "crash", f"a {vt.name} smashing through {d.name}", v.side, v)
             cost += 150
         self.lift_vehicle(v)
-        if v.vt.turret and f != v.facing:
+        if not v.vt.turret:
+            v.turret = f
+        elif f != v.facing:
             from .vdamage import turret_turns
             if not turret_turns(v):
                 v.turret = (v.turret + f - v.facing) % 8
@@ -2555,8 +2671,12 @@ class Game:
         text = ""
         cmd = self.command
         pb = self.support.fires.player_battery(self) if self.support is not None else None
+        gun = next((v for v in (sq.vehicles if sq is not None else ()) if v.ai.get("battery") and not v.dead), None)
         if sq is None:
             text = "No orders. Find your unit."
+        elif pb is None and gun is not None and p.vehicle is None and cmd.billet is None:
+            text = (f"Off your gun. The {gun.vt.name} is {int(math.hypot(gun.x - p.x, gun.y - p.y) * 2.2)} yards away: "
+                    f"e beside it to take the layer's seat again.")
         elif pb is not None and cmd.billet is None:
             what = "tube" if pb.kind == "mortar" else "gun"
             text = (f"On your {what} with {pb.name}: stand by for fire missions. "
@@ -2704,6 +2824,10 @@ class Game:
         return n
 
     def world_turn(self):
+        mv = self.__dict__.get("medevac")
+        if mv is not None and mv.get("stage") == "arrived":
+            from .medevac import hospital
+            hospital(self)                         # (between turns: the map changes under everyone)
         self.turn += 1
         self.clock += 1
         rng = self.rng
@@ -3133,7 +3257,8 @@ class Game:
         if sq is not None:
             ld = sq.leader
             if ld is not None and ld is not a and ld.active and max(abs(ld.x - a.x), abs(ld.y - a.y)) <= 6:
-                bonus += 0.06 + 0.01 * ld.rank
+                from .skills import level
+                bonus += (0.03 + 0.01 * ld.rank) * (0.4 + level(ld, "leadership") * 0.12)   # a leader worth the name
         for o in officers:
             if o is not a and o.side == a.side and max(abs(o.x - a.x), abs(o.y - a.y)) <= 10:
                 bonus += 0.05

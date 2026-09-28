@@ -163,7 +163,7 @@ SECTIONS = [
         ("k", "Esc|V|q", "close"),
         ("h", "The rest"),
         ("k", "m", "the war map: {Home} or {@} back to you, {z} wide view; in command: {a} attack, {r} reserves, {d} dig in, {p} and {f} artillery or air priority, {x} cancel, {o} staff screen"),
-        ("k", "@", "yourself: your body in detail; {Tab} for your service record and chain of command"),
+        ("k", "@", "yourself: your body in detail; {Tab} your skills, then your service record and chain of command"),
         ("k", "P", "the message log"),
     ]),
     ("Screen & mouse", [
@@ -237,6 +237,12 @@ SECTIONS = [
         ("t", "Sounds you can't see appear on the map where you think they came from - a guess."),
         ("t", "Being seen takes a moment: lie still in cover and they may look straight at you."),
         ("t", "The sun and moon are real: a dawn attack starts in the half-light; the moon lights the night."),
+        ("h", "Skills ({@}, then {Tab})"),
+        ("t", "Twelve, in words: untrained, a beginner, adequate, competent, skilled, expert, a master. Every man's are a"),
+        ("t", "roll - any private can be a natural shot or good at creeping about - but training guarantees what his job"),
+        ("t", "needs: snipers and agents stalk, medics dress wounds, engineers know explosives, commandos most of it."),
+        ("t", "They matter where they're used - the aim, the guns, being noticed and noticing, first aid, a charge, the"),
+        ("t", "wheel, the radio, your men, your wind, the language - and they come on slowly with use."),
     ]),
     ("Lessons", [
         ("t", "Lie down behind something that stops bullets. Straw, hedges and doors hide you; they don't stop rounds."),

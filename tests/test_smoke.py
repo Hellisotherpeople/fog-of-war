@@ -266,7 +266,7 @@ def test_tanks_are_repaired_rearmed_and_ridden():
     """A thrown track goes back on, a truck's shells go into the racks, infantry ride the hull, and a
     sergeant's order to carry shells is carried out with Enter."""
     from fow import maintenance as MT
-    from fow.entities import Item, Vehicle
+    from fow.entities import Item, Vehicle, riding
     from fow.play import PlayState
     from fow.skysea_exit import to_land
     from fow.spawn import spot_and_facing
@@ -313,7 +313,7 @@ def test_tanks_are_repaired_rearmed_and_ridden():
     p.x, p.y = _beside(g, v)
     g.soldier_at[(p.x, p.y)] = p
     ps._enter_vehicle(v)
-    assert p.vehicle is v and p.ai.get("rider") and p in v.passengers
+    assert p.vehicle is v and riding(p) and p in v.passengers
     assert "jump down" in ps.context_hint()
     ps._vehicle_choice(v, ("exit", None))
     assert p.vehicle is None and not p.ai.get("rider")
@@ -384,17 +384,19 @@ def test_dawn_light_and_seeing_from_a_tank():
     fa.states = [ps]
     assert S.daylight(g) > 0.8 and not g.is_dark
     v = g.player.vehicle
-    assert v is not None and v.player_station == "commander"
+    from fow.vdamage import hatch_user
+    assert v is not None and v.player_station == hatch_user(v)     # (a two-man tank's gunner commands it)
 
     def reach():
         g.player_fov()
         xs, ys = np.nonzero(g.map.visible)
-        return float(np.hypot(xs - v.x, ys - v.y).max())
+        return float(np.hypot(xs - v.x, ys - v.y).max()), len(xs)
     v.buttoned = False
-    out = reach()
+    out, seen_out = reach()
     v.buttoned = True
-    shut = reach()
-    assert out > 45 and 20 < shut < out, (out, shut)
+    shut, seen_shut = reach()
+    # (head out he sees far all round; buttoned up, less - except down a gunner-commander's sight)
+    assert out > 45 and shut > 20 and seen_shut < seen_out, (out, shut, seen_out, seen_shut)
     # the view widens smoothly through twilight: no jump to a few yards when it's "dark"
     ranges = []
     for mins in range(-90, 30, 5):
@@ -553,7 +555,9 @@ def test_help_screen():
     fa.states = [ps]
     h = HelpState(fa, play=ps)
     assert h.sections[0][0] == "Right now"
-    assert any("commander" in str(r) for r in h.sections[0][1])
+    from fow import crew as C
+    seat = C.name(g.player.vehicle.vt, g.player.vehicle.player_station).lower()
+    assert any(seat in str(r) for r in h.sections[0][1])
     con = tcod.console.Console(SCREEN_W, SCREEN_H, order="F")
     for i in range(len(h.sections)):
         h.sel = i
@@ -604,13 +608,13 @@ def test_orders_propose_targets_and_tasks():
             g.kill(a, None)
     assert TK.available(g, sq, (p.x, p.y))["medical"][0] > 0
     TK.assign(g, sq, "medical", by=p)
-    before = sum(1 for m in sq.members for i in m.inv if i.t.kind == "medical")
+    before = sum(i.count for m in sq.members for i in m.inv if i.t.kind == "medical")
     for _ in range(90):
         _turns(g, 10)
         if sq.__dict__.get("task") is None:
             break
     assert sq.__dict__.get("task") is None
-    assert sum(1 for m in sq.members for i in m.inv if i.t.kind == "medical") > before
+    assert sum(i.count for m in sq.members for i in m.inv if i.t.kind == "medical") > before
     # a man down: carried to the aid post
     w = next(m for m in sq.members if m is not p and m.active)
     w.body.hp["l_leg"] = w.body.hp["r_leg"] = 0
@@ -672,6 +676,47 @@ def test_medevac():
     assert carried and g.medevac is None
     assert (g.now() - day0).days >= 7
     assert all(p.body.hp[k] == p.body.max[k] for k in p.body.hp) and p in g.actors
+
+
+def test_skills():
+    """Every man's skills are a roll - any private might be a fine shot - but training puts a floor under what
+    his job needs: snipers stalk and shoot, agents pass unseen, medics close wounds.  Practice brings them on,
+    and they're used where they matter (being noticed, first aid)."""
+    import statistics
+    import tcod
+    from fow import skills as SK
+    from fow.constants import SCREEN_H, SCREEN_W
+    from fow.spawn import make_soldier
+    from fow.ui import StatusState
+    fa = FakeApp()
+    g = Game("bocage44", "usa", seed=4, setup={"battlefield": "standard"})
+    rifles = [make_soldier(g, "usa", "rifleman") for _ in range(60)]
+    snipers = [make_soldier(g, "usa", "sniper") for _ in range(20)]
+    medics = [make_soldier(g, "usa", "medic") for _ in range(20)]
+    for a in rifles + snipers + medics:
+        assert set(a.skills) == set(SK.SKILLS) and all(0 <= v <= 10 for v in a.skills.values())
+    # the floors: every sniper can stalk and shoot; every medic can dress a wound
+    assert min(a.skills["marksmanship"] for a in snipers) >= 5.0
+    assert min(a.skills["stealth"] for a in snipers) >= 4.5
+    assert min(a.skills["first_aid"] for a in medics) >= 4.0
+    # the roll: riflemen differ, and some untrained man is a natural at something
+    st = [a.skills["stealth"] for a in rifles]
+    assert statistics.pstdev(st) > 0.8 and max(st) > 4.0
+    # on average a sniper is harder to notice than a rifleman
+    assert statistics.mean(SK.stealth_mult(a) for a in snipers) < statistics.mean(SK.stealth_mult(a) for a in rifles)
+    # practice: a little each time, less the better he is
+    a = rifles[0]
+    a.skills["first_aid"] = 2.0
+    for _ in range(200):
+        SK.use(g, a, "first_aid", 3)
+    assert a.skills["first_aid"] > 2.5
+    # the screen
+    ss = StatusState(fa, g)
+    ss.page = 1
+    con = tcod.console.Console(SCREEN_W, SCREEN_H, order="F")
+    ss.render(con)
+    text = "".join(chr(c) for row in con.ch.T for c in row if 32 <= c < 0x10000)
+    assert "SKILLS" in text
 
 
 if __name__ == "__main__":

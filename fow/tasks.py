@@ -97,9 +97,22 @@ def available(game, sq, origin):
            math.hypot(a.x - ox, a.y - oy) <= RADIUS and _unguarded(game, a)]
     out["prisoners"] = (len(pws), f"{len(pws)} with their hands up" if pws else "nobody's surrendered near them")
     veh = [v for v in game.vehicles if v.side == side and not v.dead and not v.abandoned and
-           math.hypot(v.x - ox, v.y - oy) <= RADIUS and ("track" in MT.repairs(v) or MT.shells_short(v) > 0)]
+           math.hypot(v.x - ox, v.y - oy) <= RADIUS and _needs_hands(v, game)]
     out["repair"] = (len(veh), f"the {veh[0].vt.name}" if veh else "no vehicle needs a hand")
+    if not _workers(sq):
+        out = {k: (0, "no men on foot to send") for k in TASKS}
+    from . import medical as MED
+    if out["casevac"][0] and not MED.aid_posts(game, side):
+        n = out["casevac"][0]
+        out["casevac"] = (n, f"{n} wounded down - no aid post here: out of the line of fire, then")
     return out
+
+
+def _needs_hands(v, game) -> bool:
+    """A track to put back on (any backs will do) - or rounds to pass up, if there are rounds to hand."""
+    from . import maintenance as MT
+    return "track" in MT.repairs(v) or (MT.shells_short(v) > 0 and
+                                         (v.ai.get("rearming") or MT.source(game, v) is not None))
 
 
 def _unguarded(game, pw) -> bool:
@@ -136,17 +149,19 @@ def assign(game, sq, kind, by=None):
     if kind == "repair":
         from . import maintenance as MT
         needy = [v for v in game.vehicles if v.side == sq.side and not v.dead and not v.abandoned and
-                 ("track" in MT.repairs(v) or MT.shells_short(v) > 0)]
+                 _needs_hands(v, game)]
         if anc is not None and needy:
             v = min(needy, key=lambda v: abs(v.x - anc[0]) + abs(v.y - anc[1]))
             sq.order = Order("hold", target=(v.x, v.y), radius=5, issued=game.turn, src="player")
             sq.__dict__["help_v"] = v.id
             sq.arrived = False
             sq.positions = {}
+        sq.task["issued"] = sq.order.issued
         return
     if anc is not None and not sq.player_led:
         sq.order = Order("hold", target=anc, radius=8, issued=game.turn, src="player", roe=sq.order.roe)
         sq.arrived = True
+    sq.task["issued"] = sq.order.issued
 
 
 def _workers(sq):
@@ -163,6 +178,9 @@ def act(game, a, vis, sq) -> int | None:
         return None
     if game.turn > t["until"]:
         finish(game, sq, "time")
+        return None
+    if "issued" in t and sq.order.issued != t["issued"]:
+        finish(game, sq, "orders")                   # new orders: the job's dropped
         return None
     if vis and min(math.hypot(e.x - a.x, e.y - a.y) for e in vis) < CLOSE:
         return None                                  # fight first; the job keeps
@@ -280,9 +298,10 @@ def _casevac(game, a, sq, t):
     if w is None:
         a.ai.pop("task_wounded", None)
         taken = {o.ai.get("task_wounded") for o in game.actors if o is not a}
+        moved = t.setdefault("carried", set())      # (with no aid post, a man set down in cover stays there)
         cands = [o for o in game.actors if o.side == a.side and o.alive and o.downed and o.vehicle is None and
                  o.ai.get("carried_by") is None and o.ai.get("at_aid") is None and o.id not in taken and
-                 math.hypot(o.x - home[0], o.y - home[1]) <= RADIUS + 10]
+                 o.id not in moved and math.hypot(o.x - home[0], o.y - home[1]) <= RADIUS + 10]
         if not cands:
             a.ai["task_done"] = True
             _maybe_finished(game, sq)
@@ -293,7 +312,9 @@ def _casevac(game, a, sq, t):
         c = A.pick_up(game, a, w)
         if c:
             a.ai.pop("task_wounded", None)
-            t["found"]["wounded carried back"] += 1
+            if w.id not in t.setdefault("carried", set()):
+                t["carried"].add(w.id)
+                t["found"]["wounded carried back"] += 1
             return c
         return None
     return path_step(game, a, w.x, w.y)
@@ -364,10 +385,17 @@ def finish(game, sq, why="done"):
     if t is None:
         return
     for a in sq.members:
-        for k in ("task_pile", "task_done", "task_pw", "task_wounded", "task_bring"):
+        for k in ("task_pile", "task_done", "task_pw", "task_wounded", "task_bring", "helping_v"):
             a.ai.pop(k, None)
+    if t["kind"] == "repair" and sq.__dict__.pop("help_v", None) is not None and why != "orders":
+        home = t.get("home") or sq.anchor()
+        if home is not None and not sq.player_led:
+            from .ai import Order
+            sq.order = Order("hold", target=home, radius=8, issued=game.turn, src="player", roe=sq.order.roe)
+            sq.arrived = False
+            sq.positions = {}
     p = game.player
-    if p is None or t.get("by") != p.id:
+    if p is None or t.get("by") != p.id or why == "orders":
         return
     found = t["found"]
     if found:
@@ -378,15 +406,25 @@ def finish(game, sq, why="done"):
                 return f"{n} wounded carried back"
             return f"{n} x {what}"
         bits = [word(what, n) for what, n in found.most_common(6)]
-        text = "Done. " + ", ".join(bits) + "."
+        text = ("Right - back to our places. We got " if why == "stopped" else "Done. ") + ", ".join(bits) + "."
     else:
         text = {"ammo": "Nothing worth having - they'd shot it all off.", "medical": "Not a dressing left on any of them.",
                 "weapons": "Nothing but empty rifles.", "papers": "No papers on any of them.",
                 "casevac": "No one left to carry.", "prisoners": "Nobody left to take back.",
                 "repair": "Done."}.get(t["kind"], "Done.")
+        if why == "stopped":
+            text = "Right - back to our places."
     ld = sq.leader
     who = f"{ld.rank_short} {ld.last_name}" if ld is not None and ld is not p else "Your men"
     near = ld is not None and max(abs(ld.x - p.x), abs(ld.y - p.y)) <= 15
     from .command import squad_has_radio
     if near or squad_has_radio(game, sq):
         game.msg(f"{who}{'' if near else ' (radio)'}: '{text}'", "radio" if not near else "shout")
+
+
+def tick(game):
+    """Every few seconds: jobs that have run their time, or have nobody left to do them, are over."""
+    for sq in game.squads:
+        t = sq.__dict__.get("task")
+        if t is not None and (game.turn > t["until"] or not _workers(sq)):
+            finish(game, sq, "time")

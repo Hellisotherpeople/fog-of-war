@@ -12,6 +12,7 @@ from . import tiles as T
 from .body import PART_NAME
 from .constants import other_side
 from .data.items import ITEMS
+from .entities import riding
 from .gamemap import octant
 
 # silhouette half-width (tiles) and vertical exposure by stance
@@ -58,7 +59,8 @@ def recoil_per_round(a, t) -> float:
         r *= 0.3                                  # tripod
     elif t.cat == "lmg" and st == 2:
         r *= 0.7                                  # on its bipod
-    r *= max(0.6, 1.25 - a.skill * 0.05)
+    from .skills import level
+    r *= max(0.6, 1.25 - level(a, "marksmanship") * 0.05)
     if "strong" in a.traits:
         r *= 0.85
     if "shaky" in a.traits:
@@ -95,8 +97,8 @@ def aim_time(a, t) -> int:
         c *= 1.3                                   # chest heaving, the sights won't settle
     if a.suppression > 30:
         c *= 1 + (a.suppression - 30) / 70
-    if "crack_shot" in a.traits:
-        c *= 0.85
+    from .skills import level
+    c *= max(0.7, 1.2 - level(a, "gunnery" if t.cat == "hmg" else "marksmanship") * 0.045)   # a trained eye
     from .familiar import slow
     c *= slow(a, t)                                # whose sights are these?
     return int(c)
@@ -128,7 +130,8 @@ def dispersion(game, shooter, weapon, tx: int, ty: int, burst_index: int = 0) ->
     """Total angular error (degrees, 1 sigma) for a shot."""
     t = weapon.t
     d = t.disp
-    skill = shooter.skill
+    from .skills import level
+    skill = level(shooter, "gunnery" if t.cat == "hmg" else "marksmanship")
     d += max(0.0, (8 - skill)) * 0.14
     st = shooter.stance
     if t.deploy and not (st == 2 or shooter.deployed):
@@ -222,6 +225,9 @@ def fire_weapon(game, shooter, weapon, tx: int, ty: int, target=None, *, mode=No
         game.emit_sound(shooter.x, shooter.y, 8, "click", "a dry click", shooter.side, shooter)
         return 50
     mode = mode or weapon.mode_name
+    if target is not None or area:
+        from .skills import use
+        use(game, shooter, "gunnery" if t.cat == "hmg" else "marksmanship", 0.4)   # practice at a real target
     rounds = 1
     cost = t.shot_cost
     if mode == "auto" or (t.modes == ("auto",)):
@@ -539,7 +545,7 @@ def vehicle_face(v, ox, oy) -> int:
 def _riders_hit(game, v, source):
     """Men riding on the outside of a tank take what hits it: splinters, spall, the blast."""
     for a in list(v.passengers):
-        if a.ai.get("rider") and a.alive and game.rng.random() < 0.45:
+        if riding(a) and a.alive and game.rng.random() < 0.45:
             hit_actor(game, a, game.rng.uniform(10, 45), "fragment", None, f"a hit on the {v.vt.name} ({source})")
 
 
@@ -1016,7 +1022,9 @@ def fire_mortar(game, shooter, weapon, tx, ty) -> int:
         shooter.remove_item(ammo)
     game.emit_sound(shooter.x, shooter.y, t.loud, "mortar", t.sound, shooter.side, shooter)
     # scatter grows with range and skill
-    sig = dist * 0.06 + (8 - shooter.skill) * 0.3 + shooter.suppression / 40
+    from .skills import level, use
+    sig = dist * 0.06 + (8 - level(shooter, "gunnery")) * 0.3 + shooter.suppression / 40
+    use(game, shooter, "gunnery", 0.5)
     ix = int(round(tx + game.rng.gauss(0, sig)))
     iy = int(round(ty + game.rng.gauss(0, sig)))
     flight = 3 + int(dist / 15)
@@ -1112,6 +1120,15 @@ def vehicle_fire_main(game, v, tx, ty, target=None, ammo=None) -> bool:
     disp = mt.disp + (0.6 if v.moved_turn >= game.turn - 1 else 0) + (0.8 if v.ai.get("shaken", 0) > game.turn else 0)
     disp += VD.gun_disp(v)                             # a damaged gun, cracked or smashed sights
     disp += 0.4 * max(0, 4 - v.crew)
+    gl = v.ai.get("gunnery")
+    if gl is None:
+        gl = v.ai["gunnery"] = round(game.rng.gauss(5.5, 1.3), 1)      # the crew's skill at their gun
+    p = game.player
+    if p is not None and p.vehicle is v and v.player_station == "gunner":
+        from .skills import level, use
+        gl = level(p, "gunnery")
+        use(game, p, "gunnery", 1.0)
+    disp += max(0.0, 6 - gl) * 0.15
     from .familiar import vehicle_learn, vehicle_level
     disp += (1 - vehicle_level(v)) * 0.8               # a captured gun's strange sight
     vehicle_learn(v, 0.03)

@@ -185,7 +185,6 @@ class Duty:
             return
         strict = STRICT.get(sup.nation, 1.0)
         m = game.map
-        vis_enemy = [e for e in p.visible if getattr(e, "alive", True)] if hasattr(p, "visible") else []
         # 1. standing up in the open under fire
         if p.stance == 0 and p.suppression > 25 and m.pos_cover[p.x, p.y] < 20:
             return self.give(game, "down", sup)
@@ -446,8 +445,7 @@ class Duty:
         if p.downed or not self._has_dressing(p) or p.vehicle is not None:
             self.neglect = {}
             return
-        busy = p.fired_turn >= game.turn - 5 or any(max(abs(e.x - p.x), abs(e.y - p.y)) < 8 for e in p.visible) \
-            if hasattr(p, "visible") else False
+        busy = p.fired_turn >= game.turn - 5 or bool(game.seen_enemies(8))
         seen = {}
         for a in game.actors:
             if a.side != p.side or a is p or not a.alive or a.vehicle is not None:

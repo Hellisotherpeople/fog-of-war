@@ -69,7 +69,7 @@ def _load(game, name):
     game._arr_turn = -1
     game._enemy_arr = {}
     if game.support is not None and not d.weather:
-        game.support.aircraft = []
+        game.support.clear_air()
     game.brains = {s: SideBrain(game, s) for s in ("allies", "axis")}
     # men hit on this deck while you were elsewhere are lying where they fell
     for a in list(game.actors):
@@ -148,7 +148,8 @@ def board_ship(game, ship, role_station=None):
     game.explosives, game.shells, game.pending_explosions, game.waves = [], [], [], []
     game.effects, game.sound_marks, game.smoke_sources = [], [], []
     if game.support is not None:
-        game.support.queue, game.support.aircraft = [], []
+        game.support.queue = []
+        game.support.clear_air()
     game.attacker = None
     game.aboard = dict(kind="ship", ship=ship.id, decks=dks, order=order, frame=fr, deck=order[0],
                        condition="III", since=game.turn, flood_done={}, sinking=None, drift=0.0,
@@ -941,7 +942,8 @@ def board_plane(game, plane):
     game.explosives, game.shells, game.pending_explosions, game.waves = [], [], [], []
     game.effects, game.sound_marks, game.smoke_sources = [], [], []
     if game.support is not None:
-        game.support.queue, game.support.aircraft = [], []
+        game.support.queue = []
+        game.support.clear_air()
     game.attacker = None
     from .brain import SideBrain
     game.brains = {s: SideBrain(game, s) for s in ("allies", "axis")}

@@ -8,6 +8,7 @@ import tcod
 
 from . import tiles as T
 from .constants import COMPASS
+from .entities import riding
 
 DAY_RANGE = 62
 NIGHT_RANGE = 7
@@ -149,7 +150,7 @@ def player_eye(game):
     closed hull, the vision ports.  Riders, open-topped vehicles and lorries: you see as you would on foot."""
     p = game.player
     v = p.vehicle
-    if v is None or p.ai.get("rider"):
+    if v is None or riding(p):
         return 1.0, []
     from .vdamage import hatch_user, optics_mult
     hatch = hatch_user(v)

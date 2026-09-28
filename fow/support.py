@@ -236,6 +236,16 @@ class Support:
             keep.append(ac)
         self.aircraft = keep
 
+    def clear_air(self):
+        """You've gone elsewhere: whatever was overhead flies home as usual, off-screen."""
+        for ac in self.aircraft:
+            if ac.dead or getattr(ac, "done", False):
+                continue
+            q = self._squadron(ac)
+            if q is not None:
+                self.fires.plane_back(self.game, q)
+        self.aircraft = []
+
     def _squadron(self, ac):
         sid = getattr(ac, "squadron", None)
         if sid is None:

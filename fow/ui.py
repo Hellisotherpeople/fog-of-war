@@ -596,94 +596,6 @@ R_COMMAND = {0: "The lowest of the low.", 1: "A private who's lasted.", 2: "Lead
              17: "Commands an army.", 18: "Commands an army group - or a whole front."}
 
 
-class SideSelectState(MenuState):
-    def __init__(self, app):
-        opts = [("The Allies", ALLIES, "Americans, British, Soviets, French, Poles, Chinese, Canadians, Australians, "
-                                       "New Zealanders, Indians - the United Nations at war.", SIDE_COLOR[ALLIES]),
-                ("The Axis", AXIS, "Germans, Italians, Japanese, and the co-belligerent Finns, Hungarians and "
-                                   "Romanians. You fight for your comrades, whatever the cause.", SIDE_COLOR[AXIS]),
-                ("Leave it to chance", "random", "Conscription doesn't ask either.", None)]
-        super().__init__(app, "Which side?", opts, self.choose, subtitle="Choose the side you'll fight on.")
-
-    def choose(self, v):
-        if v == "random":
-            v = random.choice((ALLIES, AXIS))
-        self.app.push(TheatreSelectState(self.app, v))
-
-
-class TheatreSelectState(MenuState):
-    def __init__(self, app, side):
-        self.side = side
-        opts = []
-        for tid, th in sorted(THEATRES.items(), key=lambda kv: kv[1]["date"]):
-            y, m, d, h, mi = th["date"]
-            nats = ", ".join(NATIONS[n]["adj"] for n, _ in th["sides"][side])
-            foes = ", ".join(NATIONS[n]["adj"] for n, _ in th["sides"][other_side(side)])
-            att = "attacking" if th["attacker"] == side else "defending"
-            desc = (f"{th['name']}: {th['battle']}\n{d} {['', 'January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'][m]} {y}\n\n"
-                    f"{th['desc']}\n\nYou would fight as: {nats}\nAgainst: {foes}\nYour side is {att}.")
-            opts.append((f"{y}  {th['battle']}", tid, desc, None))
-        opts.append(("Leave it to chance", "random", "Somewhere, sometime, in the war.", None))
-        super().__init__(app, "Which battle?", opts, self.choose, width=52,
-                         subtitle=f"Battles of the Second World War. You fight for the {'Allies' if side == ALLIES else 'Axis'}.")
-
-    def choose(self, v):
-        if v == "random":
-            v = random.choice(list(THEATRES))
-        self.app.push(NationSelectState(self.app, self.side, v))
-
-
-class NationSelectState(MenuState):
-    def __init__(self, app, side, theatre):
-        self.side = side
-        self.theatre = theatre
-        th = THEATRES[theatre]
-        opts = []
-        for n, w in th["sides"][side]:
-            nat = NATIONS[n]
-            opts.append((f"{nat['name']}", n, f"{nat['army']}.\n\nShare of the forces here: {int(w * 100)}%.", SIDE_COLOR[side]))
-        opts.append(("Leave it to chance", "random", "Weighted by who actually fought here.", None))
-        super().__init__(app, "Which nation?", opts, self.choose, subtitle=f"{th['battle']}")
-
-    def choose(self, v):
-        th = THEATRES[self.theatre]
-        if v == "random":
-            ns = th["sides"][self.side]
-            v = random.choices([n for n, _ in ns], [w for _, w in ns])[0]
-        self.app.push(RoleSelectState(self.app, self.theatre, v))
-
-
-class RoleSelectState(MenuState):
-    def __init__(self, app, theatre, nation):
-        self.theatre = theatre
-        self.nation = nation
-        opts = [("Random (as the army would assign you)", None,
-                 "Most men were riflemen. Some drew the machine gun, the radio, the bazooka or the red cross. "
-                 "A few found themselves inside a tank.", UI_HI)]
-        for r in PLAYER_ROLE_WEIGHTS:
-            opts.append((ROLES[r]["name"], r, ROLES[r]["desc"], None))
-        from .data.ranks import rank_title, stars
-        from .data.roles import COMMAND_ROLE_LIST
-        from .spawn import COMMAND_ROLES
-        for r in COMMAND_ROLE_LIST:
-            g = COMMAND_ROLES[r]
-            title = rank_title(nation, g, False)
-            st = stars(g)
-            label = f"{ROLES[r]['name']} - {title}" + (f" {'★' * len(st)}" if st else "")
-            desc = (f"{title}.\n\n{ROLES[r]['desc']}\n\nYou can order any unit in your chain of command, and any "
-                    f"other friendly unit whose leader you outrank - if you can reach them: by voice, hand "
-                    f"signal, radio, relay or runner.")
-            if g >= 13:
-                desc += ("\n\nOn the war map (m) you order sectors within your reach to attack, dig in, move "
-                         "reserves, and set artillery and air priorities.")
-            opts.append((label, r, desc, (230, 200, 120)))
-        super().__init__(app, "Which role?", opts, self.choose, subtitle="Your job in the unit - or your place "
-                         "at the head of one.", width=52)
-
-    def choose(self, v):
-        self.app.start_game(self.theatre, self.nation, v)
-
-
 class BriefingState:
     def __init__(self, app, game):
         self.app = app
@@ -1100,11 +1012,15 @@ class StatusState:
         self.page = 0
         self.record = CharState(app, game)
 
+    PAGES = ("health", "skills", "record")
+
     def render(self, con):
-        if self.page == 1:
+        if self.page == 2:
             self.record.render(con)
-            con.print(2, SCREEN_H - 2, "Tab: health   Esc: close", fg=UI_DIM)
+            con.print(2, SCREEN_H - 2, "Tab: health   Shift+Tab: skills   Esc: close", fg=UI_DIM)
             return
+        if self.page == 1:
+            return self._render_skills(con)
         con.clear()
         g = self.game
         p = g.player
@@ -1112,7 +1028,7 @@ class StatusState:
         nums = self.app.show_numbers
         from .body import BLOOD_MAX, PART_NAME, PARTS
         con.print(2, 1, f"{p.rank_full} {p.name}", fg=UI_HI)
-        con.print(2, 2, "HEALTH   (Tab: service record)", fg=UI_DIM)
+        con.print(2, 2, "HEALTH   (Tab: skills, then service record)", fg=UI_DIM)
         # the body, part by part
         y = 4
         con.print(2, y, "The body", fg=UI_HI)
@@ -1251,19 +1167,50 @@ class StatusState:
         for t, col in feel_lines[:3]:
             con.print(2, yy, t, fg=col)
             yy += 1
-        con.print(2, SCREEN_H - 2, "Tab: service record   Esc: close" +
+        con.print(2, SCREEN_H - 2, "Tab: skills   Esc: close" +
                   ("" if nums else "   (numbers can be turned on in Options)"), fg=UI_DIM)
+
+    def _render_skills(self, con):
+        """What you can do: each skill in words (and a bar), what your training guaranteed, your traits."""
+        from .fonts import bold
+        from .skills import ROLE_SKILLS, SKILLS, UNIT_SKILLS, level, word
+        from .spawn import TRAITS
+        con.clear()
+        g = self.game
+        p = g.player
+        nums = self.app.show_numbers
+        con.print(2, 1, f"{p.rank_full} {p.name}", fg=UI_HI)
+        con.print(2, 2, "SKILLS   (Tab: service record   Shift+Tab: health)", fg=UI_DIM)
+        drilled = set(ROLE_SKILLS.get(p.role, {})) | set(UNIT_SKILLS.get(p.__dict__.get("unit_type") or "", {}))
+        y = 4
+        for k, (name, desc) in SKILLS.items():
+            v = level(p, k)
+            n = int(round(v))
+            col = (140, 140, 130) if v < 2.5 else UI_TEXT if v < 5.5 else (190, 220, 150) if v < 7.5 else (255, 225, 130)
+            con.print(4, y, bold(name), fg=col)
+            con.print(28, y, "█" * n + "·" * (10 - n), fg=col)
+            con.print(40, y, word(v) + (f" ({v:.1f})" if nums else ""), fg=col)
+            if k in drilled:
+                con.print(58, y, "drilled in training", fg=(170, 200, 150))
+            con.print(6, y + 1, desc, fg=UI_DIM)
+            y += 3
+        traits = [TRAITS.get(t, t) for t in sorted(p.traits)]
+        con.print(2, y, "Traits: " + (", ".join(traits) if traits else "none to speak of"), fg=UI_TEXT)
+        con.print(2, y + 1, "Skills come on slowly with use: shooting at real targets, creeping past the enemy, "
+                            "closing wounds, laying the guns...", fg=UI_DIM)
+        con.print(2, SCREEN_H - 2, "Tab: service record   Shift+Tab: health   Esc: close", fg=UI_DIM)
 
     def on_key(self, key):
         if key.sym == E.KeySym.TAB or key.sym in (E.KeySym.LEFT, E.KeySym.RIGHT):
-            self.page = 1 - self.page
-        elif self.page == 1 and key.sym not in (E.KeySym.ESCAPE,) and key.char not in ("@", "q"):
+            back = getattr(key, "shift", False) or key.sym == E.KeySym.LEFT
+            self.page = (self.page + (-1 if back else 1)) % len(self.PAGES)
+        elif self.page == 2 and key.sym not in (E.KeySym.ESCAPE,) and key.char not in ("@", "q"):
             self.record.on_key(key)
         else:
             self.app.pop()
 
     def on_wheel(self, dy):
-        if self.page == 1 and hasattr(self.record, "on_wheel"):
+        if self.page == 2 and hasattr(self.record, "on_wheel"):
             self.record.on_wheel(dy)
 
 

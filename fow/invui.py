@@ -592,10 +592,10 @@ class InventoryScreen:
         target = cell["pane"]
         cost = 0
         if cell["kind"] == "ground":
-            if origin.ground is not None:
-                self.held = None
+            if origin.ground is not None and tuple(origin.ground) == tuple(target.ground):
+                self.held = None                   # the same pile: nothing to do
                 return
-            cost += self._remove_from_origin(it, origin)
+            cost += self._remove_from_origin(it, origin)   # (a pile beside it, a body, or your kit)
             x, y = target.ground
             game.map.add_item(x, y, it)
             it.grid = None

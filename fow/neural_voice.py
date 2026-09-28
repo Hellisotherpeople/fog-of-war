@@ -73,13 +73,15 @@ class Downloader:
         self.done = []
         self.lock = threading.Lock()
         self.thread = None
+        self.running = False        # (set and cleared under the lock: a thread on its way out doesn't count)
 
     def want(self, key):
         with self.lock:
             if have(key) or key in self.queue or key == self.active or key in self.failed:
                 return
             self.queue.append(key)
-            if self.thread is None or not self.thread.is_alive():
+            if not self.running:
+                self.running = True
                 self.thread = threading.Thread(target=self._run, daemon=True)
                 self.thread.start()
 
@@ -89,6 +91,7 @@ class Downloader:
             with self.lock:
                 if not self.queue:
                     self.active = None
+                    self.running = False
                     return
                 key = self.active = self.queue.pop(0)
             os.makedirs(DIR, exist_ok=True)

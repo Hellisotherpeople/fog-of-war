@@ -91,7 +91,7 @@ to go anyway.
 | `x` or `;` | look: a cursor to move about; or just rest the mouse on something |
 | `V` | everything around you in a list ([below](#the-v-list-everything-around-you)) |
 | `m` | the war map |
-| `@` | yourself: your body in detail; Tab for your service record and chain of command |
+| `@` | yourself: your body in detail; Tab for your skills, then your service record and chain of command |
 | `P` | the message log |
 | `O` | orders for the squad you lead |
 | `C` | command: your chain of command, and every unit whose leader you outrank |
@@ -464,7 +464,7 @@ a raft or under a parachute, Space or `.` lets time pass.
 | briefing | Enter, Space, Esc or a click to start; `?` help |
 | options | up / down, left / right change, Enter or Space toggle; the mouse: click raises a value, right-click lowers it |
 | the Esc menu | up / down, Enter; Esc resumes |
-| yourself (`@`) | Tab or left / right: body / service record; on the record, up / down / PgUp / PgDn scroll; Esc closes |
+| yourself (`@`) | Tab or left / right: body / skills / service record (Shift+Tab back); on the record, up / down / PgUp / PgDn scroll; Esc closes |
 | help | up / down (or Tab, or a click) the sections; a letter jumps to the next section starting with it; PgUp / PgDn or the wheel scroll; `/` search (type, Enter keeps it, Esc clears); Esc, `?` or `q` close |
 | the log, chain of command | up / down, PgUp / PgDn, the wheel; Esc, Enter or `q` close |
 | prison camp | Enter or Space a day, `w` a week, `e` try to escape, Esc the menu |

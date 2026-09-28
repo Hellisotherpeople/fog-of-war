@@ -675,6 +675,9 @@ battery("su_152", "152mm ML-20 gun-howitzers", ["ussr"], (1939, 1950), power=420
 battery("su_katyusha", "BM-13 Katyusha rocket launchers", ["ussr", "poland"], (1941.6, 1950),
         power=210, radius=5, frags=50, salvo=32, spread=14, delay=60, rocket=True, cal="132mm rocket",
         freq=8, sound="a howling organ chorus of rockets")
+battery("su_82", "82mm BM-37 battalion mortars", ["ussr", "poland"], (1937, 1950), power=115, radius=4,
+        frags=35, salvo=9, spread=6, delay=25, cal="82mm mortar", freq=10,
+        sound="the whisper of falling mortar bombs")
 battery("su_120", "120mm regimental mortars", ["ussr", "finland"], (1939, 1950), power=200,
         radius=5, frags=50, salvo=10, spread=7, delay=35, cal="120mm mortar", freq=8,
         sound="the whisper of falling mortar bombs")
@@ -704,7 +707,7 @@ battery("jp_81", "Type 97 81mm mortars", ["japan"], (1937, 1950), power=120, rad
         salvo=10, spread=6, delay=25, cal="81mm mortar", freq=10,
         sound="the whisper of falling mortar bombs")
 battery("jp_320", "320mm spigot mortar", ["japan"], (1944, 1950), power=950, radius=9,
-        frags=60, salvo=2, spread=12, delay=80, rocket=True, cal="320mm", freq=2,
+        frags=60, salvo=2, spread=12, delay=80, cal="320mm spigot mortar", freq=2,
         sound="something enormous and tumbling - a 'flying ashcan'")
 battery("fr_75", "75mm mle 1897 field guns", ["france", "poland"], (1897, 1950), power=150,
         radius=4, frags=45, salvo=16, spread=7, delay=35, cal="75mm", freq=14)

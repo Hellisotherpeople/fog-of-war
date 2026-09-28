@@ -24,11 +24,15 @@ UNTRAINED, TRAINED, MEDIC, SURGEON = 0, 1, 2, 3
 
 
 def skill(a) -> int:
+    """What he can do for a wound: his first-aid skill (skills.py) - a surgeon's table needs the surgeon's
+    training and an aid post as well."""
     if a.role == "surgeon":
         return SURGEON
-    if a.role == "medic":
+    from .skills import level
+    fa = level(a, "first_aid")
+    if a.role == "medic" or fa >= 6.0:
         return MEDIC
-    if a.rank >= 3 or "veteran" in a.traits:
+    if fa >= 3.0 or a.rank >= 3 or "veteran" in a.traits:
         return TRAINED
     return UNTRAINED
 
@@ -78,8 +82,10 @@ def needs_surgery(b) -> bool:
 def first_aid(game, medic, patient, item=None) -> int | None:
     """The best thing this man can do for that one, right now.  Returns time taken, or None."""
     from . import actions as A
+    from .skills import use
     s = skill(medic)
     b = patient.body
+    use(game, medic, "first_aid", 2.0)             # every wound you close teaches you the next
     if s < MEDIC:
         return A.treat(game, medic, patient, item)
     rng = game.rng
