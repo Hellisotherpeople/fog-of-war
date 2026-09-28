@@ -26,7 +26,7 @@ SECTIONS = [
         ("k", "i", "your kit"),
         ("k", "V", "everything you can see and hear, in a list"),
         ("k", "x", "look (or just rest the mouse on something)"),
-        ("k", ".|z", "wait a second / wait until something happens"),
+        ("k", ".|z", "wait a second / a minute ({Z}: longer)"),
         ("k", "?|F1", "this help;  {Esc}: the menu (save and quit, options)"),
     ]),
     ("Moving", [

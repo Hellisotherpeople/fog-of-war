@@ -159,6 +159,16 @@ class Item:
         return "nearly empty"
 
 
+def lose_count(it):
+    """Somebody else's magazine or gun (off the ground, off the dead): you don't know what's in it until you
+    check (c in the kit screen, r on a full gun)."""
+    t = it.t
+    if t.kind in ("gun", "mag") and (t.mag or 0) > 1:
+        it.known_rounds = False
+        if t.kind == "gun" and it.mag_item is not None:
+            it.mag_item.known_rounds = False
+
+
 def things_at(m, x, y) -> list:
     """Everything lying at (x, y): loose on the ground, and on the dead there (in their kit).
     [(item, holder)]: holder None for the ground, else the dead man's Inventory."""

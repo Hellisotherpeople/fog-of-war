@@ -412,6 +412,9 @@ class Duty:
         elif self.strikes == 3:
             words = punish(game, 1, who)
             game.msg(f"{who} puts you on report: {words}.", "warn")
+        elif self.strikes == 4:
+            words = punish(game, 1, who)
+            game.msg(f"{who} puts you on report again: {words}. Once more and it's a court-martial.", "warn")
         elif self.strikes >= 5:
             if p.nation == "ussr" and p.rank <= 1 and not self.__dict__.get("penal"):
                 self.penal = True

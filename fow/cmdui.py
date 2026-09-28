@@ -81,9 +81,11 @@ def unit_row(game, sq, indent=0):
     ch = cmd.channel(game, sq)
     chan = CHAN_SHORT.get(ch["kind"], "?") if ch else "-"
     name = ("  " * indent + unit_label(sq))[:16]
-    ld = leader_name(sq)[:14]
+    # what you know of them: live if you can see or hear them, else as last reported (or nothing)
+    ld = (leader_name(sq) if not stale else (k.get("ld") or "?") if k is not None else "?")[:14]
+    strg = strength_text(sq) if not stale else strength_text(sq, k) if k is not None else "?"
     mine = "*" if sq.order.src == "player" else " "
-    return f"{name:<16} {ld:<14} {strength_text(sq):>6} {mine}{state[:19]:<19} {chan}", _state_color(sq, stale)
+    return f"{name:<16} {ld:<14} {strg:>6} {mine}{state[:19]:<19} {chan}", _state_color(sq, stale)
 
 
 def _walk(f, depth=0):
@@ -244,7 +246,13 @@ def unit_menu(ps, squads, title, formation=None):
     if single:
         ok, why = cmd.authority(g, sq0)
         o = sq0.order
-        lines.append((f"{leader_name(sq0)} - {strength_text(sq0)} - {status_word(sq0)}", UI_TEXT))
+        k0 = cmd.known_of(g, sq0)
+        if k0 is not None and g.turn - k0["turn"] <= 15:
+            lines.append((f"{leader_name(sq0)} - {strength_text(sq0)} - {status_word(sq0)}", UI_TEXT))
+        elif k0 is not None:
+            lines.append((f"{k0.get('ld') or '?'} - {strength_text(sq0, k0)} - {k0['state']} (last word)", UI_TEXT))
+        else:
+            lines.append(("No word of them.", UI_TEXT))
         lines.append((f"Orders: {o.describe(g)} ({'yours' if o.src == 'player' else 'from above'}), "
                       f"{ROE_NAME.get(o.roe, o.roe)}", UI_DIM))
         ch = chans[sq0.id]

@@ -46,24 +46,37 @@ def sanction(nation, level) -> str:
     return SANCTION.get(nation, SANCTION["uk"])[max(0, min(2, level))]
 
 
+def _watch(game) -> bool:
+    p = game.player
+    return p is not None and p.has_tool("watch") is not None
+
+
 def _clock(game, turn):
-    if turn is None:
+    """The time of day - with a watch; without one, nothing to say."""
+    if turn is None or not _watch(game):
         return ""
     t = game.now() + __import__("datetime").timedelta(seconds=max(0, turn - game.turn))
     return t.strftime("%H:%M")
 
 
 def _left(game, turn):
+    """How long till then: to the minute with a watch, by feel without."""
     if turn is None:
         return ""
-    d = turn - game.turn
+    return left_words(game, turn - game.turn)
+
+
+def left_words(game, d) -> str:
     if d <= 0:
         return "overdue"
-    if d < 90:
-        return f"{d} s"
-    if d < 3600:
-        return f"{d // 60} min"
-    return f"{d // 3600} h {d % 3600 // 60} min"
+    if _watch(game):
+        if d < 90:
+            return f"{d} s"
+        if d < 3600:
+            return f"{d // 60} min"
+        return f"{d // 3600} h {d % 3600 // 60} min"
+    return ("any moment" if d < 120 else "a few minutes" if d < 600 else "within the half hour" if d < 2100 else
+            "within the hour" if d < 4500 else "a couple of hours" if d < 3 * 3600 else "hours yet")
 
 
 def book(game) -> list:

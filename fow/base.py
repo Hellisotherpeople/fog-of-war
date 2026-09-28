@@ -247,8 +247,8 @@ def _adjutant(ps, who):
     rep = g.duty.rep
     fatigue = getattr(p, "fatigue", 0)
     leave_ok = rep >= 8 and g.turn - _state(g)["leave"] > 7 * DAY and not bo
-    opts.append(("Ask for a pass to the rear" + ("" if leave_ok else " (not now)"), "leave",
-                 None, leave_ok or (fatigue > 70 and not bo)))
+    can_ask = leave_ok or (fatigue > 70 and not bo)
+    opts.append(("Ask for a pass to the rear" + ("" if can_ask else " (not now)"), "leave", None, can_ask))
     _menu(ps, who, "Adjutant", lines, opts, lambda v: _adjutant_choice(ps, who, v))
 
 
@@ -654,7 +654,7 @@ def _cook_choice(ps, who, v):
 def _chaplain(ps, who):
     g = ps.game
     p = g.player
-    tags = [i for i in p.inv if i.t.tool == "dogtags" and i.data and i.data.get("name")]
+    tags = [i for i in p.inv if i.t.tool == "dogtags" and i.data and (i.data.get("name") or i.data.get("owner"))]
     keeps = [i for i in p.inv if i.data and i.data.get("for")]
     lines = [(f"{_name(who)}, {staff_title(who)}. A stole in {who.his} pocket, mud to the knees. "
               f"{_he(who).capitalize()}'s buried a lot of men.", UI_TEXT)]
@@ -693,7 +693,7 @@ def _chaplain_choice(ps, who, v, tags):
               f"address: {where}. 'It'll get there. You did right by him.'", "good")
         return ps.act(300)
     if v == "tags":
-        names = [t.data.get("name") for t in tags]
+        names = [t.data.get("name") or t.data.get("owner") for t in tags]
         for t in tags:
             p.remove_item(t)
         g.duty.rep += 2 * len(tags)
@@ -871,8 +871,7 @@ def _ops(ps, who):
     from .data.roles import service_of
     air = service_of(p.role) == "air"
     lines = [(f"{_name(who)}, operations. A map with strings and pins, a board of aircraft and crews.", UI_TEXT)]
-    opts = [("Flying orders", "fly", None, air),
-            ("Report as a replacement for the air group", "transfer", None, not air and p.rank >= 3)]
+    opts = [("Flying orders" + ("" if air else " (for aircrew)"), "fly", None, air)]
     _menu(ps, who, "Air operations", lines, opts, lambda v: _ops_choice(ps, who, v))
 
 
@@ -1122,15 +1121,16 @@ def order_line(game):
         return None
     if _done(game, o):
         return f"Report back to {o['by']['name']} at {o['by'].get('base') or 'headquarters'}: done."
+    from .orders import left_words
     left = max(0, o["deadline"] - game.turn)
-    when = f"{left // HOUR} h {left % HOUR // 60} min" if left >= HOUR else f"{left // 60} min"
+    when = left_words(game, left)
     if o["kind"] == "patrol" and o.get("stage") == "back":
         return f"Get back and report what you saw in {_sector_name(game, o.get('scouted_name') or o['sector'])}. " \
                f"({when} left)"
     if o["kind"] == "guard" and o.get("start") is not None:
         rest = max(0, o["start"] + o["secs"] - game.turn)
-        return f"On guard at {o['by'].get('base')}: {rest // 60} min to go. Stay at your post."
-    return f"{o['text']} ({when} left)"
+        return f"On guard at {o['by'].get('base')}: {left_words(game, rest)} to go. Stay at your post."
+    return f"{o['text']} ({when}{'' if when in ('overdue', 'any moment', 'hours yet') else ' left'})"
 
 
 def _sector_name(game, key):

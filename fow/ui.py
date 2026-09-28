@@ -752,7 +752,9 @@ class OrdersState:
         g = self.play.game
         W, H = SCREEN_W, SCREEN_H
         con.draw_rect(1, 1, W - 2, H - 2, ord(" "), bg=self.PAPER)
-        con.print(3, 2, f"ORDERS - {g.now().strftime('%H:%M, %d %B %Y')}", fg=self.INK, bg=self.PAPER)
+        watch = g.player.has_tool("watch") is not None
+        con.print(3, 2, f"ORDERS - {g.now().strftime('%H:%M, %d %B %Y' if watch else '%d %B %Y')}", fg=self.INK,
+                  bg=self.PAPER)
         con.print(3, 3, "(the ones you hold; Enter: get on with this one; Esc: close)", fg=self.FAINT, bg=self.PAPER)
         if not self.orders:
             con.print(3, 6, "Nothing. For once, nobody wants anything of you.", fg=self.INK, bg=self.PAPER)
@@ -795,8 +797,9 @@ class OrdersState:
         put("How", o["how"])
         put("Given", _clock(g, o["issued"]) if o.get("issued") is not None and o["issued"] <= g.turn else "")
         if o["due"] is not None:
-            put("By", f"{_clock(g, o['due'])} ({_left(g, o['due'])})", (250, 200, 120) if o["due"] - g.turn < 120
-                else None)
+            clk = _clock(g, o["due"])
+            put("By", f"{clk} ({_left(g, o['due'])})" if clk else _left(g, o["due"]),
+                (250, 200, 120) if o["due"] - g.turn < 120 else None)
         put("Order", o["text"], (240, 230, 190))
         put("If done", o["reward"], (180, 220, 150))
         put("If not", o["penalty"], (240, 160, 130))
@@ -1938,7 +1941,7 @@ class POWState:
                 self.done = "dead"
             else:
                 self.log.append(("Caught at the wire. Two weeks in the cooler on bread and water.", (230, 170, 90)))
-                self._days(3)
+                self._days(14)
 
     def _finish(self):
         from .pow import return_to_war
@@ -2124,11 +2127,18 @@ class OvermapState:
                 lines.append((f"Held by: {ctl}", SIDE_COLOR.get(s.control, UI_TEXT)))
                 if self.has_map:
                     u = s.units[p.side]
+                    # the order of battle is an officer's business (or a radio's); a private has rumour
+                    briefed = self.reach or self.radio or p.rank >= 8 or (s.x, s.y) == (g.sector.x, g.sector.y)
                     parts = [f"{n} {UNIT_NAME.get(k, k)}" for k, n in u.items() if n > 0]
-                    lines.append(("Our forces:" + ("" if parts else " none"), SIDE_COLOR[p.side]))
-                    for part in parts[:6]:
-                        lines.append((f"  {part}", UI_DIM))
-                    if self.radio or s.visited or self.reach:
+                    if briefed:
+                        lines.append(("Our forces:" + ("" if parts else " none"), SIDE_COLOR[p.side]))
+                        for part in parts[:6]:
+                            lines.append((f"  {part}", UI_DIM))
+                    else:
+                        pa = power(u)
+                        lines.append(("Our forces: " + ("none that you know of" if not pa else "some of ours, they say"
+                                                        if pa < 10 else "a lot of ours, they say"), SIDE_COLOR[p.side]))
+                    if self.radio or s.visited or self.reach or abs(s.x - g.sector.x) + abs(s.y - g.sector.y) <= 1:
                         lines += self._enemy_estimate(s)
                     else:
                         lines.append(("Enemy strength: unknown", UI_DIM))
@@ -2187,7 +2197,7 @@ class OvermapState:
             foot = ("Orders go out with the next situation report (about every ten minutes). "
                     "Arrows to inspect, Esc to close.")
         con.print(2, SCREEN_H - 2, foot, fg=UI_DIM)
-        if self.has_map or self.radio:
+        if self.radio or self.reach or (self.has_map and p.rank >= 8):
             ov = st.overview()
             con.print(2, SCREEN_H - 3, f"The front: Allies hold {ov['allies']} sectors, the Axis {ov['axis']}.",
                       fg=UI_TEXT)

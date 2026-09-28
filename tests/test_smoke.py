@@ -1137,13 +1137,16 @@ def test_orders_book_autopilot_and_succession():
     g.support.next_sortie = {k: 10 ** 9 for k in g.support.next_sortie}
     g.waves = []
     g.shells = []
+    for v in list(g.vehicles):                       # (and their tanks: the crews are counted, not all actors)
+        if v.side != p.side:
+            g.remove_vehicle(v) if hasattr(g, "remove_vehicle") else setattr(v, "dead", True)
     ps.on_key(Key(char="A"))
     assert g.autopilot
     t0 = g.turn
     for _ in range(60):
         ps.anim = ps.anim_next = 0
         ps.tick()
-    assert g.turn > t0 + 30
+    assert g.turn > t0 + 30, (g.turn - t0, p.state, g.autopilot, [m.text for m in list(g.messages)[-8:]])
     ps.on_key(Key(char="A"))
     assert not g.autopilot
     # succession: the war goes on

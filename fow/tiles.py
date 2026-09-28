@@ -486,7 +486,7 @@ T("chimney", "factory chimney", "●", (180, 95, 75), (82, 42, 34), walk=False, 
   desc="A brick chimney, a hundred feet tall. The artillery registers on it; so do the snipers.")
 T("silo", "grain silo", "Θ", (195, 192, 182), (104, 102, 96), walk=False, see=False, cover=100, tall=True,
   hp=6000, armor=500, into="rubble_heavy", crush=9, hard=True,
-  desc="A concrete silo full of grain - it burns for weeks, and stops anything.")
+  desc="A concrete silo full of grain. Walls a foot thick: it stops anything.")
 T("calvary", "wayside cross", "†", (205, 200, 185), (62, 58, 50), walk=False, see=True, cover=35, tall=True,
   hp=400, armor=90, into="rubble", crush=3, hard=True,
   desc="A stone cross at the roadside, flowers at its foot. Every map in the army marks it.")

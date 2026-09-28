@@ -781,6 +781,7 @@ def take_the_conn(ps):
     st.aboard = True
     ps._skysea_pushed = True
     ps.app.push(st)
+    return True
 
 
 def advance(ps, seconds):
@@ -1116,7 +1117,7 @@ def use_in_plane(ps):
             r = ss.bail_out(pl)
             if r:
                 g.msg(r, "warn")
-                return
+                return True
         g.msg("You go out through the hatch into the slipstream. The chute cracks open above you.", "warn")
         _leave_plane(g, "air")
         return True                              # (no turn on the fuselage map: it's gone - the sky view has him)
@@ -1126,13 +1127,14 @@ def use_in_plane(ps):
     crew = [c["station"] for c in pl.crew] if pl is not None else []
     if here not in crew and here not in ("pilot",):
         g.msg(f"The {here}'s position. Nothing here for you to work.", "info")
-        return
+        return True
     ss.station = here
     from .skyseaui import SkySeaState
     st = SkySeaState(ps.app, g, ps)
     st.aboard = True
     ps._skysea_pushed = True
     ps.app.push(st)
+    return True
     g.msg({"pilot": "You take the controls.", "bombardier": "You settle over the bombsight."}.get(
         here, f"You squeeze into the {here}'s position and grip the guns."), "info")
 

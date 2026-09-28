@@ -2810,8 +2810,9 @@ class Game:
         if self.__dict__.get("ship_ashore"):
             ctx = self.ship_ashore
             left = ctx["back_by"] - self.turn
+            from .orders import left_words
             text = (f"Ashore on liberty from {ctx['ship_name']}. Back aboard by 0500 "
-                    f"({max(0, left) // 3600} h {max(0, left) % 3600 // 60} min): the port director has the boat."
+                    f"({left_words(self, max(0, left))}): the port director has the boat."
                     if left > 0 else f"You're adrift from {ctx['ship_name']}! Get back aboard - the port director.")
         elif self.__dict__.get("awol"):
             text = "You missed your ship. You're absent without leave: report to the adjutant before the MPs find you."
