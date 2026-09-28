@@ -1506,6 +1506,61 @@ def test_landmarks_and_the_going():
     assert T.ID["oil_tank"] in T.EXPLODE and not T.WALK[T.ID["boxcar"]] and T.WALK[T.ID["platform"]]
 
 
+def test_waiting_goes_quickly():
+    """Z: a set time, until something happens, until orders - every second simulated, many to a frame; a new
+    order stops it; without a watch the choices go by feel; aboard a quiet ship Z lets the hours go by."""
+    from fow.play import Key, PlayState
+    from fow.skysea_exit import to_land
+    fa = FakeApp()
+    g = Game("bocage44", "usa", role="rifleman", seed=3, setup={"battlefield": "standard"})
+    ps = PlayState(fa, g)
+    fa.states = [ps]
+    p = g.player
+    g.map = None
+    to_land(g, next(s for s in g.strategic.sectors() if s.control == p.side and s.installs(p.side, "motor_pool")))
+    ps.popups = []
+    ps.cmd_wait()
+    labels = [o[0] for o in ps.popups[-1].options]
+    assert ("15 minutes" in labels) == (p.has_tool("watch") is not None)
+    assert any("new orders" in lab for lab in labels) and any(k in " ".join(labels) for k in ("first light", "dark"))
+    ps.popups[-1].sel = 1                          # five minutes / a few minutes
+    ps.popup_select()
+    t0, frames = g.turn, 0
+    while ps.auto_wait > 0 and frames < 300:
+        ps.anim, ps.anim_next = 0, 0
+        ps.tick()
+        frames += 1
+    assert ps.auto_wait == 0 and ps.wait is None
+    assert g.turn - t0 >= 20 and (g.turn - t0) / max(1, frames) > 3, (g.turn - t0, frames)
+    # new orders end a wait
+    ps.begin_wait("event", 3600)
+    ps.tick()
+    sup = next(a for a in g.actors if a.side == p.side and a.alive and a is not p and a.rank > p.rank)
+    g.duty.give(g, "dig", sup)
+    for _ in range(40):
+        if ps.auto_wait <= 0:
+            break
+        ps.anim, ps.anim_next = 0, 0
+        ps.tick()
+    assert ps.auto_wait == 0 and any("New orders" in m.text or "catches your attention" in m.text
+                                     for m in list(g.messages)[-6:])
+    # z: a minute
+    t0 = g.turn
+    ps.cmd_rest()
+    while ps.auto_wait > 0:
+        ps.anim, ps.anim_next = 0, 0
+        ps.tick()
+    assert 0 < g.turn - t0 <= 61
+    # aboard a quiet ship, Z is the long fast-forward again
+    g2 = Game("okinawa45", "usa", role="sailor", seed=3,
+              setup={"battlefield": "standard", "service": "navy", "scenario": "sea:convoy"})
+    fa2 = FakeApp()
+    ps2 = PlayState(fa2, g2)
+    fa2.states = [ps2]
+    ps2.on_key(Key(char="Z"))
+    assert ps2.__dict__.get("ff_until") or ps2.popups
+
+
 if __name__ == "__main__":
     import time
     tests = [(k, v) for k, v in dict(globals()).items() if k.startswith("test_") and callable(v)]

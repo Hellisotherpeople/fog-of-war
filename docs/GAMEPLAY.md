@@ -405,6 +405,18 @@ on they're counted, not estimated. An attack you order really happens:
 - Stand next door and you hear it, see the smoke by day and the gun flashes at night over the edge,
   and look across (hover the mouse) to see what's burning.
 
+**Waiting, and time going quickly.** `z` waits a minute. `Z` opens the wait menu: until something
+happens (up to three hours), a set time, until first light or dark, or until there are new orders.
+With a watch the times are exact ("30 minutes") and the banner counts them; without one they're a
+feeling ("a while", "hours") and so is the report afterwards. Nothing is skipped or summarised: every
+second is simulated for every man on the field, exactly as if you'd pressed `.` that many times - the
+difference is that the seconds aren't each drawn and the far-off shots aren't replayed, so it runs as
+fast as your machine can simulate (typically 70-100 times faster than life in a battle, a few hundred
+behind the lines; the banner shows the real figure). Anything that matters stops it: an enemy you
+hadn't seen, a hit, rounds close enough to make you duck, new orders, a death, bad news, and any key.
+With *Quiet time goes quickly* on (Options, on by default), walking somewhere and autopilot run the
+same way whenever there's no enemy in sight, and drop back to one second a frame the moment there is.
+
 **The war comes to you.** Wait anywhere and the enemy does something about it, according to where
 you are:
 - On the line: assaults at dawn after a bombardment, counterattacks on ground just taken, night
@@ -1004,6 +1016,6 @@ the keys for whatever's beside you. The ones you'll use most:
 | `x` / `V` | look / everything around you in a list |
 | `O` / `C` / `R` | squad orders / command / radio |
 | `m` / `@` / `P` | war map / yourself / message log |
-| `.` / `z` | wait a second / wait until something happens |
+| `.` / `z` / `Z` | wait a second / a minute / the wait menu (longer, fast) |
 | Esc | the menu (save and quit, options) |
 | F2 / F3 / F4 | sprites / sound / font |

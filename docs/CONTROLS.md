@@ -43,7 +43,8 @@ direction keys.
 | arrows, numpad, `h j k l y u b n` | move one step; End, PgUp and PgDn are diagonals too |
 | Shift + direction, or `H J K L U N` | run until something happens (`Y` and `B` are shout and bandage, not moves) |
 | `.` `s` numpad 5, numpad `.` | wait a second |
-| `z` `Z` | wait until something happens (up to a minute) |
+| `z` | wait a minute, watching |
+| `Z` | the wait menu: until something happens (up to three hours), a set time (to the minute with a watch; without one, "a few minutes", "a while", "hours"), until first light or dark, until there are new orders. Every second is simulated, for everyone, as fast as your machine can manage (the banner shows how much faster than life); anything that matters stops it - an enemy seen, a round close, a hit, new orders, bad news - and any key does |
 | `c` | crouch (again: stand) |
 | `p` | prone (again: crouch) |
 | `W` | pace: creep / walk / run / sprint |
@@ -397,7 +398,7 @@ Their orders show in your orders, and Enter gets on with them, even across secto
 |---|---|
 | `<` / `>` | up / down a ladder (or `e` on it) |
 | Enter | your job: to your station, the ammunition, a fire, sickbay |
-| `Z` | let the hours go by, until something matters (`z` too, when all's quiet) |
+| `Z` | let the hours go by, until something matters (`z` too, when all's quiet); with something going on, the wait menu |
 | `e` | whatever's in front of you (below) |
 
 What `e` does, by what you're facing:
