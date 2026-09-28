@@ -788,6 +788,9 @@ class PlayState:
 
     # ================================================================== animation / ticking
     def wants_tick(self):
+        g = self.game
+        if g.__dict__.get("autopilot") and not g.game_over and g.map is not None:
+            return True                               # (your soldier's getting on with it: the world must turn)
         return self.anim > 0 or self.travel_path or self.auto_wait > 0 or self.running or \
             self.__dict__.get("digging") or self.__dict__.get("ff_until") or \
             (not self.game.player.body.conscious and not self.game.game_over) or self.cam_moving or \
@@ -825,6 +828,8 @@ class PlayState:
     def tick(self):
         g = self.game
         now = time.time()
+        if g.map is None:
+            return
         if now < self.anim_next:
             return
         if self.anim > 0:
@@ -1039,7 +1044,12 @@ class PlayState:
         g = self.game
         p = g.player
         deadline = time.perf_counter() + self.WAIT_BUDGET
+        w0 = self.wait
         while self.auto_wait > 0:
+            if w0 is not None:
+                self.auto_wait = max(0, w0["start"] + w0["secs"] - g.turn)       # (the clock decides, not the count)
+                if self.auto_wait <= 0:
+                    break
             self.auto_wait -= 1
             self.act(100)
             sts = getattr(self.app, "states", None)
@@ -1252,6 +1262,8 @@ class PlayState:
     def on_key(self, key: Key):
         g = self.game
         p = g.player
+        if g.map is None:
+            return                                    # (between worlds: the sky view or the camp is coming)
         if self.anim > 0:
             self.anim = 0
             self.anim_groups = []
@@ -1402,6 +1414,8 @@ class PlayState:
 
     def on_click(self, ftx, fty, button):
         g = self.game
+        if g.map is None:
+            return
         if button == 2 and self.inv_screen is None and not self.popups and 0 <= ftx < VIEW_W and 0 <= fty < VIEW_H:
             c = self.view_center or (tuple(self.cam_c) if self.cam_c else
                                      (self.cam.x0 + self.cam.vw / 2, self.cam.y0 + self.cam.vh / 2))
@@ -1769,6 +1783,9 @@ class PlayState:
         The route is planned on what you know: ground you've seen as it is, ground you haven't as if you
         could cross it.  As you go and see more - a hedge where you hoped for a gap, a stream - the route is
         planned again from where you are, until you're there or every way you can think of is shut."""
+        if self.game.__dict__.get("autopilot"):
+            self.game.msg("Your soldier's on autopilot. (A to take over)", "info")
+            return
         g = self.game
         p = g.player
         m = g.map
@@ -2343,10 +2360,17 @@ class PlayState:
         g.skysea = None
         if over == "dead" or not p.alive:
             p.body.dead = True
-            if not g.game_over:
-                g.kill(p, None)                  # (safe if he's already been killed: kill() is idempotent)
-            if not g.game_over:
+            if not getattr(p, "_killed", False):
+                g.kill(p, None)                  # (player_died runs from there - once: one death, one life)
+            elif not g.game_over and g.player is p:
                 g.player_died(None)
+            if not g.game_over and g.player is not p:
+                # someone carries on - a man of her crew, picked up and put ashore
+                x, y = (ship.x, ship.y) if ship is not None else (ss.cx * 30, ss.cy * 30) if ss is not None else (0, 0)
+                coast = _nearest_coast(g, x, y, g.player.side) or g.sector
+                g.map = None
+                to_land(g, coast)
+                self.recenter()
             return self.check_over()
         if isinstance(over, tuple) and over[0] == "landed":
             g.map = None
@@ -3836,12 +3860,12 @@ class PlayState:
             p.say(g.shout(p, "surrender"), g.turn, 4)
             res = begin_captivity(g)
             if res == "shot":
-                p.body.dead = True
                 p.body.cause = "a bullet through the head after surrendering"
                 g.msg("He looks at you for a long moment. Then he raises his rifle.", "death")
-                g.player_died(None)
-                g.death_text = (f"{p.rank_full} {p.name}, {p.unit}. Shot after surrendering near {g.sector.name}, "
-                                f"{g.datetime_str(exact=True)}.")
+                g.kill(p, None)                       # (a body like any other: the kit, the tile, succession)
+                if g.game_over:
+                    g.death_text = (f"{p.rank_full} {p.name}, {p.unit}. Shot after surrendering near "
+                                    f"{g.sector.name}, {g.datetime_str(exact=True)}.")
                 self.check_over()
                 return
             g.player_orders = "You're a prisoner. Keep up with the guard - or run, and take your chances."

@@ -372,6 +372,8 @@ def _overboard(game, ship):
 def _player_adrift(game, ship):
     """You're in the sea, and she's gone (or going on without you)."""
     ss = game.skysea
+    if (game.aboard or {}).get("gone"):
+        return                                     # (said once; the raft takes it from here)
     x, y = (ship.x, ship.y) if ship is not None else (ss.cx * SEC, ss.cy * SEC)
     ss.raft = (x, y)
     ss.over = "raft"

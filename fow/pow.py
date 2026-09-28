@@ -285,8 +285,22 @@ def return_to_war(game, how):
         if s0 is not None and s0.control == side:
             cands = [s0]
     if not cands:
+        # none of ours on the map yet (an island, a landing): the nearest ground of ours, made as it's needed
+        cx, cy = (game.sector.x, game.sector.y) if game.sector is not None else (0, 0)
+        for r in range(1, 18):
+            for dx in range(-r, r + 1):
+                for dy in range(-r, r + 1):
+                    if max(abs(dx), abs(dy)) != r:
+                        continue
+                    s = st.at(cx + dx, cy + dy, create=True)
+                    if s is not None and s.playable and s.control == side:
+                        cands.append(s)
+            if cands:
+                break
+    if not cands:
         return False
     sector = min(cands, key=lambda s: st._front_distance(s, side)) if how != "liberated" else cands[0]
+    _off_vehicle(game, p)
     game.pow = None
     p.state = "ok"
     p.morale = 40.0
@@ -311,9 +325,23 @@ def return_to_war(game, how):
     return True
 
 
+def _off_vehicle(game, p):
+    """A prisoner isn't in a tank: whatever he was in, he's out of it, and it forgets him."""
+    v = p.vehicle
+    if v is None:
+        return
+    for lst in (getattr(v, "passengers", None), getattr(v, "crew_actors", None)):
+        if lst is not None and p in lst:
+            lst.remove(p)
+    v.player_crewed = False
+    v.player_station = None
+    p.vehicle = None
+
+
 def start_in_camp(game) -> str:
     """Begin the war behind the wire (the prisoner-of-war battle type)."""
     p = game.player
+    _off_vehicle(game, p)
     enemy = other_side(p.side)
     cnat = game.side_nation(enemy)
     camp = camp_for(cnat, p.nation)

@@ -9,6 +9,8 @@ enemy has - and what you're there to do.
 """
 from __future__ import annotations
 
+import math
+
 from collections import Counter
 
 from .constants import SIDES, other_side
@@ -312,7 +314,21 @@ def setup_player(game, sid, notes):
             p.squad.members = [p]
             p.squad.leader = p
             p.squad.player_led = True
-        x, y = rng.randint(20, m.w - 20), rng.randint(15, m.h - 15)
+        # he came down where he came down - but a man who lands in the enemy's lap doesn't get to be an evader:
+        # of a few spots, the one furthest from anyone of theirs (they saw him come down; they're coming)
+        foes = [(a.x, a.y) for a in game.actors if a.side != p.side and a.alive]
+        best, bd = None, -1.0
+        for _ in range(40):
+            cx, cy = rng.randint(20, m.w - 20), rng.randint(15, m.h - 15)
+            if not m.walk[cx, cy] or m.water[cx, cy] >= 1:
+                continue
+            d = min((math.hypot(fx - cx, fy - cy) for fx, fy in foes), default=99.0)
+            d += m.conceal[cx, cy] / 20.0
+            if d > bd:
+                best, bd = (cx, cy), d
+            if d >= 40:
+                break
+        x, y = best or (rng.randint(20, m.w - 20), rng.randint(15, m.h - 15))
         game.remove_actor(p)
         place(game, p, x, y, 8)
         from .combat import explode, ignite
