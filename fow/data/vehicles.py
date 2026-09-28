@@ -639,6 +639,22 @@ plane("il4", "Il-4", "bomber", ["ussr"], (1938, 1950), speed=7, hp=140, guns=((5
       freq=4)
 plane("ki84", "Ki-84 Hayate", "fighter", ["japan"], (1944.3, 1950), speed=11, hp=55, guns=((95, 11, 16),), freq=5)
 
+# the special-duties and transport aircraft that dropped agents and containers (agents.py): unarmed or nearly,
+# flying low and alone at night
+plane("halifax_sd", "Handley Page Halifax (special duties)", "transport", ["uk", "france", "poland", "canada"],
+      (1941.6, 1950), speed=7, hp=170, guns=((70, 10, 8),), night=True, freq=0,
+      sound="the drone of four Merlins, very low")
+plane("b24_cb", "B-24 Liberator 'Carpetbagger'", "transport", ["usa"], (1944.0, 1950), speed=7, hp=170,
+      guns=((70, 12, 8),), night=True, freq=0, sound="four radial engines, very low, and no lights")
+plane("li2", "Lisunov Li-2", "transport", ["ussr"], (1940.5, 1950), speed=6, hp=110, guns=((60, 10, 6),),
+      night=True, freq=0, sound="the drone of a Li-2, low over the forest")
+plane("ju52", "Junkers Ju 52/3m", "transport", ["germany", "italy", "hungary", "romania"], (1936, 1950), speed=5,
+      hp=110, guns=((60, 10, 6),), night=True, freq=0, sound="the unmistakable three-engined drone of a Ju 52")
+plane("ki57", "Ki-57 'Topsy'", "transport", ["japan"], (1940.5, 1950), speed=6, hp=90, guns=(), night=True, freq=0,
+      sound="twin engines, low")
+plane("lysander", "Westland Lysander", "transport", ["uk", "france", "poland"], (1938.5, 1950), speed=5, hp=60,
+      guns=(), night=True, freq=0, sound="a single engine, throttled back, very low")
+
 # ---------------------------------------------------------------- off-map artillery
 
 def battery(id, name, nations, years, **kw):

@@ -191,10 +191,20 @@ def pick_explosive(rng, nation, year, charges) -> str | None:
     srcs = equip_sources(nation, year) + [nation]
     for src in srcs:
         pool = [t for t in ITEMS.values() if t.kind == "explosive" and t.charge in charges
-                and src in t.nations and t.years[0] <= year < t.years[1]]
+                and src in t.nations and t.years[0] <= year < t.years[1] and t.freq > 0]
         if pool:
             return rng.choices(pool, [t.freq for t in pool])[0].id
     return None
+
+
+from .items_personal import IDS as _PERSONAL_IDS  # noqa: E402
+
+
+def _personal(rng, nation, year, tools):
+    """One of this army's own things of these kinds (items_personal): their rations, their drink, their charms."""
+    pool = [t for t in ITEMS.values() if t.kind == "tool" and t.tool in tools and t.freq == 0 and nation in t.nations
+            and t.years[0] <= year < t.years[1] and t.id in _PERSONAL_IDS]
+    return rng.choice(pool).id if pool else None
 
 
 def _mags(item_id: str, n: float) -> tuple[str, int] | None:
@@ -638,14 +648,19 @@ def build_kit(rng: random.Random, nation: str, year: float, role: str, *, para: 
     if role not in ("tank_crew", "medic") and rng.random() < 0.65:
         add("shovel")
     add("canteen" if rng.random() < 0.85 else None)
-    add("ration" if rng.random() < 0.6 else None)
-    add("cigarettes" if rng.random() < 0.6 else None)
-    add("flask" if rng.random() < 0.12 else None)
+    add((_personal(rng, nation, year, ("ration", "chocolate")) or "ration") if rng.random() < 0.6 else None)
+    add((_personal(rng, nation, year, ("cigarettes",)) if rng.random() < 0.3 else None) or
+        ("cigarettes" if rng.random() < 0.6 else None))
+    add((_personal(rng, nation, year, ("flask",)) or "flask") if rng.random() < 0.12 else None)
+    add(_personal(rng, nation, year, ("stimulant",)) if rng.random() < (0.15 if nation == "germany" and year < 1942
+                                                                          else 0.04) else None)
     if role not in ("squad_leader", "officer", "radioman") and role not in COMMAND_ROLE_LIST and rng.random() < 0.25:
         add("watch")
     add("dogtags" if nation in ("usa", "uk", "canada", "australia", "newzealand", "germany") else None)
-    for _ in range(rng.choice((0, 1, 1, 2))):
-        add(rng.choice(PERSONAL))
+    for _ in range(rng.choice((0, 1, 1, 2, 2, 3))):
+        add(_personal(rng, nation, year, ("charm", "flag", "medal", "rosary", "photo", "ring", "watch", "newspaper",
+                                           "document", "shave", "sewing", "gum", "lighter"))
+            if rng.random() < 0.55 else rng.choice(PERSONAL))
     if role not in ("tank_crew",) and rng.random() < 0.7:
         add("backpack")
     if para:
@@ -728,3 +743,4 @@ def squad_template(rng: random.Random, nation: str, year: float, kind: str) -> l
         return ["squad_leader"] + ["rifleman"] * rng.randint(3, 6) + (["smg_gunner"] if rng.random() < 0.6 else []) + \
             (["lmg_gunner"] if rng.random() < 0.3 else [])
     return ["rifleman"] * size
+

@@ -45,6 +45,12 @@ PALETTES = {
                      water="shallow", deep="deep", trench="trench", mud="ash"),
 }
 
+# how many storeys (a church: its tower; a flat-roofed house: its roof; a barn: the hayloft)
+STOREYS = {"farmhouse": 2, "house": 2, "townhouse": 3, "barn": 2, "church": 4, "factory": 2, "desert_house": 2,
+           "abbey": 3, "izba": 1, "hut": 1, "shed": 1, "bunker": 1, "log_bunker": 1}
+CELLARS = {"farmhouse": 0.7, "house": 0.6, "townhouse": 0.8, "church": 0.5, "abbey": 0.8, "izba": 0.4,
+           "desert_house": 0.2, "factory": 0.4}
+
 STYLE = {
     # style: (wall, floor, window chance, furniture)
     "farmhouse": ("wall_stone", "floor_stone", 0.35, "house"),
@@ -372,10 +378,22 @@ class Gen:
                 break
         # furniture
         self._furnish(x0, y0, bw, bh, furn)
+        # the stairs up, and a trapdoor to the cellar (against a wall, where they'd be)
+        storeys = STOREYS.get(style, 1)
+        inner = [(x, y) for x in range(x0 + 1, x0 + bw - 1) for y in range(y0 + 1, y0 + bh - 1)
+                 if T.FLOOR[m.t[x, y]] and self._against_wall(x, y)]
+        self.rng.shuffle(inner)
+        if storeys > 1 and inner:
+            sx, sy = inner.pop()
+            m.t[sx, sy] = T.ID["stairs"]
+        if inner and self.rng.random() < CELLARS.get(style, 0):
+            cx, cy = inner.pop()
+            m.t[cx, cy] = T.ID["trapdoor"]
         # ruin
         if ruin > 0:
             self.ruin_rect(x0, y0, bw, bh, ruin)
         self.m.buildings.append((x0, y0, bw, bh, style))
+        self.m.__dict__.setdefault("storeys", {})[(x0, y0, bw, bh)] = storeys
         self.protected[x0 - 1:x0 + bw + 1, y0 - 1:y0 + bh + 1] = True
         return (x0, y0, bw, bh)
 
@@ -1808,6 +1826,7 @@ class Gen:
         else:
             getattr(self, f"gen_{b}", self.gen_farmland)()
             self._fill_out(b)
+        self.regional()                           # the country's own: vines, birches, dunes, reeds, cane
         if spec.get("river") and b not in ("sea",):
             orient = spec["river"]
             pos = spec.get("river_pos", self.rng.uniform(0.35, 0.65))
@@ -1821,12 +1840,99 @@ class Gen:
                 pass
         self.battle_damage(spec.get("intensity", 0.5))
         self.pick_objectives()
+        from .relief import make as relief
+        relief(self)                              # the lie of the land, with the named hills real hills
+        self.dress_slopes()
         # clear edges so units can enter: first/last rows walkable where possible
         self._clear_spawn_edges()
         self.m.init_hp()
         self.m.refresh()
         self.m.gen_positions = self.positions
         return self.m
+
+    # ---------------------------------------------------------------- the country's own
+    def regional(self):
+        """What makes this country look like itself: Italian vineyards and cypresses behind dry-stone walls,
+        birch woods in Russia, spruce plantations in the Hürtgen, Norman apple orchards, dunes and wadis and
+        camel thorn in the desert, reeds at the water's edge, sugar cane and mangroves in the Pacific."""
+        m = self.m
+        t = m.t
+        clim = m.climate
+        lang = self.spec.get("lang")
+        east = self.spec.get("east")
+        rnd = np.random.default_rng(self.seed + 501).random((self.w, self.h))
+        free = ~self.protected
+
+        def swap(src, dst, p, mask=None):
+            if src not in T.ID:
+                return
+            sel = (t == T.ID[src]) & (rnd < p) & free
+            if mask is not None:
+                sel &= mask
+            t[sel] = T.ID[dst]
+        if clim == "mediterranean":
+            patch = self.noise(0.03, octaves=2, salt=510) > 0.15
+            for crop in ("wheat", "plowed"):
+                swap(crop, "vineyard", 1.0, patch)
+            swap("tree", "cypress", 0.3)
+            swap("low_wall", "drystone", 1.0)
+        if east and clim in ("summer", "autumn"):
+            swap("tree", "birch", 0.45)
+            swap("tree_autumn", "birch", 0.35)
+        if clim == "autumn" and lang in ("de", "be", "nl"):
+            swap("tree", "fir", 0.65)
+            swap("tree_autumn", "fir", 0.55)
+        if lang == "fr" and clim == "summer":
+            near = np.zeros(t.shape, bool)
+            for (x0, y0, bw, bh, _st) in m.buildings:
+                near[max(0, x0 - 12):x0 + bw + 12, max(0, y0 - 12):y0 + bh + 12] = True
+            swap("tree", "apple_tree", 0.7, near)
+        if clim == "desert":
+            ridges = np.abs(self.noise(0.035, octaves=2, salt=511)) < 0.05
+            swap("sand", "dune", 1.0, ridges)
+            swap("scrub", "camelthorn", 0.7)
+            if self.rng.random() < 0.75:
+                a, b = self.rng.choice([("N", "S"), ("E", "W"), ("N", "E"), ("W", "S")])
+                self.road(self.edge_point(a), self.edge_point(b), width=2, key="wadi", meander=30, salt=512)
+        wet = np.isin(t, [T.ID[k] for k in ("shallow", "marsh", "paddy") if k in T.ID])
+        if wet.any():
+            edge = np.zeros(t.shape, bool)
+            edge[1:, :] |= wet[:-1, :]
+            edge[:-1, :] |= wet[1:, :]
+            edge[:, 1:] |= wet[:, :-1]
+            edge[:, :-1] |= wet[:, 1:]
+            edge &= ~wet
+            for g in ("grass", "tall_grass", "grass_dry", "grass_autumn", "kunai", "mud"):
+                swap(g, "reeds", 0.45, edge)
+            if clim == "tropical":
+                swap("tree", "mangrove", 0.8, edge)
+                swap("palm", "mangrove", 0.4, edge)
+        if clim == "tropical" and lang == "ja":
+            patch = self.noise(0.03, octaves=2, salt=513) > 0.2
+            for crop in ("kunai", "tall_grass", "paddy"):
+                swap(crop, "sugarcane", 1.0, patch & (t != T.ID["paddy"]) if crop != "paddy" else patch & (rnd < 0.0))
+
+    def dress_slopes(self):
+        """After the heightmap: scree and bare rock on the steep hillsides; Okinawa's tombs on its slopes."""
+        m = self.m
+        e = m.__dict__.get("elev")
+        if e is None:
+            return
+        t = m.t
+        g = np.hypot(np.gradient(e, axis=0), np.gradient(e, axis=1))
+        rnd = np.random.default_rng(self.seed + 520).random((self.w, self.h))
+        free = ~self.protected
+        ground = np.isin(t, [T.ID[k] for k in ("rock_ground", "grass_dry", "grass", "ash", "scrub", "tall_grass_dry")
+                             if k in T.ID])
+        if m.biome in ("mountain", "abbey", "hills", "volcanic") and m.climate != "tropical":
+            t[ground & free & (g > 1.1) & (rnd < 0.55)] = T.ID["scree"]
+            t[ground & free & (g > 1.4) & (rnd > 0.985)] = T.ID["outcrop"]
+        if self.spec.get("lang") == "ja":
+            cand = np.argwhere(ground & free & (g > 0.25) & (g < 1.2) & (rnd < 0.004))
+            for x, y in cand[:14]:
+                t[x, y] = T.ID["tomb"]
+                if x + 1 < self.w and free[x + 1, y] and T.WALK[t[x + 1, y]]:
+                    t[x + 1, y] = T.ID["tomb"]
 
     def _clear_spawn_edges(self):
         m = self.m

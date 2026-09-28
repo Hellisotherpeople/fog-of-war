@@ -171,11 +171,17 @@ name, traits, weapon and kit. Leave any of it to chance.</td>
   a wide bubble around you, and what you destroy has consequences beyond your map.
 - **Everything breaks**: craters, rubble, collapsing bridges, spreading fire, smoke, cooking-off
   ammunition.
+- **The lie of the land**: every sector has real relief (balkas on the steppe, the hills the maps
+  named, a volcano on Iwo Jima), so crests hide men and high ground sees over the hedges. Buildings
+  have floors: snipers in church towers, machine guns at upstairs windows, cellars against the
+  shelling.
 - **Command at every level.** Orders travel by voice, hand signal, radio, relay or runner, and
   arrive late or not at all. When your leader falls, the next man takes over, and sometimes that's
   you. Promotion, battlefield commissions, and each nation's medals.
 - **Kinds of war**: front-line battles, the big push, holding the line, tank battles, night patrols,
-  commando raids, agents behind the lines in civilian clothes, partisans, encirclement, the
+  commando raids, agents behind the lines (SOE, OSS, Jedburghs, the Cichociemni, partisan organisers,
+  Abwehr and Greif) with covers, silenced weapons, suitcase radios, detector cars and night supply
+  drops from real special-duties squadrons, resistance bands, encirclement, the
   rearguard, captivity and escape; at sea, surface actions, carrier battles, convoys and submarine
   patrols; in the air, fighter sweeps, interceptions and bomber raids.
 - **Honest time.** Aiming takes time, recoil throws off the next shot, captured weapons are clumsy

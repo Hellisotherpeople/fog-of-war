@@ -107,6 +107,9 @@ def make_soldier(game, nation: str, role: str, rank: int | None = None, para=Fal
     apply_kit(a, kit, game.year)
     from .skills import roll
     roll(rng, a)                       # his skills: a roll round his training, with his job's floors under it
+    from .flavor import stamp
+    for it in a.inv:
+        stamp(game, it, a)             # his rifle's serial, his tags, the letter from home
     return a
 
 
@@ -564,6 +567,8 @@ def populate(game, sector, att_side, att_edge):
         if rec.get("spots") is not None and rec.get("side"):
             spawn_installation(game, rec, things=fresh)
     ensure_aid_posts(game)
+    from .floors import place_upstairs
+    place_upstairs(game)                  # the defenders' snipers in the church towers
     # each side's company ammunition point, behind its own line
     if sector.biome != "sea":
         for side in SIDES:

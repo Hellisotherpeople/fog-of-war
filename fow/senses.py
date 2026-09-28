@@ -9,6 +9,7 @@ import tcod
 from . import tiles as T
 from .constants import COMPASS
 from .entities import riding
+from .relief import body_height, eye_height
 
 DAY_RANGE = 62
 NIGHT_RANGE = 7
@@ -276,37 +277,54 @@ def compute_light(game):
     game.lit = lit
 
 
-def _line_clear(see, x0, y0, x1, y1) -> bool:
+def _line_clear(see, x0, y0, x1, y1, m=None, h0=1.6, h1=1.6) -> bool:
     pts = tcod.los.bresenham((x0, y0), (x1, y1))
     if len(pts) <= 2:
         return True
     inner = pts[1:-1]
-    return bool(see[inner[:, 0], inner[:, 1]].all())
+    if not bool(see[inner[:, 0], inner[:, 1]].all()):
+        return False
+    if m is not None:
+        from .relief import crest_clear
+        return crest_clear(m, pts, h0, h1)          # and no crest between (relief.py)
+    return True
 
 
-def los_clear(game, x0, y0, x1, y1, high=False) -> bool:
+def los_clear(game, x0, y0, x1, y1, high=False, h0=1.6, h1=1.6) -> bool:
     """Can a line be drawn between two tiles without hitting anything opaque?  `high`: one end is up in a
-    vehicle, and sees over crops and undergrowth (see tiles.SEE_HIGH).
+    vehicle, and sees over crops and undergrowth (see tiles.SEE_HIGH).  h0, h1: how high the eye and the
+    target are above their ground, against the lie of the land between them (relief.py).
 
     Most soldiers stand still most of the time, so the answer for the terrain is kept until the
     terrain changes; smoke is checked on top, and only where there is smoke."""
     m = game.map
     if abs(x1 - x0) <= 1 and abs(y1 - y0) <= 1:
         return True
+    from .relief import flat, over_the_top
+    rel = not flat(m)
+    if rel and not high:
+        high = over_the_top(m, x0, y0, x1, y1, h0) or over_the_top(m, x1, y1, x0, y0, h1)
+    mm = m if rel else None
     sb = m.__dict__.get("smoke_box")
     if sb is not None and not (max(x0, x1) < sb[0] or min(x0, x1) > sb[2] or max(y0, y1) < sb[1] or
                                min(y0, y1) > sb[3]):
-        return _line_clear(m.high() if high else m.see, x0, y0, x1, y1)     # through the smoke: no shortcuts
+        return _line_clear(m.high() if high else m.see, x0, y0, x1, y1, mm, h0, h1)   # through smoke: no shortcuts
     slot = "_los_hi" if high else "_los"
     cache = m.__dict__.get(slot)
     ver = m.__dict__.get("see_base_version", m.version)
     if cache is None or cache[0] != ver or len(cache[1]) > 250000:
         cache = (ver, {})
         m.__dict__[slot] = cache
-    key = (x0, y0, x1, y1) if (x0, y0) <= (x1, y1) else (x1, y1, x0, y0)
+    if (x0, y0) <= (x1, y1):
+        key, ha, hb = (x0, y0, x1, y1), h0, h1
+    else:
+        key, ha, hb = (x1, y1, x0, y0), h1, h0
+    if rel:
+        key = key + (int(ha * 2), int(hb * 2))
     v = cache[1].get(key)
     if v is None:
-        v = cache[1][key] = _line_clear(m.high_base() if high else m.see_base, key[0], key[1], key[2], key[3])
+        v = cache[1][key] = _line_clear(m.high_base() if high else m.see_base, key[0], key[1], key[2], key[3],
+                                        mm, ha, hb)
     return v
 
 
@@ -316,6 +334,8 @@ def _high(e) -> bool:
 
 
 def can_detect(game, viewer, target, dist=None, r=None, conceal=None) -> bool:
+    if getattr(viewer, "z", 0) < 0 or getattr(target, "z", 0) < 0:
+        return False                                  # nobody in a cellar sees out, or is seen from outside
     if dist is None:
         dist = math.hypot(target.x - viewer.x, target.y - viewer.y)
     if r is None:
@@ -336,13 +356,31 @@ def can_detect(game, viewer, target, dist=None, r=None, conceal=None) -> bool:
     if dist > fr:
         if pk is None:
             return False
-    elif dist <= 1.5 or los_clear(game, viewer.x, viewer.y, target.x, target.y, _high(viewer) or _high(target)):
+    elif dist <= 1.5 or _sight_line(game, viewer, target):
         return True
     if pk is not None:
         # only a head and a shoulder round the corner: harder to spot
         pd = math.hypot(pk[0] - viewer.x, pk[1] - viewer.y)
         return pd <= fr * 0.55 and los_clear(game, viewer.x, viewer.y, pk[0], pk[1])
     return False
+
+
+def _sight_line(game, viewer, target) -> bool:
+    """The line between two men, for seeing: the terrain, the crests, and - for a man up in an open belfry or
+    on a roof - not the walls of his own building."""
+    from .floors import inside, open_top
+    tops = [r for r in (open_top(game, viewer), open_top(game, target)) if r is not None]
+    if not tops:
+        return los_clear(game, viewer.x, viewer.y, target.x, target.y, _high(viewer) or _high(target),
+                         eye_height(viewer), body_height(target))
+    m = game.map
+    pts = tcod.los.bresenham((viewer.x, viewer.y), (target.x, target.y))
+    see = m.high()
+    for x, y in pts[1:-1]:
+        if not see[x, y] and not any(inside(r, x, y) for r in tops):
+            return False
+    from .relief import crest_clear
+    return crest_clear(m, pts, eye_height(viewer), body_height(target))
 
 
 def peek_point(a):
@@ -423,6 +461,10 @@ def player_fov(game):
     if not p.body.conscious:
         m.visible[:] = False
         return
+    if getattr(p, "z", 0) < 0:
+        m.visible[:] = False                          # in the cellar: a candle, the others, the thud of shells
+        m.visible[ox, oy] = True
+        return
     eye = player_eye(game)
     game._peye = eye
     base, cones = eye
@@ -430,9 +472,21 @@ def player_fov(game):
     R = float(game.view_range_cache)                   # daylight, twilight, moon and weather are all in it
     lit_r = max(45.0, DAY_RANGE * WEATHER_VIS.get(game.weather, 1.0) * 0.6) if game.is_dark else 0.0
     r = int(max(R * top, 8, lit_r * top)) + 2
-    see = m.high() if p.vehicle is not None else m.see       # up in a vehicle you see over the corn
+    from .relief import viewshed
+    eye_h = eye_height(p)
+    up = p.vehicle is not None or eye_h >= 2.5 or _on_a_rise(m, ox, oy)
+    see = m.high() if up else m.see              # up in a vehicle, a window or on a rise you see over the corn
+    from .floors import open_top
+    top = open_top(game, p)
+    if top is not None:
+        see = see.copy()                          # up in the belfry, on the roof: all round, over the walls
+        tx0, ty0, tbw, tbh = top
+        see[tx0:tx0 + tbw, ty0:ty0 + tbh] = True
     fov = tcod.map.compute_fov(see, (ox, oy), radius=r, light_walls=True,
                                algorithm=tcod.constants.FOV_SYMMETRIC_SHADOWCAST)
+    vs = viewshed(m, ox, oy, r, eye_h, 1.2)       # and not over the crest of a hill (relief.py)
+    if vs is not None:
+        fov &= vs
     pk = peek_point(p)
     if pk is not None and m.in_bounds(*pk):
         # leaning out: you see what the corner hid
@@ -461,6 +515,15 @@ def player_fov(game):
     fov &= win
     m.visible[:] = fov
     m.explored |= fov
+
+
+def _on_a_rise(m, x, y) -> bool:
+    """Standing well above the ground round about (a knoll, a crest): the crops below don't hide the field."""
+    e = m.__dict__.get("elev")
+    if e is None:
+        return False
+    x0, x1, y0, y1 = max(0, x - 6), min(m.w, x + 7), max(0, y - 6), min(m.h, y + 7)
+    return float(e[x, y]) - float(e[x0:x1, y0:y1].mean()) >= 3.0
 
 
 def player_can_see_actor(game, a) -> bool:

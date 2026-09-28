@@ -30,6 +30,53 @@ def can_enter(game, a, x, y) -> bool:
     return True
 
 
+FLOOR_WORD = {-1: "the cellar", 0: "the ground floor", 1: "the first floor", 2: "the second floor",
+              3: "the top of the tower"}
+
+
+def floor_word(game, a) -> str:
+    z = getattr(a, "z", 0)
+    if z <= 0:
+        return FLOOR_WORD.get(z, "the ground floor")
+    b = game.map.building_at(a.x, a.y)
+    if b is not None and z >= b[1] - 1:
+        style = next((bb[4] for bb in game.map.buildings if tuple(bb[:4]) == b[0]), "")
+        top = {"church": "the bell tower", "desert_house": "the flat roof", "barn": "the hayloft"}.get(style)
+        if top:
+            return top
+    return FLOOR_WORD.get(z, f"floor {z}")
+
+
+def climb(game, a, dz: int) -> int | None:
+    """Up the stairs (a floor at a time) or down them; down through the trapdoor into the cellar, and up
+    again.  None if there's no way that way from here."""
+    m = game.map
+    t = m.tile(a.x, a.y).key
+    z = getattr(a, "z", 0)
+    b = m.building_at(a.x, a.y)
+    if a.vehicle is not None or a.carrying is not None:
+        return None
+    if dz > 0:
+        if z < 0 and t == "trapdoor":
+            a.z = 0
+        elif z >= 0 and t == "stairs" and b is not None and z < b[1] - 1:
+            a.z = z + 1
+        else:
+            return None
+    else:
+        if z > 0 and t == "stairs":
+            a.z = z - 1
+        elif z == 0 and t == "trapdoor":
+            a.z = -1
+        else:
+            return None
+    a.stance = min(a.stance, 1)
+    game.note_move(a)
+    if a.is_player:
+        game.msg(f"You {'climb' if a.z > z else 'go down'} to {floor_word(game, a)}.", "info")
+    return 400 if abs(a.z - z) else 100
+
+
 def move(game, a, dx: int, dy: int, allow_swap=True):
     m = game.map
     if getattr(a, "peek", None):
@@ -39,6 +86,16 @@ def move(game, a, dx: int, dy: int, allow_swap=True):
         return None
     tid = int(m.t[nx, ny])
     d = T.DEFS[tid]
+    z = getattr(a, "z", 0)
+    if z != 0:
+        # upstairs you can walk the floor (the same plan as below) but not out of the door; in the cellar, nowhere
+        b0 = m.building_at(a.x, a.y)
+        if z < 0 or b0 is None or m.building_at(nx, ny) is None or m.building_at(nx, ny)[0] != b0[0] or \
+                not T.FLOOR[tid]:
+            if a.is_player:
+                game.msg("You're in the cellar: up through the trapdoor first (<)." if z < 0 else
+                         "You're upstairs: the stairs are the way down (>).", "info")
+            return None
     # doors open when walked into
     if d.door == 1:
         m.set(nx, ny, "door_open")
@@ -90,7 +147,8 @@ def move(game, a, dx: int, dy: int, allow_swap=True):
     pace = pace_of(game, a) if water < 2 else "walk"
     a.ai["pace_now"] = pace
     mult *= PACE_COST[pace]
-    cost = int(cost * mult)
+    from .relief import climb
+    cost = int(cost * mult * climb(game.map, a.x, a.y, a.x + dx, a.y + dy))     # the slope: up is slow
     if dx != 0 and dy != 0:
         cost = int(cost * 1.1)
     # carrying a wounded comrade
@@ -342,6 +400,21 @@ def place_charge(game, a, item, x, y) -> int | None:
     v = game.vehicle_at.get((x, y))
     if v is not None:
         placed.data = {"on_vehicle": v.id}
+    pencil = next((i for i in a.inv if i.t.tool == "time_pencil"), None) if t.charge in (
+        "plastic", "block", "magnetic", "satchel") else None
+    if pencil is not None:
+        # a time pencil: ten minutes on the band - and they ran fast in the heat and slow in the cold
+        a.remove_item(pencil, 1) if pencil.count > 1 else a.remove_item(pencil)
+        from .thermal import ambient
+        temp = ambient(game)
+        delay = int(600 * game.rng.uniform(0.75, 1.3) * (1.0 - (temp - 12) * 0.01))
+        game.land_explosive(placed, x, y, a, t.fuse - delay, placed_charge=True, hidden=True)
+        if a.is_player:
+            game.msg(f"You press the {t.name} home, squeeze the time pencil to break the ampoule and pull the "
+                     f"safety strip. Ten minutes on the band - give or take. Walk away.", "warn")
+        from .skills import level, use
+        use(game, a, "demolitions", 3.0)
+        return int(400 * max(0.55, 1.35 - level(a, "demolitions") * 0.09))
     game.land_explosive(placed, x, y, a, 0, placed_charge=True)
     if a.is_player:
         game.msg(f"You set the {t.name}. {t.fuse} seconds. MOVE!", "warn")
@@ -434,15 +507,22 @@ def face(a, tx):
         a.face = 1 if tx > a.x else -1
 
 
-def melee(game, a, target) -> int:
+def melee(game, a, target, move=None) -> int:
     face(a, target.x)
-    return melee_attack(game, a, target)
+    return melee_attack(game, a, target, move)
 
 
 def fire(game, a, tx, ty, target=None, area=False) -> int | None:
     w = a.weapon
     if w is None or w.t.kind != "gun":
         return None
+    if a.ai.get("grapple") is not None and w.t.cat != "pistol":
+        from .melee import grappling
+        if grappling(game, a) is not None:
+            if a.is_player:
+                game.msg("You can't bring a long gun round with a man locked onto you. Fight - or tear free.", "warn")
+            return None
+    a.ai.pop("stuck_in", None)                   # (a round fired frees a stuck bayonet - they were taught that)
     face(a, tx)
     if w.jammed:
         return unjam(game, a)

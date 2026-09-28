@@ -304,26 +304,8 @@ def setup_player(game, sid, notes):
         notes.append("Charges primed, fuses in your breast pocket. No prisoners - they'd slow you down, and they'd "
                      "do the same to you.")
     elif sid == "agent":
-        rec = _enemy_installation(game, enemy, "hq")
-        strip_friends([])
-        if p.squad is not None:
-            p.squad.members = [p]
-            p.squad.leader = p
-            p.squad.player_led = True
-        x, y = edge_band_point(game, _far_edge(game, rec), rng, depth=(2, 6))
-        game.remove_actor(p)
-        place(game, p, x, y, 5)
-        from .entities import Item
-        doc = Item("op_orders")
-        doc.data = dict(side=enemy, unit=f"{game.side_nation(enemy)} headquarters", level=5)
-        if rec is not None:
-            m.add_item(rec["x"], rec["y"], doc)
-        p.ai["disguise"] = True
-        game.mission = dict(kind="agent", rec=rec, stage="steal", home=home, doc=doc.iid,
-                            text=f"Steal the operation orders from their headquarters ({_where(game, rec)}) and "
-                                 f"carry them back to our lines.")
-        notes.append("You are a farm labourer with a work permit. Walk like one. Don't carry a rifle where they "
-                     "can see it; don't loiter near sentries; don't run.")
+        from .agents import setup as agent_setup
+        agent_setup(game, notes, strip_friends)
     elif sid == "evader":
         strip_friends([])
         if p.squad is not None:
@@ -346,11 +328,13 @@ def setup_player(game, sid, notes):
                  if m.walk[xx, yy] and m.conceal[xx, yy] >= 35]
         x, y = spots[0] if spots else (m.w // 2, m.h // 2)
         small_team("partisan", 6, x, y, "partisan detachment")
-        _set_night(game) if rng.random() < 0.5 else None
-        game.mission = dict(kind="partisans", stage="wait", convoy_turn=game.turn + rng.randint(120, 300),
-                            need=2, killed=0, home=home, text="Ambush the convoy on the road. Destroy two vehicles, "
-                                                             "then melt away into the woods.")
-        notes.append("The road runs past the wood. Scouts say trucks come through most days.")
+        from .agents import band_mission
+        if not band_mission(game, notes):
+            _set_night(game) if rng.random() < 0.5 else None
+            game.mission = dict(kind="partisans", stage="wait", convoy_turn=game.turn + rng.randint(120, 300),
+                                need=2, killed=0, home=home, text="Ambush the convoy on the road. Destroy two "
+                                                                 "vehicles, then melt away into the woods.")
+            notes.append("The road runs past the wood. Scouts say trucks come through most days.")
     elif sid in ("encircled", "rearguard"):
         for sq in game.squads:
             if sq.side == side:
@@ -488,7 +472,8 @@ def update(game):
         game.command.merit += merit
         game.duty.rep += merit
         if merit >= 6:
-            game.command._award(game, 1 if merit < 10 else 2, f"for the {SCENARIOS[ms['sid']]['name'].lower()}")
+            game.command._award(game, 1 if merit < 10 else 2,
+                                f"for the {ms.get('award_for') or SCENARIOS[ms['sid']]['name'].lower()}")
         game.update_orders(force=True)
 
     if "_start_sector" not in ms:
@@ -519,6 +504,9 @@ def update(game):
                 game.update_orders(force=True)
         elif ms["stage"] == "exfil" and (friendly_ground or game.sector is not ms["_start_sector"]):
             done("You slip away as the fires light the sky behind you. The raid is a success.", 10)
+    elif k == "agent" and ms.get("task") not in (None, "steal_plans"):
+        from .agents import update as agent_update
+        agent_update(game, ms, done, friendly_ground, here)
     elif k == "agent":
         has = any(getattr(i, "iid", None) == ms["doc"] for i in p.inv)
         if ms["stage"] == "steal" and has:

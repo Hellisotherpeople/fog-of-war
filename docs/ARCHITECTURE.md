@@ -302,6 +302,9 @@ without a model ready falls back to the system engine line by line.
 | `fires.py` | real batteries, mortar platoons, ships and squadrons; fire missions; the gun line |
 | `tasks.py` | squad tasks: scavenging, the wounded, prisoners, a hand for the tanks |
 | `medevac.py` | calling stretcher-bearers, the evacuation chain, hospital time, back to duty |
+| `agents.py`, `data/agents.py`, `data/items_special.py` | the secret war: careers, covers, agent and resistance missions, the wireless and direction-finding, supply drops from special-duties squadrons, the special weapons and gadgets |
+| `relief.py`, `floors.py` | the heightmap (generation, viewsheds, crest checks, slope costs, hillshade) and building floors (stairs, cellars, open tops, falls, AI use) |
+| `melee.py` | hand to hand: moves, parries, where blows land, clinches, silent kills |
 | `skills.py` | twelve skills per soldier: rolled at birth, floors from role and unit, practice, the helpers the systems use |
 | `fastpath.py` | Dijkstra maps: numba Dial's algorithm, or tcod |
 | `skysea.py`, `skysea_missions.py`, `skyseaui.py`, `skysea_exit.py` | the war at sea and in the air, its missions, the chart/flight view, coming back to earth |

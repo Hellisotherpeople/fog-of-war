@@ -167,6 +167,10 @@ def test_nearby_list():
     fa.states = [ps]
     _turns(g, 60)
     g.player_fov()
+    if not g.player.alive or not g.player.body.conscious:
+        return                                        # (shelled in the first minute: it happens)
+    ps.popups = []
+    ps.mode = "normal"
     ps.on_key(Key(char="V"))
     assert ps.mode == "nearby"
     lists = ps.nearby["lists"]
@@ -495,7 +499,14 @@ def test_gun_line_and_mortars():
     b = f.player_battery(g)
     assert b is not None and p.vehicle.id in b.vids
     fired = 0
-    for _ in range(2000):
+    here = (g.sector.x, g.sector.y)
+    tx = max(0, min(g.map.w - 1, p.x + 40))
+    for o in f.batteries:                            # (their guns would find ours: counter-battery is real)
+        if o.side != p.side:
+            o.ammo = 0
+    g.support.next_sortie = {k: 10 ** 9 for k in g.support.next_sortie}
+    g.waves = []
+    for _ in range(3000):
         if f.player_mission(g) is not None:
             assert "FIRE MISSION" in g.player_orders
             ps._order_plan()[1]()
@@ -503,6 +514,8 @@ def test_gun_line_and_mortars():
             if fired >= 3:
                 break
             continue
+        if b.mission is None:
+            f.start(g, b, ("map", here, (tx, p.y)), None, 6, delay=5, silent=True)   # (the next call from the front)
         p.moves = 0
         g.world_turn()
     assert fired >= 3 and b.fired >= 3
@@ -529,6 +542,9 @@ def test_counter_battery_comes_from_real_guns():
     f = g.support.fires
     mine = f.player_battery(g)
     enemy = [b for b in f.batteries if b.side != mine.side]
+    for b in enemy:
+        if b.mission is not None:
+            f._end(g, b, "done")                     # (free to answer, whatever they were doing)
     before = {b.id: b.ammo for b in enemy}
     g._counter_battery = [(g.turn, enemy[0].side, *mine.pos)]
     _turns(g, 300)
@@ -659,7 +675,11 @@ def test_medevac():
     g.brains[p.side].contacts.clear()
     _turns(g, 3)
     p.body.hp["l_leg"] = 3
-    p.add_item(Item("radio"))
+    if p.add_item(Item("radio")) is None:
+        bp = Item("backpack")                         # (a pack to carry the set in)
+        p.invent.slots["pack"] = bp
+        bp.where = "pack"
+        assert p.add_item(Item("radio")) is not None
     ok, why = MV.can_call(g)
     assert ok, why
     day0 = g.now()
@@ -717,6 +737,252 @@ def test_skills():
     ss.render(con)
     text = "".join(chr(c) for row in con.ch.T for c in row if 32 <= c < 0x10000)
     assert "SKILLS" in text
+
+
+def test_hand_to_hand():
+    """A blow lands somewhere real or is parried; two men can lock together (and then can't shoot a rifle); a
+    man looking the other way can be taken silently; the right-click menu offers the moves with their odds."""
+    from fow import melee as ML
+    from fow.play import PlayState
+    from fow.spawn import free_tile_near, make_soldier
+    fa = FakeApp()
+    g = Game("bocage44", "usa", seed=3, setup={"battlefield": "standard"})
+    ps = PlayState(fa, g)
+    fa.states = [ps]
+    p = g.player
+    for a in list(g.actors):
+        if a.side != p.side and a.alive:
+            a.body.dead = True
+            g.kill(a, None)
+
+    def enemy():
+        e = make_soldier(g, "germany", "rifleman")
+        e.side = "axis"
+        spot = next(((p.x + dx, p.y + dy) for dx in (1, -1) for dy in (0, 1, -1)
+                     if g.map.walk[p.x + dx, p.y + dy] and (p.x + dx, p.y + dy) not in g.soldier_at), None)
+        e.x, e.y = spot or free_tile_near(g, p.x + 1, p.y, 1)
+        g.add_actor(e)
+        e.ai["aware"] = {p.id: (1.0, g.turn)}
+        return e
+    # a fight: blows are exchanged until one of them goes down (both are wounded somewhere real)
+    e = enemy()
+    hp0 = sum(e.body.hp.values())
+    for _ in range(40):
+        if not e.alive or e.downed:
+            break
+        g.turn += 1
+        e.ai["aware"] = {p.id: (1.0, g.turn)}
+        ML.attack(g, p, e, "butt")
+    assert sum(e.body.hp.values()) < hp0
+    g.remove_actor(e)
+    # a clinch: both held, and the rifle can't be brought round
+    e = enemy()
+    for _ in range(30):
+        g.turn += 1
+        e.ai["aware"] = {p.id: (1.0, g.turn)}
+        ML.attack(g, p, e, "grab")
+        if ML.grappling(g, p) is e:
+            break
+    assert ML.grappling(g, p) is e and ML.grappling(g, e) is p
+    from fow import actions as A
+    if p.weapon is not None and p.weapon.t.cat != "pistol":
+        assert A.fire(g, p, e.x, e.y, e) is None
+    ML._release(p, e)
+    g.remove_actor(e)
+    # from behind, unseen: taken without a sound
+    e = enemy()
+    e.ai["aware"] = {}
+    e.face = 1 if p.x < e.x else -1                  # looking away from you
+    assert ML.surprised(g, e, p) and ML.moves_for(g, p, e)[0] in ("silent", "strangle")
+    ML.attack(g, p, e)
+    assert not e.alive or e.body.unconscious > 0 or ML.grappling(g, p) is e
+    # the menu
+    e2 = enemy()
+    ps.context_menu(e2.x, e2.y, 10, 10)
+    labels = [o[0] for o in ps.popups[-1].options]
+    assert any("odds" in l or "certain" in l for l in labels)
+
+
+def test_agents():
+    """An agent has a career, a cover with the right papers and no soldier's kit; a timed charge hides its fuse;
+    the wireless brings a drop from a real squadron, which drops only on lights and lands real containers;
+    long transmissions bring the detector car."""
+    from fow import agents as AG
+    from fow.play import PlayState
+    from fow.spawn import free_tile_near
+    fa = FakeApp()
+    g = None
+    for seed in range(1, 40):
+        g = Game("bocage44", "uk", role="agent", seed=seed, setup={"battlefield": "standard", "scenario": "agent"})
+        if g.mission["task"] == "receive_drop":
+            break
+    ps = PlayState(fa, g)
+    fa.states = [ps]
+    p = g.player
+    cv = AG.cover(g)
+    assert cv and cv["career"] in AG.CAREERS and g.mission["kind"] == "agent"
+    if cv.get("name"):
+        assert not any(i.t.tool == "dogtags" for i in p.inv)                   # in plain clothes: nothing that says soldier
+        assert all(any(i.tid == x for i in p.inv) for x in cv["papers"])
+        assert any(i.t.tool == "papers" for i in p.inv) and p.ai.get("disguise")
+    def quiet():
+        g.waves = []
+        g.shells = []
+        for b in g.support.fires.batteries:          # (their guns and aircraft are real, and would find you)
+            if b.side != p.side:
+                b.ammo = 0
+        g.support.next_sortie = {k: 10 ** 9 for k in g.support.next_sortie}
+        for a in list(g.actors):
+            if a.side != p.side and a.alive:
+                a.body.dead = True
+                g.kill(a, None)
+    quiet()
+    # a time pencil: a long fuse, and nobody runs from what they don't know is there
+    from fow.entities import Item
+
+    def give(tid):
+        it = Item(tid)
+        spare = [i for i in p.inv if i.t.kind in ("tool", "melee", "gun", "ammo", "mag") and
+                 i.t.tool not in ("wireless", "torch", "sphone") and i is not p.weapon]
+        while p.add_item(it) is None and spare:
+            p.remove_item(spare.pop())               # (a full pack: something goes)
+        return it
+    give("pe_808")
+    give("time_pencil")
+    from fow import actions as A
+    A.place_charge(g, p, next(i for i in p.inv if i.tid == "pe_808"), p.x, p.y)
+    e = g.explosives[-1]
+    assert e["fuse"] > 300 and e.get("hidden") and g.explosive_danger(p.x, p.y, 4) is None
+    g.explosives.clear()
+    # the drop: the squadron is real; over the field with the lights out, containers land
+    d = g.agent["drops"][0]
+    give("signal_torch")                              # (your own torch, if the committee's been shot)
+    g.soldier_at.pop((p.x, p.y), None)
+    p.x, p.y = free_tile_near(g, d["dz"][0] + 2, d["dz"][1], 3)
+    g.soldier_at[(p.x, p.y)] = p
+    for k in range(4000):
+        p.moves = 0
+        g.world_turn()
+        if k % 5 == 0:
+            quiet()
+        if d["state"] in ("dropped", "no_lights", "lost"):
+            break
+    assert d["state"] == "dropped" and d["n_items"] > 0, d
+    q = next(q for q in g.support.fires.squadrons if q.id == d["squadron"])
+    assert q.at.role == "transport" and q.sorties >= 1
+    # a message out; then on the air too long in one place, and the detector car comes
+    st = g.agent
+    st["df"] = 0.0
+    AG.radio_choice(ps, "report")
+    for k in range(AG.TX_TIME["report"] + 5):
+        p.moves = 0
+        g.world_turn()
+        if k % 5 == 0:
+            quiet()
+    assert st["sent"] >= 1
+    st["df"] = AG.DF_ALARM - 5
+    AG.radio_choice(ps, "report")
+    for k in range(20):
+        p.moves = 0
+        g.world_turn()
+    assert st["hunt"] is not None and any(q.id == st["hunt"]["squad"] for q in g.squads)
+    # the cover page draws
+    import tcod
+    from fow.constants import SCREEN_H, SCREEN_W
+    from fow.ui import StatusState
+    ss = StatusState(fa, g)
+    ss.page = ss.PAGES.index("cover")
+    ss.render(tcod.console.Console(SCREEN_W, SCREEN_H, order="F"))
+
+
+def test_item_flavor():
+    """Every rifle has a maker and a serial, tags are in their army's format, letters come from home, a paper
+    carries the real news of its date, and each army carries its own things."""
+    import datetime
+    from fow import flavor as FL
+    from fow.data.items import ITEMS
+    from fow.data.roles import _personal
+    from fow.entities import Item
+    from fow.spawn import make_soldier
+    g = Game("bocage44", "usa", seed=5, setup={"battlefield": "standard"})
+    a = make_soldier(g, "usa", "rifleman")
+    gun = a.weapon
+    assert gun is not None and "serial" in (gun.data or {}).get("flavor", "")
+    tags = next(i for i in a.inv if i.t.tool == "dogtags")
+    assert a.name.upper() in tags.data["flavor"]
+    let = Item("letter")
+    FL.stamp(g, let, a)
+    assert let.data["text"].startswith("A letter from")
+    paper = Item("stars_and_stripes")
+    FL.stamp(g, paper, a)
+    if g.now().date() >= datetime.date(1944, 6, 6):
+        assert "FRANCE" in paper.data["text"] or "PARIS" in paper.data["text"] or "ROME" in paper.data["text"]
+    import random
+    r = random.Random(2)
+    jp = {_personal(r, "japan", 1944, ("charm", "flag")) for _ in range(30)}
+    assert jp & {"senninbari", "omamori", "yosegaki"}
+    assert all(ITEMS[i].freq == 0 for i in ("welrod", "pervitin", "senninbari"))   # never in the ordinary loot pools
+
+
+def test_relief_and_floors():
+    """The land has height: named hills stand up, a crest hides what's behind it, uphill is slow.  Buildings
+    have floors: stairs up for the view, a cellar against the shells, the same for everyone."""
+    import numpy as np
+    from fow import actions as A
+    from fow import relief as R
+    from fow import tiles as T
+    from fow.combat import explode
+    from fow.play import PlayState
+    g = Game("cassino44", "uk", seed=4, setup={"battlefield": "standard"})
+    m = g.map
+    e = m.elev
+    assert e.max() - e.min() > 15
+    hills = [o for o in m.objectives if any(k in o.name.lower() for k in R.HILL_NAMES)]
+    for o in hills:
+        assert e[o.x, o.y] > np.median(e)
+    # somewhere a line is blocked by the ground alone
+    import tcod
+    hx, hy = (int(v) for v in np.unravel_index(int(np.argmax(e)), e.shape))
+    top = float(e[hx, hy])
+    blocked = False
+    for dx, dy in ((1, 0), (0, 1), (1, 1), (1, -1)):
+        ends = []
+        for sgn in (1, -1):
+            x, y = hx, hy
+            while m.in_bounds(x + sgn * dx, y + sgn * dy) and e[x, y] > top - 12:
+                x, y = x + sgn * dx, y + sgn * dy
+            ends.append((x, y))
+        (x0, y0), (x1, y1) = ends
+        if e[x0, y0] <= top - 12 and e[x1, y1] <= top - 12:
+            if not R.crest_clear(m, tcod.los.bresenham((x0, y0), (x1, y1)), 1.6, 1.6):
+                blocked = True                        # over the hill, the other side can't be seen
+                break
+    assert blocked
+    assert R.climb(m, hx - 1, hy, hx, hy) > 1.0       # uphill is slow
+    # floors, in a town
+    fa = FakeApp()
+    g = Game("stalingrad42", "ussr", seed=4, setup={"battlefield": "standard"})
+    ps = PlayState(fa, g)
+    fa.states = [ps]
+    m = g.map
+    p = g.player
+    stairs = [tuple(map(int, s)) for s in np.argwhere(m.t == T.ID["stairs"]) if tuple(map(int, s)) not in g.soldier_at]
+    traps = [tuple(map(int, s)) for s in np.argwhere(m.t == T.ID["trapdoor"]) if tuple(map(int, s)) not in g.soldier_at]
+    assert stairs and traps
+    g.soldier_at.pop((p.x, p.y), None)
+    p.x, p.y = stairs[0]
+    g.soldier_at[stairs[0]] = p
+    assert A.climb(g, p, 1) and p.z == 1 and R.eye_height(p) > 4
+    assert A.climb(g, p, -1) and p.z == 0
+    g.soldier_at.pop((p.x, p.y), None)
+    p.x, p.y = traps[0]
+    g.soldier_at[traps[0]] = p
+    assert A.climb(g, p, -1) and p.z == -1
+    assert A.move(g, p, 1, 0) is None                 # nowhere to walk in a cellar
+    hp0 = sum(p.body.hp.values())
+    explode(g, p.x + 3, p.y, 250, 4, frags=40, attacker=None, source="a test shell")   # (the trapdoor intact)
+    assert sum(p.body.hp.values()) > hp0 - 30
+    assert A.climb(g, p, 1) and p.z == 0
 
 
 if __name__ == "__main__":

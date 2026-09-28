@@ -1197,6 +1197,8 @@ class Fires:
             at = q.at
             if roles and at.role not in roles:
                 continue
+            if at.role == "transport" and not roles:
+                continue                          # (the special-duties squadrons drop containers, not bombs)
             if night and not at.night:
                 continue
             cands.append(q)
