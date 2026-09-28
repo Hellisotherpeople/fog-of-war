@@ -820,6 +820,16 @@ def soldier_act(game, a) -> int:
         return surrendered_act(game, a)
     if a.state != "ok":
         return 100
+    if a.ai.get("grapple") is not None:
+        from .melee import attack, grappling
+        g = grappling(game, a)
+        if g is not None:
+            return attack(game, a, g)                 # locked together: nothing else exists
+    if a.z or (a.suppression > 70 and a.ai.get("shelled", -999) >= game.turn - 20):
+        from .floors import ai_act
+        c = ai_act(game, a, None, a.squad)            # the stairs, the cellar
+        if c:
+            return c
     m = game.map
     sq = a.squad
     brain = game.brains[a.side]

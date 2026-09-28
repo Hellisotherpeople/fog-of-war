@@ -257,6 +257,10 @@ class Support:
         rng = g.rng
         at = ac.at
         tx, ty = int(ac.tx), int(ac.ty)
+        if ac.mode == "drop":
+            from .agents import drop_now
+            drop_now(g, ac)                       # containers on parachutes, if the lights are there
+            return
         if ac.mode in ("strafe",) or (ac.mode == "bomb" and not ac.bombs):
             # a line of fire along the flight path
             for dmg, rng_t, rounds in at.guns:

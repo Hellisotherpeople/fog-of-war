@@ -188,6 +188,8 @@ def act(game, a, vis, sq) -> int | None:
         _maybe_finished(game, sq)
         return None
     k = t["kind"]
+    if k == "drop":
+        return _gather_drop(game, a, sq, t)
     if k in SCAVENGE:
         return _scavenge(game, a, sq, t)
     if k == "casevac":
@@ -260,6 +262,42 @@ def _scavenge(game, a, sq, t):
         _maybe_finished(game, sq)
         return 100
     return 200 if k == "papers" else 250
+
+
+def _gather_drop(game, a, sq, t):
+    """A reception committee's night: each man to a container, open it, carry it to the cart - off the field
+    before the enemy comes (agents.py)."""
+    did = t.get("drop")
+    m = game.map
+    tgt = a.ai.get("task_pile")
+    if tgt is None:
+        taken = {o.ai.get("task_pile") for o in sq.members if o is not a}
+        piles = []
+        for (x, y), items in list(getattr(m, "items", {}).items()):
+            if (x, y) in taken:
+                continue
+            if any((it.data or {}).get("drop") == did for it in items):
+                piles.append((math.hypot(x - a.x, y - a.y), x, y))
+        if not piles:
+            a.ai["task_done"] = True
+            _maybe_finished(game, sq)
+            return None
+        piles.sort()
+        tgt = a.ai["task_pile"] = (piles[0][1], piles[0][2])
+    x, y = tgt
+    if max(abs(a.x - x), abs(a.y - y)) > 1:
+        from .ai import path_step
+        c = path_step(game, a, x, y)
+        if c:
+            return c
+        a.ai.pop("task_pile", None)
+        return None
+    for it in list(m.items_at(x, y)):
+        if (it.data or {}).get("drop") == did:
+            m.remove_item(x, y, it)
+            t["found"]["containers' worth of stores hidden"] += 1
+    a.ai.pop("task_pile", None)
+    return 600                                        # unbuckling a parachute harness from a container, and away
 
 
 def _bring_papers(game, a, sq, t):
@@ -404,6 +442,8 @@ def finish(game, sq, why="done"):
                 return f"{n} prisoner{'s' if n != 1 else ''} marched back"
             if what == "wounded carried back":
                 return f"{n} wounded carried back"
+            if what.startswith("containers"):
+                return f"{n} loads of stores carried off the field"
             return f"{n} x {what}"
         bits = [word(what, n) for what, n in found.most_common(6)]
         text = ("Right - back to our places. We got " if why == "stopped" else "Done. ") + ", ".join(bits) + "."

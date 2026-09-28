@@ -433,8 +433,7 @@ class InventoryScreen:
         if c == "d":
             return self.drop(it, cell)
         if c == "x":
-            self.say(f"{it.name}: {it.t.desc}")
-            return
+            return self.examine(it, cell)
         if c == "q":
             return self.quick_move(it, cell)
 
@@ -800,6 +799,14 @@ class InventoryScreen:
         self.menu.data["item"] = it
         self.menu.data["cell"] = cell
 
+    def examine(self, it, cell):
+        """Its story and its particulars, in a box over the kit (play.examine_lines)."""
+        from .render import Popup
+        ax, ay = self.play._screen_anchor()
+        self.menu = Popup(it.name, [("Close", "close", None, True)], (ax, ay), lines=self.play.examine_lines(it),
+                          width=58)
+        self.menu.data = {"item": it, "cell": cell}
+
     def _menu_key(self, key):
         m = self.menu
         if key.sym == E.KeySym.ESCAPE:
@@ -840,7 +847,9 @@ class InventoryScreen:
         if act == "move":
             return self._pick(cell)
         if act == "look":
-            self.say(f"{it.name}: {it.t.desc}")
+            return self.examine(it, cell)
+        if act == "close":
+            return
 
 
 def loot_sources_at(game, x, y, reach=0):

@@ -19,7 +19,13 @@ from .entities import Item
 HOUSE = [("ration", 5), ("canteen", 3), ("cigarettes", 3), ("flask", 2), ("letter", 1), ("photo", 1),
          ("bible", 1), ("rosary", 1), ("cards", 1), ("harmonica", 0.5), ("watch", 1), ("map", 1.2),
          ("compass", 0.5), ("bandage", 2), ("shovel", 0.8), ("wirecutters", 0.5), ("binoculars", 0.3),
-         ("sulfa", 0.7), ("morphine", 0.2), ("soft_cap", 0.5)]
+         ("sulfa", 0.7), ("morphine", 0.2), ("soft_cap", 0.5), ("local_drink", 1.5), ("pocket_watch", 0.4),
+         ("crucifix", 0.6), ("shaving_kit", 0.5), ("housewife", 0.4), ("wedding_ring", 0.15)]
+# what the people of each country left in their houses (by the sector's language)
+LOCAL_DRINK = {"fr": "wine", "it": "wine", "be": "wine", "ru": "vodka", "uk": "vodka", "pl": "vodka", "de": "schnapps",
+               "ja": "sake", "fi": "vodka", "gr": "wine"}
+LOCAL_NATION = {"fr": "france", "be": "france", "nl": "france", "it": "italy", "ru": "ussr", "uk": "ussr",
+                "pl": "poland", "de": "germany", "ja": "japan", "fi": "finland", "zh": "china", "gr": "italy"}
 BARN = [("shovel", 3), ("wirecutters", 1.5), ("wire_spool", 1), ("sandbags", 2), ("canteen", 1), ("ration", 2),
         ("cigarettes", 1)]
 CHURCH = [("bible", 3), ("rosary", 3), ("bandage", 3), ("medkit", 0.6), ("morphine", 0.6), ("letter", 1)]
@@ -161,10 +167,15 @@ def scatter(game):
                 if it is not None:
                     m.add_item(*rng.choice(cells), it)
                     placed += 1
+        lang = getattr(s, "lang", None)
         for _ in range(n):
             tid = _w(rng, WINTER if winter and rng.random() < 0.2 else table)
+            if tid == "local_drink":
+                tid = LOCAL_DRINK.get(lang, "flask")
             it = military_item(game, nations[0], tid, rng) if tid in ITEMS else None
             if it is not None:
+                from .flavor import stamp
+                stamp(game, it, nation=LOCAL_NATION.get(lang))     # (their letters, their photographs)
                 m.add_item(*rng.choice(cells), it)
                 placed += 1
     # battlefield litter

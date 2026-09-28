@@ -821,8 +821,16 @@ def is_object(key: str) -> bool:
     return False
 
 
+# newer tiles drawn by the painter of the tile they're most like (in their own colours)
+SPRITE_ALIAS = {"birch": "tree", "cypress": "pine", "fir": "pine", "apple_tree": "tree", "mangrove": "tree",
+                "vineyard": "corn", "sugarcane": "corn", "drystone": "low_wall", "camelthorn": "scrub",
+                "reeds": "tall_grass", "scree": "rock_ground", "outcrop": "boulder", "dune": "sand", "wadi": "sand",
+                "tomb": "wall_stone", "stairs": "floor_wood", "trapdoor": "floor_wood"}
+
+
 def paint_terrain(tid: int, variant: int) -> np.ndarray:
     key = T.DEFS[tid].key
+    key = SPRITE_ALIAS.get(key, key)
     c = Canvas(seed=tid * 97 + variant * 13 + 7)
     if key == "void":
         return np.zeros((M, M, 4), np.uint8)

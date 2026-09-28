@@ -66,6 +66,10 @@ class Key:
             (self.sym in MOVE_KEYS and self.shift)
 
 
+def m_tile(g, p):
+    return g.map.tile(p.x, p.y).key
+
+
 class PlayState:
     def __init__(self, app, game):
         self.app = app
@@ -642,6 +646,9 @@ class PlayState:
                     lines.append(("wounded" if worst > 0.4 else "badly wounded", (240, 140, 80)))
                 if a.suppression > 50 and not friend:
                     lines.append(("keeping his head down", UI_DIM))
+                if getattr(a, "z", 0) > 0:
+                    from .actions import floor_word
+                    lines.append((f"up on {floor_word(g, a)}", (230, 200, 140)))
                 cond = []
                 if a.moved_turn >= g.turn - 1 and a.ai.get("pace_now") in ("run", "sprint"):
                     cond.append(a.ai["pace_now"] + "ing" if a.ai["pace_now"] == "sprint" else "running")
@@ -703,6 +710,10 @@ class PlayState:
             tdesc = m.tile(x, y).desc
             if tdesc and not brief:
                 lines.append((tdesc[:70], UI_DIM))
+            from .relief import words as height_words
+            hw = height_words(g, x, y)
+            if hw:
+                lines.append((hw[0].upper() + hw[1:] + ".", UI_DIM))
         if vis:
             items = m.items_at(x, y)
             if items:
@@ -983,6 +994,15 @@ class PlayState:
             from . import aboard as AB
             if key.char in ("<", ">"):
                 return AB.climb(self, "up" if key.char == "<" else "down")
+        elif key.char in ("<", ">") and p.vehicle is None:
+            # the stairs, or the cellar trapdoor
+            c = A.climb(g, p, 1 if key.char == "<" else -1)
+            if c is None:
+                g.msg("There are no stairs here." if m_tile(g, p) not in ("stairs", "trapdoor") else
+                      "That's as far as these go.", "info")
+                return
+            g.player_fov()
+            return self.act(c)
             if key.char == "Z" or (key.char == "z" and self._quiet_aboard()):
                 return self.fast_forward()
         if getattr(key, "ctrl", False) and key.move():
@@ -1170,6 +1190,12 @@ class PlayState:
                 self.prompt_travel(edge)
             return False
         other = g.soldier_at.get((nx, ny))
+        if p.ai.get("grapple") is not None:
+            from .melee import attack, grappling
+            gr = grappling(g, p)
+            if gr is not None:
+                # locked together: at him is the fight, anywhere else is tearing free
+                return self.act(attack(g, p, gr, None if other is gr else "break"))
         if other is not None and other.side != p.side and other.state == "ok":
             return self.act(A.melee(g, p, other))
         if other is not None and not auto and other.side == p.side and other.state == "ok" and not other.downed:
@@ -3021,6 +3047,17 @@ class PlayState:
             rows.append(("h", "The enemy's in sight"))
             rows += [("k", "f|Tab", "aim and fire"), ("k", "c|p", "get low - prone behind cover is best"),
                      ("k", "q", "lean out of cover to shoot, and back"), ("k", "!|'", "safe mode off / ignore what you see")]
+        if v is None and m is not None:
+            t = m.tile(p.x, p.y).key
+            if t == "stairs" or t == "trapdoor" or getattr(p, "z", 0):
+                from .actions import floor_word
+                rows.append(("h", f"On {floor_word(g, p)}" if getattr(p, "z", 0) else "Stairs"))
+                if t == "stairs":
+                    rows.append(("k", "<|>", "up a floor (see and shoot over the hedges) / down again"))
+                if t == "trapdoor":
+                    rows.append(("k", ">|<", "down into the cellar (shelter from the shells) / up again"))
+                if getattr(p, "z", 0) > 0 and t != "stairs":
+                    rows.append(("l", "the stairs", "are the only way down: walk back to them"))
         rows.append(("h", "Always"))
         rows += [("k", "V", "everything around you in a list"), ("k", "x", "look"), ("k", "i", "your kit"),
                  ("k", "@", "yourself: your body in detail"), ("k", "Esc", "the menu")]
@@ -3407,7 +3444,11 @@ class PlayState:
                 "ration": "Eat something", "letter": "Read the letter", "photo": "Look at the photograph",
                 "harmonica": "Play something", "rosary": "Pray", "bible": "Read a verse", "coin": "Flip it",
                 "cards": "Shuffle the deck", "whistle": "Blow the whistle", "ammo_crate": "Resupply",
-                "sandbags": "Fill and stack them", "wire": "String the wire", "detector": "Sweep for mines"}.get(tool, "Use it")
+                "sandbags": "Fill and stack them", "wire": "String the wire", "detector": "Sweep for mines",
+                "wireless": "Set up the wireless", "camera": "Take a photograph", "torch": "Lay out the lights",
+                "sphone": "Talk to the aircraft", "time_pencil": "Check the time pencils", "money": "Count it",
+                "cover_papers": "Go over your cover", "papers": "Go over your cover", "code": "Check the pad",
+                "film": "Look at it", "trade": "Handle it"}.get(tool, "Use it")
 
     def _adjacent_friends(self):
         g = self.game
@@ -3515,16 +3556,37 @@ class PlayState:
         return (p.x, p.y)
 
     def examine(self, it):
+        lines = self.examine_lines(it)
+        self.open_popup(Popup(it.name, [("Close", None, None, True)], self._screen_anchor(), lines=lines,
+                              width=58), lambda v: None)
+
+    def examine_lines(self, it):
+        """What you see when you look an item over: what it is, its story, and this one's particulars."""
         t = it.t
         lines = []
         import textwrap
-        for l in textwrap.wrap(t.desc or "Nothing remarkable.", 48):
+        for l in textwrap.wrap(t.desc or "Nothing remarkable.", 52):
             lines.append((l, UI_TEXT))
+        from .data.lore import LORE
+        lore = LORE.get(t.id)
+        if lore:
+            lines.append(("", None))
+            for l in textwrap.wrap(lore, 52):
+                lines.append((l, (190, 180, 150)))
+        fl = (it.data or {}).get("flavor")
+        if fl:
+            lines.append(("", None))
+            for l in textwrap.wrap(("This one: " + fl) if t.kind == "gun" else fl, 52):
+                lines.append((l, UI_HI))
+        owner = (it.data or {}).get("owner")
+        if owner and owner != self.game.player.name and t.kind != "corpse":
+            lines.append((f"It was {owner}'s.", UI_DIM))
         if t.kind == "gun" and t.cat not in ("mortar",):
             lines.append(("", None))
             lines.append((f"Effective to {yards(t.rng)}.", UI_DIM))
             if t.mag > 1:
-                lines.append((f"Holds {t.mag} rounds of {ITEMS['ammo_' + t.cal].name if t.cal else '?'}.", UI_DIM))
+                cal = ITEMS['ammo_' + t.cal].name.replace(" rounds", "") if t.cal and 'ammo_' + t.cal in ITEMS else "?"
+                lines.append((f"Holds {t.mag} rounds of {cal}.", UI_DIM))
             if "auto" in t.modes:
                 lines.append(("Fires automatic bursts.", UI_DIM))
             if t.pen >= 20:
@@ -3537,7 +3599,77 @@ class PlayState:
                      (f"{NATIONS[d['nation']]['adj']} {d.get('role', 'soldier').replace('_', ' ')}", UI_TEXT),
                      (f"Killed by {d.get('cause') or 'unknown causes'}.", UI_DIM)]
         lines.append((f"Weight {it.weight:.1f} kg.", UI_DIM))
-        self.open_popup(Popup(it.name, [("Close", None, None, True)], self._screen_anchor(), lines=lines), lambda v: None)
+        return lines
+
+    def _personal_use(self, it):
+        """A soldier's own things, used."""
+        g = self.game
+        p = g.player
+        t = it.t
+        tool = t.tool
+        rng = g.rng
+
+        def used_one():
+            it.uses -= 1
+            if it.uses <= 0:
+                p.remove_item(it)
+        if tool == "stimulant":
+            used_one()
+            last = p.ai.get("stim_turn", -10 ** 9)
+            p.ai["stim_turn"] = g.turn
+            p.stamina = 100.0
+            p.fatigue = max(0.0, getattr(p, "fatigue", 0) - 45)
+            if g.turn - last < 3600:
+                p.morale = max(0, p.morale - 6)
+                p.suppression = min(100, p.suppression + 10)
+                g.msg(f"Another {t.name.split()[-1]}. Your heart hammers and your hands won't keep still; the "
+                      f"world has hard edges.", "warn")
+            else:
+                p.morale = min(100, p.morale + 6)
+                g.msg("Twenty minutes later the tiredness is simply gone. Everything is very clear and very "
+                      "important.", "info")
+            return self.act(100)
+        if tool == "chocolate":
+            p.remove_item(it) if it.count <= 1 else p.remove_item(it, 1)
+            p.morale = min(100, p.morale + 4)
+            p.stamina = min(100.0, p.stamina + 10)
+            g.msg(f"You eat the {t.name}. Sugar, and for a moment, somewhere else.", "info")
+            return self.act(200)
+        if tool == "gum":
+            used_one()
+            p.morale = min(100, p.morale + 1)
+            p.suppression = max(0, p.suppression - 5)
+            g.msg("You chew. It gives your jaw something to do besides clench.", "info")
+            return self.act(30)
+        if tool == "lighter":
+            cig = p.find(lambda i: i.t.tool == "cigarettes")
+            if cig is not None:
+                return self.use_tool(cig)
+            g.msg(f"You flick the {t.name}. It lights first time. Nothing to smoke.", "info")
+            return self.act(20)
+        if tool in ("charm", "flag", "medal", "ring"):
+            mine = (it.data or {}).get("owner") in (None, p.name)
+            if tool == "flag" and not mine:
+                g.msg("You unfold the flag: a dead man's names, his family's wishes in ink. You fold it again.", "think")
+            elif tool == "ring" and not mine:
+                g.msg("Someone's wedding ring. " + ((it.data or {}).get("flavor") or "No inscription."), "think")
+            elif tool == "medal" and not mine:
+                g.msg("A souvenir now. You wonder what he did for it.", "think")
+            else:
+                p.morale = min(100, p.morale + 5)
+                g.msg({"charm": "You touch it through your tunic. Still there.",
+                       "flag": "You unfold it and read the names from home.",
+                       "medal": "You look at it for a while. It doesn't say what it was really like.",
+                       "ring": "You turn it on your finger. Home."}[tool], "think")
+            return self.act(100)
+        if tool == "shave":
+            p.morale = min(100, p.morale + 3)
+            g.msg("You shave in a mess tin of cold water. You look like a man again - an old one.", "info")
+            return self.act(600)
+        if tool == "sewing":
+            g.msg("You sew a button back on and darn the worst of your socks.", "info")
+            return self.act(600)
+        g.msg(t.desc, "info")
 
     def use_tool(self, it):
         g = self.game
@@ -3558,6 +3690,10 @@ class PlayState:
             return self.cmd_binoculars()
         if tool == "radio":
             return self.cmd_radio()
+        if tool in ("wireless", "sphone", "torch", "camera", "time_pencil", "code", "film", "money", "cover_papers",
+                    "papers", "trade"):
+            from . import agents as AG
+            return AG.use_tool(self, it)
         if tool == "flaregun":
             if it.uses <= 0:
                 g.msg("You're out of flares.", "warn")
@@ -3597,6 +3733,19 @@ class PlayState:
             g.msg(it.data["text"], "think")
             p.morale = min(100, p.morale + 5)
             return self.act(300)
+        if tool == "photo" and it.data and it.data.get("text"):
+            g.msg(it.data["text"], "think")
+            p.morale = min(100, p.morale + 5)
+            return self.act(200)
+        if tool in ("newspaper", "document") and it.data and it.data.get("text"):
+            g.msg(it.data["text"], "think")
+            return self.act(300)
+        if tool == "newspaper":
+            from .flavor import headline
+            g.msg(headline(g, it.tid), "think")
+            return self.act(300)
+        if tool in ("stimulant", "chocolate", "gum", "lighter", "charm", "flag", "medal", "shave", "sewing", "ring"):
+            return self._personal_use(it)
         if tool in ("letter", "photo"):
             lines = {"letter": ["'...and the baby has your eyes. Come home to us.'", "'Mother says to keep your head down.'",
                                 "'I'll wait for you. However long it takes.'", "'The harvest was good this year. We miss you.'"],
@@ -3921,6 +4070,12 @@ class PlayState:
             opts.insert(0, ("Your prisoner...", "prisoner", (200, 220, 150), True))
         if adj and who.side != p.side and who.state == "ok" and who.downed and who.body.conscious:
             opts.insert(0, ("Take the wounded man prisoner", "take_wounded", (200, 220, 150), True))
+        if adj and who.side != p.side and who.state == "ok" and p.vehicle is None and player_can_see_actor(g, who):
+            # hand to hand: each move and the odds as you'd judge them (melee.py)
+            from . import melee as ML
+            for k, mv in enumerate(ML.moves_for(g, p, who)):
+                opts.insert(k, (f"{ML.MOVES[mv]['name']} ({ML.odds_word(ML.odds(g, p, who, mv))})",
+                                ("melee", mv), (240, 150, 120), True))
         if adj and who.side != p.side and who.state == "surrendered" and who.body.worst_wound() is not None and \
                 (p.medical("bandage") is not None or p.medical("tourniquet") is not None):
             opts.append(("Patch him up (he's a prisoner)", "patch_enemy", None, True))
@@ -3978,6 +4133,11 @@ class PlayState:
 
     def _context(self, v, x, y):
         g = self.game
+        if isinstance(v, tuple) and v[0] == "melee":
+            who = g.soldier_at.get((x, y))
+            if who is not None and who.alive and max(abs(x - g.player.x), abs(y - g.player.y)) <= 1:
+                return self.act(A.melee(g, g.player, who, v[1]))
+            return
         if v == "fleet":
             return self._to_the_fleet()
         if v in ("veh_enter", "veh_exit", "veh_help", "veh_shells", "veh_crate"):
@@ -4220,6 +4380,9 @@ class PlayState:
     def cmd_radio(self):
         g = self.game
         p = g.player
+        from . import agents as AG
+        if AG.has_wireless(p) and not self._can_radio():
+            return AG.open_wireless(self)            # an agent's set talks to London, not to the guns
         if not self._can_radio():
             from .medevac import _radio_near, can_call
             if _radio_near(g, p):
@@ -4242,6 +4405,8 @@ class PlayState:
         opts.append(("Request medical evacuation - stretcher-bearers" + (f" ({why})" if not ok else ""), "medevac",
                      (240, 170, 170), ok))
         opts.append(("Ask for a situation report", "sitrep", None, True))
+        if AG.has_wireless(p):
+            opts.append(("The wireless set: Morse to base (reports, drops)", "wireless", (220, 200, 140), True))
         self.open_popup(Popup("Radio", opts, self._screen_anchor(),
                               lines=[(g.support.fires.summary(g, p.side), UI_DIM)]),
                         self._radio)
@@ -4268,6 +4433,9 @@ class PlayState:
         elif what == "medevac":
             from .medevac import call
             call(self)
+        elif what == "wireless":
+            from . import agents as AG
+            AG.open_wireless(self)
         elif what == "sitrep":
             st = g.strategic.overview()
             mine = st["allies" if p.side == "allies" else "axis"]

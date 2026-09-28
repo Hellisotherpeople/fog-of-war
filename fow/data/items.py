@@ -914,6 +914,8 @@ def _register_mags():
             g.stripper = sid
 
 
+from . import items_special  # noqa: E402,F401  (the secret war's kit: its guns need magazines too)
+from . import items_personal  # noqa: E402,F401  (a soldier's things, army by army)
 _register_mags()
 for _mt in ITEMS.values():
     if _mt.kind in ("mag", "clip"):
@@ -946,7 +948,8 @@ container("us_mg_belt", "M1936 pistol belt", "rig", [P1] * 3 + [P4], weight=0.8,
 container("uk_37", "1937 pattern webbing", "rig", [P4, P4, P1, P1, GR], weight=1.3,
           desc="Two basic pouches that take Bren magazines, grenades or anything else.")
 container("de_koppel", "Koppel with K98 pouches", "rig", [P1] * 6 + [STICK] * 2, weight=1.1,
-          desc="Six pouch compartments of three stripper clips each. A stick grenade shoved into the belt.")
+          desc="Two leather pouches of three pockets, two five-round clips to a pocket: sixty rounds. A stick "
+               "grenade shoved into the belt.")
 container("de_mp", "MP 40 magazine pouches", "rig", [P2] * 6 + [P1] * 2 + [STICK], weight=1.0,
           desc="Two canvas pouches, three magazines each.")
 container("de_mg", "MG gunner's belt", "rig", [P1] * 3 + [P4], weight=0.9, desc="Pistol pouch, tool pouch, belt drum.")
@@ -1000,3 +1003,13 @@ PACKS = {"usa": "us_haversack", "uk": "uk_small_pack", "canada": "uk_small_pack"
          "newzealand": "uk_small_pack", "india": "uk_small_pack", "germany": "de_tornister", "ussr": "su_veshmeshok",
          "japan": "jp_haversack", "italy": "it_zaino", "france": "fr_musette", "poland": "sack", "china": "sack",
          "finland": "su_veshmeshok", "hungary": "de_tornister", "romania": "de_tornister"}
+# a civilian's bags (an agent can't walk about in webbing)
+container("suitcase", "battered leather suitcase", "pack", [(5, 3, "main", None)], weight=1.6, fold=(3, 2),
+          color=(110, 80, 50), desc="A cheap suitcase with a broken clasp and a railway label. Exactly what a man "
+                                    "carries a wireless set in.")
+container("shoulder_bag", "canvas shoulder bag", "pack", [(3, 3, "main", None)], weight=0.5, fold=(3, 2),
+          color=(130, 120, 90), desc="A workman's bag: bread, a bottle, a newspaper - and what's under the newspaper.")
+container("coat_pockets", "civilian jacket pockets", "rig", [(2, 2, "inside pocket", None), (2, 1, "pocket", None),
+                                                            (2, 1, "pocket", None)], weight=0.0, fold=(2, 1),
+          color=(130, 110, 90), desc="The deep inside pocket of a worn jacket, and two more.")
+ITEMS["suitcase"].freq = ITEMS["shoulder_bag"].freq = ITEMS["coat_pockets"].freq = 0

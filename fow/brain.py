@@ -319,7 +319,7 @@ class SideBrain:
         exp = np.zeros((w, h), np.float32)
         # prioritise the most threatening, most recent contacts
         contacts = sorted(contacts, key=lambda c: (-(c.threat), g.turn - c.turn))[:26]
-        for c in contacts:
+        for ci, c in enumerate(contacts):
             if not m.in_bounds(c.x, c.y):
                 continue
             r = RANGE_BY_KIND.get(c.kind, 40)
@@ -329,6 +329,11 @@ class SideBrain:
             see = m.see[x0:x1, y0:y1]
             vis = tcod.map.compute_fov(see, (c.x - x0, c.y - y0), radius=r, light_walls=True,
                                        algorithm=tcod.constants.FOV_SYMMETRIC_SHADOWCAST)
+            if ci < 10:                                     # (the ten most dangerous: it's a sweep each)
+                from .relief import viewshed
+                vs = viewshed(m, c.x, c.y, r, 1.6, 1.2)    # behind the crest, out of his sight
+                if vs is not None:
+                    vis &= vs[x0:x1, y0:y1]
             xs = np.arange(x0, x1)[:, None]
             ys = np.arange(y0, y1)[None, :]
             dx = c.x - xs

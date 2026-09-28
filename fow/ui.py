@@ -1012,15 +1012,21 @@ class StatusState:
         self.page = 0
         self.record = CharState(app, game)
 
-    PAGES = ("health", "skills", "record")
+    @property
+    def PAGES(self):
+        from .agents import cover
+        return ("health", "skills", "record") + (("cover",) if cover(self.game) else ())
 
     def render(self, con):
-        if self.page == 2:
+        name = self.PAGES[self.page % len(self.PAGES)]
+        if name == "record":
             self.record.render(con)
-            con.print(2, SCREEN_H - 2, "Tab: health   Shift+Tab: skills   Esc: close", fg=UI_DIM)
+            con.print(2, SCREEN_H - 2, "Tab: next page   Shift+Tab: back   Esc: close", fg=UI_DIM)
             return
-        if self.page == 1:
+        if name == "skills":
             return self._render_skills(con)
+        if name == "cover":
+            return self._render_cover(con)
         con.clear()
         g = self.game
         p = g.player
@@ -1200,17 +1206,34 @@ class StatusState:
                             "closing wounds, laying the guns...", fg=UI_DIM)
         con.print(2, SCREEN_H - 2, "Tab: service record   Shift+Tab: health   Esc: close", fg=UI_DIM)
 
+    def _render_cover(self, con):
+        """An agent's page: the career, the circuit, the legend and its papers, the mission."""
+        from .agents import cover_lines
+        import textwrap
+        con.clear()
+        p = self.game.player
+        con.print(2, 1, f"{p.rank_full} {p.name}", fg=UI_HI)
+        con.print(2, 2, "COVER   (Tab: health   Shift+Tab: service record)", fg=UI_DIM)
+        y = 4
+        for i, line in enumerate(cover_lines(self.game)):
+            for w in textwrap.wrap(line, SCREEN_W - 8):
+                con.print(4, y, w, fg=UI_TEXT if i else UI_HI)
+                y += 1
+            y += 1
+        con.print(2, SCREEN_H - 2, "Tab: health   Shift+Tab: service record   Esc: close", fg=UI_DIM)
+
     def on_key(self, key):
         if key.sym == E.KeySym.TAB or key.sym in (E.KeySym.LEFT, E.KeySym.RIGHT):
             back = getattr(key, "shift", False) or key.sym == E.KeySym.LEFT
             self.page = (self.page + (-1 if back else 1)) % len(self.PAGES)
-        elif self.page == 2 and key.sym not in (E.KeySym.ESCAPE,) and key.char not in ("@", "q"):
+        elif self.PAGES[self.page % len(self.PAGES)] == "record" and key.sym not in (E.KeySym.ESCAPE,) and \
+                key.char not in ("@", "q"):
             self.record.on_key(key)
         else:
             self.app.pop()
 
     def on_wheel(self, dy):
-        if self.page == 2 and hasattr(self.record, "on_wheel"):
+        if self.PAGES[self.page % len(self.PAGES)] == "record" and hasattr(self.record, "on_wheel"):
             self.record.on_wheel(dy)
 
 

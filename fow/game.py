@@ -862,6 +862,7 @@ class Game:
                     name=sector.name, special=self.theatre.get("special", set()),
                     installations=[(k, s) for k, s, ok in sector.installations if ok],
                     east=self.theatre["sides"][ALLIES][0][0] == "ussr", roads=self._road_edges(sector),
+                    lang=getattr(sector, "lang", None), theatre=self.theatre_id,
                     road_fracs=self._road_fracs(sector))
         if sector.biome == "beach":
             spec["biome"] = "beach"
@@ -1588,7 +1589,7 @@ class Game:
         if a.is_player:
             self.player_died(killer)
             return
-        if seen:
+        if seen and not self.__dict__.get("_quiet_kill"):      # (hand to hand tells it its own way: melee.py)
             if killer is self.player:
                 self.msg(f"You kill {self.name_of(a)}.", "hit")
             elif self.player is not None and a.squad is self.player.squad:
@@ -1667,7 +1668,11 @@ class Game:
         if k is not None and getattr(k, "vt", None) is not None:
             who = f", fired by {an(NATIONS[k.nation]['adj'])} {k.vt.name}"
         elif k is not None and hasattr(k, "nation"):
-            who = f", fired by {an(NATIONS[k.nation]['adj'])} {k.role_name.lower()}"
+            hand = b.__dict__.get("melee_death") or any(w in cause for w in (
+                "knife", "bayonet", "fists", "butt", "spade", "entrenching", "kukri", "sword", "shin-gunt", "dadao",
+                "szabla", "puukko", "Kampfmesser", "smatchet", "garrotte", "cosh", "Ka-Bar", "strangl"))
+            verb = "at the hands of" if hand else "fired by"
+            who = f", {verb} {an(NATIONS[k.nation]['adj'])} {k.role_name.lower()}"
             if k.side == p.side:
                 who += " - one of your own"
         self.death_text = (f"{p.rank_full} {p.name}, {p.unit}. Killed by {cause}{who}, "
@@ -1997,7 +2002,7 @@ class Game:
         return 100 if c is None else c
 
     # ================================================================== explosives
-    def land_explosive(self, item, x, y, thrower, cook=0, placed_charge=False):
+    def land_explosive(self, item, x, y, thrower, cook=0, placed_charge=False, hidden=False):
         t = item.t
         m = self.map
         if t.kind == "grenade" and (t.gtype in ("molotov", "gammon", "at") or t.fuse <= 1):
@@ -2007,7 +2012,7 @@ class Game:
         item.data = dict(item.data or {}, live=fuse)
         m.add_item(x, y, item)
         self.explosives.append(dict(item=item, x=x, y=y, fuse=fuse, thrower=thrower, holder=None,
-                                    placed=placed_charge))
+                                    placed=placed_charge, hidden=hidden))
         if self.player and math.hypot(x - self.player.x, y - self.player.y) < 3 and thrower is not self.player:
             self.msg("A grenade lands right next to you!" if t.kind == "grenade" else "A charge lands beside you!",
                      "death")
@@ -2029,8 +2034,8 @@ class Game:
         best = None
         bd = r + 0.5
         for e in self.explosives:
-            if e["holder"] is not None:
-                continue
+            if e["holder"] is not None or (e.get("hidden") and e["fuse"] > 2):
+                continue                           # (a charge on a time pencil: nobody knows it's there)
             d = math.hypot(e["x"] - x, e["y"] - y)
             if d < bd and e["item"].t.blast_r > 0:
                 bd, best = d, (e["x"], e["y"])
@@ -2103,6 +2108,24 @@ class Game:
                         x, y = vv.x, vv.y
             explode(self, x, y, t.blast, t.blast_r, frags=t.frags, frag_dmg=t.frag_dmg, pen=pen,
                     attacker=thrower, source=f"a {t.name}", crater=t.kind == "explosive")
+            if t.kind == "explosive":
+                self._cut_rails(x, y)
+
+    def _cut_rails(self, x, y):
+        """A charge against the rails: a metre of track twisted up out of the ballast."""
+        rail = T.ID.get("rail")
+        m = self.map
+        cut = False
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                xx, yy = x + dx, y + dy
+                if m.in_bounds(xx, yy) and m.t[xx, yy] == rail:
+                    m.t[xx, yy] = T.ID["crater"]
+                    cut = True
+        if cut:
+            self.terrain_dirty = True
+            from .agents import rail_blast
+            rail_blast(self, x, y)
 
     def schedule_shell(self, x, y, flight, power, radius, frags, frag_dmg, attacker, source,
                        whistle=True, sound=None, side=None, fire=0, pen=0, smoke=False):
@@ -2949,6 +2972,8 @@ class Game:
         if self.turn % 5 == 3 and self.__dict__.get("domain", "land") == "land":
             from . import maintenance as _MT
             _MT.tick(self)
+            from .floors import tick as _floors_tick
+            _floors_tick(self)
         if self.turn % 10 == 6 and self.__dict__.get("domain", "land") == "land":
             from . import base as _BASE
             from . import naval as _NV
@@ -3001,6 +3026,9 @@ class Game:
         if self.__dict__.get("medevac") is not None and self.turn % 2 == 0:
             from .medevac import update as _medevac_update
             _medevac_update(self)
+        if self.__dict__.get("agent"):
+            from .agents import tick as _agents_tick
+            _agents_tick(self)
         self._environment()
         if self.terrain_dirty:
             m.refresh()
@@ -3096,12 +3124,19 @@ class Game:
         rng = self.rng
         body = p.invent.slots.get("body")
         why = None
-        if body is None or body.tid != "civvies":
+        from . import agents as AG
+        if (body is None or body.tid != "civvies") and not p.ai.get("enemy_uniform"):
             why = "Out of your civilian clothes, you're just an enemy soldier to them."
-        elif p.fired_turn >= self.turn - 2:
-            why = "The shot gives you away."
-        elif p.weapon is not None and p.weapon.t.kind == "gun" and p.weapon.t.cat not in ("pistol",):
+        elif p.fired_turn >= self.turn - 2 and (p.weapon is None or p.weapon.t.loud > 40 or any(
+                a.side != p.side and a.active and max(abs(a.x - p.x), abs(a.y - p.y)) <= 8 and p in a.visible
+                for a in self.actors)):
+            why = "The shot gives you away."          # (a Welrod's cough goes unheard - unless someone saw)
+        elif p.weapon is not None and p.weapon.t.kind == "gun" and p.weapon.t.cat not in ("pistol",) and \
+                not p.ai.get("enemy_uniform"):
             why = f"Someone sees the {p.weapon.t.name} in your hands."
+        elif AG.transmitting(self) and any(a.side != p.side and a.active and max(abs(a.x - p.x), abs(a.y - p.y)) <= 6
+                                           for a in self.actors):
+            why = "They find you at the set, the headphones on, the key still under your hand."
         near = [a for a in self.actors if a.side != p.side and a.active and a.vehicle is None
                 and max(abs(a.x - p.x), abs(a.y - p.y)) <= 3]
         if why and not any(max(abs(a.x - p.x), abs(a.y - p.y)) <= 15 for a in self.actors
@@ -3118,11 +3153,14 @@ class Game:
                 a.say({"germany": "Halt! Papiere!", "japan": "Tomare!", "italy": "Alt! Documenti!",
                        "ussr": "Stoy! Dokumenty!", "finland": "Seis! Paperit!"}.get(a.nation, "Halt! Papers!"),
                       self.turn, 3)
-                good = p.find(lambda i: i.tid == "forged_papers") is not None
-                if good and rng.random() < 0.75 + (0.05 * p.skill - 0.25):
+                good = p.find(lambda i: i.tid == "forged_papers") is not None or p.ai.get("enemy_uniform")
+                if good and rng.random() < 0.7 + AG.papers_bonus(self, p):
                     rk = a.rank_full or "soldier"
                     self.msg(f"{'An' if rk[:1].lower() in 'aeiou' else 'A'} {rk} checks your papers, looks at your "
                              f"face, and waves you on.", "info")
+                    p.ai["suspicion"] = 0
+                    p.ai["papers_checked"] = self.turn
+                elif good and AG.bribe(self, p):
                     p.ai["suspicion"] = 0
                     p.ai["papers_checked"] = self.turn
                 else:

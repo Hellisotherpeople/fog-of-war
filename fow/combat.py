@@ -306,6 +306,11 @@ def trace_projectile(game, ox: int, oy: int, ang: float, max_range: float, dmg: 
     sx, sy = ox + 0.5, oy + 0.5
     rng = game.rng
     shooter_side = shooter.side if shooter is not None else None
+    up = getattr(shooter, "z", 0) > 0 if shooter is not None and hasattr(shooter, "body") else False
+    own_top = None
+    if up:
+        from .floors import inside, open_top
+        own_top = open_top(game, shooter)
     endx, endy = ox, oy
     result = "miss"
     n = len(path)
@@ -324,6 +329,8 @@ def trace_projectile(game, ox: int, oy: int, ang: float, max_range: float, dmg: 
             energy = dmg * through * max(0.25, 1 - dist / max_range)
         # ---- creatures
         a = game.soldier_at.get((x, y))
+        if a is not None and getattr(a, "z", 0) < 0:
+            a = None                                  # (under the floor: nothing flying reaches the cellar)
         if a is not None and (a is not shooter or from_explosion) and a.alive:
             cx, cy = x + 0.5 - sx, y + 0.5 - sy
             perp = abs(cx * sin_a - cy * cos_a)
@@ -368,7 +375,11 @@ def trace_projectile(game, ox: int, oy: int, ang: float, max_range: float, dmg: 
                 break
         # ---- terrain
         tid = m.t[x, y]
+        if own_top is not None and inside(own_top, x, y):
+            continue                                  # out through the belfry, over the parapet
         cover = T.COVER[tid]
+        if up and cover > 0 and T.SEE[tid] and not T.TALL[tid]:
+            cover = 0                                 # fired down from a window: over the hedges and the walls
         if cover > 0 and not air:
             see = T.SEE[tid]
             tall = T.TALL[tid]
@@ -777,6 +788,10 @@ def explode(game, x: int, y: int, power: float, radius: int, *, frags: int = 0,
                 continue
             f = max(0.0, 1 - dist / (radius + 1)) ** 1.6
             dmg = power * 0.55 * f
+            a.ai["shelled"] = game.turn
+            if getattr(a, "z", 0) < 0:
+                dmg *= 0.08                          # in the cellar: dust, a ringing in the ears, and alive
+                f *= 0.3
             st = 2 if a.downed else a.stance
             if dist >= 1:
                 dmg *= {0: 1.0, 1: 0.8, 2: 0.55}[st]
@@ -1034,33 +1049,10 @@ def fire_mortar(game, shooter, weapon, tx, ty) -> int:
     return t.shot_cost
 
 
-def melee_attack(game, attacker, target) -> int:
-    w = attacker.weapon
-    rng = game.rng
-    if w is not None and w.t.kind == "melee":
-        dmg, name = w.t.dmg, w.t.name
-    elif w is not None and w.t.kind == "gun" and w.t.bayonet:
-        dmg, name = w.t.bayonet + 4, f"bayonet"
-    elif w is not None and w.t.kind == "gun":
-        dmg, name = 12, "rifle butt"
-    else:
-        dmg, name = 7, "fists"
-    skill = attacker.skill + (2 if "brawler" in attacker.traits else 0)
-    defend = target.skill if target.active else 0
-    chance = 0.6 + (skill - defend) * 0.04
-    if target.downed:
-        chance = 0.95
-    if rng.random() < chance:
-        kind = "cut" if name not in ("rifle butt", "fists") else "blunt"
-        hit_actor(game, target, dmg * rng.uniform(0.8, 1.5), kind, attacker, name)
-        game.emit_sound(attacker.x, attacker.y, 30, "melee", "a scream and the sound of hand-to-hand fighting",
-                        attacker.side, attacker)
-    else:
-        if attacker.is_player:
-            game.msg(f"You lunge at {game.name_of(target)} and miss!", "combat")
-        elif target.is_player:
-            game.msg(f"{cap(game.name_of(attacker))} lunges at you and misses!", "warn")
-    return 120
+def melee_attack(game, attacker, target, move=None) -> int:
+    """Hand to hand: see melee.py."""
+    from .melee import attack
+    return attack(game, attacker, target, move)
 
 
 def vehicle_fire_main(game, v, tx, ty, target=None, ammo=None) -> bool:

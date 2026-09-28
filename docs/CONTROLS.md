@@ -49,13 +49,17 @@ direction keys.
 | `W` | pace: creep / walk / run / sprint |
 | `q` | lean out of cover (then a direction); `q` again, or a step, pulls you back |
 | `D` | dig in, with a shovel (any key stops) |
+| `<` / `>` | on stairs: up a floor / down one (a church tower, a flat roof, a hayloft at the top); on a cellar trapdoor: `>` down into the cellar, `<` up again |
 | `o` | shut an open door beside you (walk through a door to open it) |
 | Enter | carry out your current order: walk there and do it (the panel says what Enter will do) |
 | `!` | safe mode off / on |
 | `'` | ignore the dangers you can see now (safe mode won't stop you for them) |
 
 Moving into things:
-- **An enemy:** you fight hand to hand.
+- **An enemy:** you fight hand to hand - the obvious blow for what's in your hands. Right-click an enemy
+  beside you to choose the move (bayonet thrust, rifle butt, slash, knife, grab, disarm, shove; from
+  behind and unseen, a silent knife or a strangle), each with the odds as you'd judge them. Locked
+  together, moving into him fights on and moving away tries to tear free.
 - **A friend:** you swap places.
 - **A man at his post** (adjutant, clerk, cook...): you talk to him.
 - **A window:** push twice to smash it out and climb through. It's heard.
@@ -95,7 +99,7 @@ to go anyway.
 | `P` | the message log |
 | `O` | orders for the squad you lead |
 | `C` | command: your chain of command, and every unit whose leader you outrank |
-| `R` | the radio |
+| `R` | the radio; an agent's wireless set: reports, supply drops, the BBC messages |
 | `Y` | shout |
 | `G` | the general staff (colonels and up) |
 | `+` `=` / `-` | zoom in / out, toward the mouse |

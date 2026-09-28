@@ -163,14 +163,78 @@ lapse and the adjutant will have words.
 - **A tank battle** with dozens of tanks.
 - **A night patrol** to find the enemy and get home unseen.
 - **A commando raid** on a depot or battery far behind the line.
-- **An agent behind the lines** in civilian clothes, with forged papers and papers checks, stealing
-  the enemy's operation orders and carrying them home across the front.
-- **A partisan ambush** on a convoy.
+- **An agent behind the lines**: a career, a cover and a mission (below).
+- **Partisans**: an ambush on a convoy, or a resistance band's own mission.
 - **Encircled**, breaking out to your own lines.
 - **Rearguard**, holding until the army gets away.
 - **A sniper's hunt.**
 - **Shot down** deep in enemy country.
 - **Prisoner of war.**
+
+**The secret war: agents and the resistance.** An agent is a career drawn from what the services
+really sent:
+
+- an SOE circuit organiser, wireless operator ("the pianist") or courier;
+- a Jedburgh team leader, dropped in uniform after D-Day;
+- an OSS saboteur or spy, or an SIS agent;
+- a Cichociemny of the Polish Home Army;
+- a Soviet partisan organiser or GRU radio agent;
+- an Abwehr or SD man, or one of Skorzeny's Operation Greif commandos in American uniform (the
+  Ardennes only);
+- a Japanese Nakano School officer.
+
+Each gets a cover for the country he's dropped into (@, then Tab to the Cover page): a local name,
+a trade that explains him (railwayman, country doctor, curate, commercial traveller, district nurse
+and so on), the papers that trade needs (carte d'identité or Kennkarte, work permit, curfew pass,
+demobilisation papers), its tools, a circuit named after a trade, and a field name. You go in plain
+clothes with a civilian's bag: no identity tags, no webbing. At a papers check the right documents,
+the language and a steady face help; banknotes sometimes help more.
+
+The mission comes from the career:
+
+- steal the plans from their headquarters;
+- sabotage a depot, the guns, an airfield or the railway, with timed charges;
+- receive a supply drop at night with the local reception committee;
+- get your wireless traffic out;
+- kill a man who is breaking the network;
+- bring out a shot-down airman hiding in a barn;
+- photograph their positions with a Minox and bring the film home.
+
+A partisan (maquisard, FTP, Home Army, Soviet partisan, Chinese guerrilla) leads a small band on the
+ambush or on the same sabotage, drop, elimination and rescue missions; the band is its own
+reception committee.
+
+The kit is the kit they had, none of it issued to ordinary soldiers:
+
+- the Welrod, whose cough nobody hears at a few feet; the De Lisle carbine; the silenced Sten Mk IIS;
+  the High Standard HDM; the one-shot FP-45 Liberator; the Colt Pocket Hammerless and the PPK; the
+  sleeve gun;
+- the smatchet, the garrotte, the cosh;
+- Nobel 808 plastic explosive, TNT blocks and limpet mines;
+- time pencils: place a charge with one in your kit and it's set for about ten minutes, faster in
+  the heat and slower in the cold, and nobody runs from a bomb they don't know is there;
+- the B2 suitcase set, the Paraset, the SSTR-1 and the Soviet Sever; the S-Phone; signal torches.
+
+A silenced shot doesn't blow your cover unless someone sees you fire.
+
+**The wireless** (R, or `a` on the set) talks to London, Moscow or Berlin in Morse:
+
+- a report, which counts the enemy you've really seen;
+- a request for a supply drop;
+- listening for the BBC's personal messages.
+
+Every minute on the air is a minute for the enemy's direction-finders. Twenty-odd minutes near one
+place and a detector car with a loop aerial comes with a squad of field police, to where you were
+transmitting. Move between transmissions and they start their bearings again. Caught at the set,
+you're finished.
+
+**Drops.** The aircraft belong to a real special-duties squadron: 138 Squadron RAF's Halifaxes, the
+Carpetbaggers' B-24s, the Soviet Li-2s. The aircraft comes over the field at night at the time
+London gave you. It drops only if the lights are there: your torches at the dropping zone, the
+reception committee's, or the S-Phone talking the pilot in. Otherwise it circles twice and goes
+home. The containers land spread along its line with what a load really held (Stens and magazines,
+Brens, plastic and time pencils, grenades, dressings, Liberators, money). The committee carries
+them off the field. The enemy heard the aircraft too.
 
 **The character and battle creator.** Choose side, battle, nation, service (army, navy, air force),
 battle type, role, unit, rank (only the ranks that fit the role: NCOs, officers, generals and
@@ -337,6 +401,54 @@ Traits shift them (a crack shot, a clumsy man, a veteran). They're used where th
 - languages help when you tell the enemy to surrender.
 
 They come on slowly with use, less so the better you are, and you're told when one improves.
+
+**Hand to hand.** Rare, and when it came short and ugly. Each blow is one exchange of about a
+second:
+
+- the move, from what's in your hands: a bayonet thrusts, a rifle butt smashes, a kukri, sword or
+  sharpened spade chops, a knife stabs, fists punch. Or you grab him, knock his weapon aside, or
+  shove him off to make room to shoot.
+- his answer: a parry with his rifle or blade, a twist aside, an arm thrown up (and the blow lands
+  on the arm) - or nothing, if he never saw it coming.
+- where it lands: a real part of the body with the wound its weapon makes, told as it happened
+  ("You smash your rifle butt into the German's jaw - bone breaking"). A helmet turns a blow; a
+  bayonet can stick between ribs and have to be wrenched free (a round fired frees it).
+
+Two men can lock together. Then it's the knife, the throat, a throw to the ground, or tearing free,
+and neither can bring a long gun round (a pistol, yes). A man looking the other way, or in the
+dark, who hasn't noticed you can be killed with a knife or strangled almost without a sound: what
+commandos and agents trained for.
+
+Hand-to-hand skill, strength and wind, wounds, reach (a rifle and bayonet outreaches a knife), two
+on one, a man on the ground and surprise all count. The right-click menu shows each move with the
+odds as you'd judge them.
+
+**The lie of the land.** Every sector has a real surface under it, in metres:
+
+- gentle in Normandy's farmland;
+- rolling on the steppe, and cut by balkas, the dry steep-sided ravines men lived in at Kursk and
+  Stalingrad;
+- steep in the Italian mountains and at Cassino, with a volcanic cone on Iwo Jima, jungle ridges on
+  Guadalcanal, and near-flat desert but for the long low ridges that decided Alamein.
+
+Rivers run in their valleys and cliffs stand up. The hills the staff named on their maps (Hill 112,
+Point 593) are real hills. A crest hides what's behind it, for everyone: dead ground and the reverse
+slope are real. A man higher up sees over the hedges and crops that hide the same field from a man
+at their level. Uphill is slow and hard on the breath. The map is shaded as the land lies, with
+contour lines every five metres. Look at a spot with a map in your kit and you're told its height
+(and how far above or below you it is); without one, just whether it's up or down from you.
+
+**Upstairs and down.** Buildings have floors. Walk onto the stairs and press `<` to climb: upstairs
+has the same walls and windows as the ground floor, three metres higher, so from a window you see
+and shoot over the hedges, walls and crops outside. The top of a church tower, a flat roof and a
+barn's hayloft are open, so up there your own building's walls don't block you at all. The stairs
+are the only way down.
+
+A trapdoor (`>`) takes you into a cellar, the safest place in a bombardment: nothing sees in or out,
+and a shell bursting outside is dust and a ringing in the ears. A floor blown out from under you
+drops you into the rubble. Everyone uses the same stairs: defenders put their snipers and some of
+their machine gunners upstairs (the sniper in the church tower), and men go down into the cellars
+when the shells come.
 
 **Bigger battlefields.** New games default to a large battlefield: 270 x 180 tiles, about 540 x 360
 metres, with roughly twice the men on each side. A sector now holds a strong company or a weak
@@ -607,6 +719,37 @@ shells don't read armbands. The Japanese didn't respect it, and on the Eastern F
 side did, so medics there went armed, and American medics and Navy corpsmen in the Pacific took
 off the red cross and carried carbines. Pick up a rifle and you're a rifleman again, armband or
 not. Chaplains were non-combatants too, and go unarmed.
+
+**Every item has a story, and every one is a particular one.** Examine anything (`x` in the kit
+screen, or its right-click menu) for its history: what the men who carried it called it and
+thought of it, its quirks, where it served. The one in your hands has its own particulars:
+
+- a rifle's maker and serial number (Springfield or Winchester, Inland or Rock-Ola for a carbine,
+  "byf" or "bnz" with the year and the Waffenamt eagle for a Kar98k, Izhevsk or Tula, ROF Maltby or
+  Lines Bros. for a Sten, the chrysanthemum on an Arisaka), its condition, and sometimes initials
+  or notches carved in the butt;
+- identity tags in their army's format: the American name, number, tetanus year, blood group and
+  religion; the British red and green fibre discs; the German oval zinc Erkennungsmarke that
+  snaps in half;
+- a letter from home, from a real kind of place, about what was really happening there: war
+  bonds and gas rationing, the Blitz and Woolton pie, the night raids and the Volkssturm,
+  evacuation beyond the Volga, rice rationing and the thousand-stitch belts;
+- photographs, engraved watches and lighters, wedding rings, a dead man's diary;
+- newspapers (Stars and Stripes, Yank, Signal, Krasnaya Zvezda) carrying the real headline of
+  their side's latest news by the day's date.
+
+Each army carries its own things:
+
+- rations: K- and C-rations and the D bar, compo tins and bully beef, Lend-Lease pork ("the second
+  front") and sukhari, the Eiserne Portion and Scho-Ka-Kola, kanpan, galletta;
+- drink: SRD rum, the "narkom's hundred grams", schnapps, sake, farmhouse wine;
+- stimulants: Pervitin and Benzedrine keep you going, and a second dose too soon costs you;
+- makhorka rolled in newspaper, a Zippo or a trench lighter;
+- a senninbari or omamori, a signed Hinomaru flag, an Iron Cross, a crucifix, a pin-up;
+- a shaving kit, a "housewife" sewing kit, chewing gum.
+
+Houses hold the country's own: wine in France and Italy, vodka in Russia and Poland, schnapps in
+Germany, sake in Japan, and their people's letters and photographs.
 
 Open it with `i`. In the kit screen:
 - Arrows move, and Enter picks up or puts down (drag and drop with the mouse works too).

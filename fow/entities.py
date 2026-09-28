@@ -168,6 +168,7 @@ def make_corpse(actor) -> Item:
 
 class Actor:
     """A soldier."""
+    z = 0                               # (saves from before there were floors)
 
     def __init__(self, nation: str, role: str, rank: int, name: str, x: int = 0, y: int = 0):
         self.id = next(_ids)
@@ -179,6 +180,7 @@ class Actor:
         self.x = x
         self.y = y
         self.stance = 0                 # 0 standing, 1 crouching, 2 prone
+        self.z = 0                      # the floor he's on: 1, 2... upstairs (a tower), -1 in a cellar
         self.body = Body()
         from .inventory import Inventory
         self.invent = Inventory()

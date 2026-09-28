@@ -208,6 +208,13 @@ def draw_map(con, game, cam, frame=0):
     jit = ((var % 17) - 8).astype(np.float32)[..., None]
     fg = T.FG[t].astype(np.float32) + jit * 1.6
     bg = T.BG[t].astype(np.float32) + jit * 0.6
+    from .relief import shade
+    sh = shade(m)
+    if sh is not None:
+        # the lie of the land: slopes lit from the north-west, contour lines, the tops a touch lighter
+        s = sh[x0:x0 + w, y0:y0 + h][..., None]
+        bg *= s
+        fg *= 0.5 + 0.5 * s
     vis = m.visible[x0:x0 + w, y0:y0 + h]
     exp = m.explored[x0:x0 + w, y0:y0 + h]
     # decals
@@ -729,6 +736,9 @@ def draw_panel(con, game):
     st = {0: "Standing", 1: "Crouching", 2: "Prone"}[p.stance]
     if p.vehicle is not None:
         st = "Inside " + p.vehicle.vt.name
+    elif getattr(p, "z", 0):
+        from .actions import floor_word
+        st += " - " + floor_word(game, p)
     elif game.map.water[p.x, p.y] >= 2:
         st = "Swimming!"
     elif game.map.pos_cover[p.x, p.y] >= 45:

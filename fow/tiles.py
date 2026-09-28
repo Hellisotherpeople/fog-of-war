@@ -418,6 +418,47 @@ T("bollard", "bollard", "o", (60, 60, 64), (74, 74, 72), walk=False, see=True, c
 
 EXPLODE = {}   # tile id -> (power, radius, fire)
 
+# ------------------------------------------------------------------ floors (floors.py)
+T("stairs", "stairs", "≡", (200, 170, 120), (70, 52, 34), floor=True, cost=160, flam=30, burnt="burnt",
+  into="rubble_wood", hp=150, armor=10,
+  desc="A staircase to the floor above. (< to climb it, > to come down)")
+T("trapdoor", "cellar trapdoor", "▫", (170, 140, 100), (70, 52, 34), floor=True, flam=20, into="rubble_wood",
+  hp=120, armor=8, desc="A trapdoor to the cellar - the safest place in a bombardment. (> to go down, < to come up)")
+
+# ------------------------------------------------------------------ the country's own (mapgen.regional)
+variant("corn", "vineyard", "vineyard", fg=(120, 140, 70), bg=(70, 60, 35), conceal=40, cost=140,
+        desc="Vines trained on wires, row after row: the rows are cover from view one way, and a firing lane the other.")
+variant("corn", "sugarcane", "sugar cane", fg=(140, 170, 80), bg=(40, 60, 25), conceal=65, cost=170,
+        desc="Cane taller than a man, cut in lanes. You can't see ten feet into it.")
+variant("tree", "cypress", "cypress", fg=(40, 80, 45), bg=(16, 34, 18),
+        desc="A dark Italian cypress, tall and narrow as a church spire.")
+variant("tree", "birch", "birch", fg=(190, 200, 170), bg=(40, 60, 35),
+        desc="A white birch. The Russian forest is full of them: the partisans' country.")
+variant("tree", "fir", "spruce", fg=(30, 75, 45), bg=(12, 30, 18), hp=250,
+        desc="Dark spruce planted close in rows - the Hürtgen and the Ardennes: tree bursts, and no view at all.")
+variant("tree", "apple_tree", "apple tree", fg=(95, 150, 60), bg=(25, 50, 20), hp=150,
+        desc="An old apple tree in a Norman orchard: cider and Calvados, and cover.")
+variant("tree", "mangrove", "mangrove", fg=(60, 110, 60), bg=(25, 50, 45),
+        desc="Mangrove roots in the tidal mud: a wall of stilts nobody walks through.")
+variant("low_wall", "drystone", "dry-stone wall", fg=(180, 170, 145), bg=(78, 72, 60),
+        desc="Fieldstones stacked without mortar, waist high, older than anyone. Stops a bullet as well as any wall.")
+variant("scrub", "camelthorn", "camel thorn", fg=(160, 150, 90), bg=(120, 104, 66),
+        desc="Grey-green thorn scrub, all the desert grows. Hides a man lying flat, a little.")
+variant("tall_grass", "reeds", "reeds", fg=(150, 160, 90), bg=(45, 60, 40), conceal=70, cost=150,
+        desc="Reeds higher than your head, in water to your knees.")
+variant("rock_ground", "scree", "scree", fg=(160, 155, 145), bg=(90, 86, 78), cost=220,
+        desc="Loose stones on a steep slope: every step slides and clatters.")
+variant("boulder", "outcrop", "rock outcrop", fg=(140, 135, 125), bg=(66, 62, 56), hp=2000, armor=300,
+        desc="Bare rock breaking through the hillside. The best cover there is.")
+T("dune", "sand dune", "~∽~≈", (225, 205, 145), (140, 120, 76), cost=170, pos_cover=30, conceal=10, dig=True,
+  into="sand", desc="A ridge of soft sand. Behind it, out of sight; on top of it, on the skyline.")
+T("wadi", "wadi bed", ",.·,", (200, 180, 130), (110, 94, 60), cost=110, pos_cover=40, conceal=25, dig=True,
+  into="sand", desc="A dry watercourse cut into the desert, a man's height deep: the only dead ground for miles.")
+T("tomb", "turtleback tomb", "∩", (175, 170, 150), (85, 82, 72), walk=False, see=False, cover=95, hp=1400,
+  armor=220, into="rubble_heavy", tall=True,
+  desc="An Okinawan family tomb, stone and concrete, its shape a womb or a turtle's back. The Japanese fought from "
+       "them; the families' bones were inside.")
+
 NUM = len(DEFS)
 
 # ------------------------------------------------------------------ lookup arrays
@@ -425,7 +466,8 @@ WALK = np.array([d.walk for d in DEFS], bool)
 SEE = np.array([d.see for d in DEFS], bool)
 # what a man sitting high - a tank commander, the periscopes, a man riding on the hull or standing in a
 # half-track - sees over that a man on the ground doesn't: crops, undergrowth, garden hedges, hay, crates
-LOW_SCREEN = ("corn", "sunflower", "bush", "bush_snow", "garden_hedge", "hay", "crates", "ammo_stack")
+LOW_SCREEN = ("corn", "sunflower", "bush", "bush_snow", "garden_hedge", "hay", "crates", "ammo_stack", "vineyard",
+              "sugarcane", "reeds")
 SEE_HIGH = SEE | np.array([d.key in LOW_SCREEN for d in DEFS], bool)
 COST = np.array([d.cost for d in DEFS], np.int32)
 COVER = np.array([d.cover for d in DEFS], np.int16)

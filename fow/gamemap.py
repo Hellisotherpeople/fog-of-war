@@ -61,10 +61,22 @@ class GameMap:
         self.buildings: list[tuple[int, int, int, int]] = []
         self.refresh()
 
+    def __setstate__(self, d):
+        e = d.get("elev")
+        if e is not None and e.dtype != np.float32:
+            d["elev"] = e.astype(np.float32)      # (saved at half precision: a few centimetres)
+        self.__dict__.update(d)
+
     def __getstate__(self):
         d = dict(self.__dict__)
+        if d.get("elev") is not None:
+            d["elev"] = d["elev"].astype(np.float16)
         d.pop("_los", None)                  # the line-of-sight caches: rebuilt as men look about
         d.pop("_los_hi", None)
+        d.pop("_shade", None)
+        d.pop("_slope", None)
+        d.pop("_flat", None)
+        d.pop("_bidx", None)
         return d
 
     # ------------------------------------------------------------ basics
@@ -123,6 +135,9 @@ class GameMap:
         self.water = T.WATER[t]
         self.flam = T.FLAM[t]
         cost = T.COST[t].copy()
+        sm = self.slope_mult()
+        if sm is not None:
+            cost = (cost * sm).astype(cost.dtype)     # steep ground is slow going (relief.py)
         cost[~self.walk] = 0
         self.cost_foot = cost
         vcost = T.VCOST[t].copy()
@@ -158,6 +173,9 @@ class GameMap:
         self.water[sl] = T.WATER[t]
         self.flam[sl] = T.FLAM[t]
         cost = T.COST[t].copy()
+        sm = self.slope_mult()
+        if sm is not None:
+            cost = (cost * sm[sl]).astype(cost.dtype)
         cost[~walk] = 0
         self.cost_foot[sl] = cost
         self.vcost[sl] = T.VCOST[t]
@@ -191,6 +209,17 @@ class GameMap:
         self.see = new
         self.see_high = self.high_base() & ~thick
 
+    def slope_mult(self):
+        """The steepness multiple on the cost of crossing each tile, or None on flat ground (made once)."""
+        e = self.__dict__.get("elev")
+        if e is None:
+            return None
+        c = self.__dict__.get("_slope")
+        if c is None or c[0] is not e:
+            from .relief import flat, slope_mult
+            c = self.__dict__["_slope"] = (e, None if flat(self) else slope_mult(self))
+        return c[1]
+
     def high_base(self):
         """Sight for a man sitting high, before smoke (maps saved before there was one: worked out now)."""
         hb = self.__dict__.get("see_high_base")
@@ -222,6 +251,23 @@ class GameMap:
         for o in range(8):
             out[o] = np.maximum(neigh[o], np.maximum(neigh[(o + 1) % 8], neigh[(o - 1) % 8]) * 0.6)
         return out
+
+    # ------------------------------------------------------------ buildings and their floors
+    def building_at(self, x: int, y: int):
+        """The building a tile is inside (its rect and how many storeys), or None."""
+        idx = self.__dict__.get("_bidx")
+        if idx is None or idx[0] != len(self.buildings):
+            arr = np.full((self.w, self.h), -1, np.int32)
+            for k, b in enumerate(self.buildings):
+                x0, y0, bw, bh = b[:4]
+                arr[max(0, x0):x0 + bw, max(0, y0):y0 + bh] = k
+            idx = self.__dict__["_bidx"] = (len(self.buildings), arr)
+        k = int(idx[1][x, y]) if self.in_bounds(x, y) else -1
+        if k < 0:
+            return None
+        b = self.buildings[k]
+        rect = tuple(b[:4])
+        return rect, (self.__dict__.get("storeys") or {}).get(rect, 1)
 
     # ------------------------------------------------------------ queries
     def is_walkable(self, x: int, y: int) -> bool:

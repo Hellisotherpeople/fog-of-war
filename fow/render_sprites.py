@@ -86,6 +86,10 @@ def draw_sprite_layers(bank, game, cam, frame=0, ui=None):
     if game.weather == "fog":
         base *= 0.9
     light = np.full((w, h), base, np.float32)
+    from .relief import shade
+    sh = shade(m)
+    if sh is not None:
+        light = np.minimum(light * sh[S], 1.0)  # the lie of the land (relief.py)
     if d < 0.95 and game.lit is not None:
         light = np.where(game.lit[S], np.maximum(light, 0.95), light)
     tint = np.zeros((w, h, 3), np.float32)
