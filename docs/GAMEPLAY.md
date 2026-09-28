@@ -450,6 +450,69 @@ drops you into the rubble. Everyone uses the same stairs: defenders put their sn
 their machine gunners upstairs (the sniper in the church tower), and men go down into the cellars
 when the shells come.
 
+**The roads behind the line.** Supplies come up to every front along real routes on the war map:
+
+- from the depots and headquarters and the side's rear, sector by sector;
+- each sector a front draws through carries traffic in proportion to how many fronts depend on it.
+
+Walk through one and the roads are busy:
+
+- ammunition, fuel and ration lorries (Red Ball Express GMCs, Bedfords, Lend-Lease Studebakers, Opel
+  Blitzes);
+- horse-drawn wagons and panje carts (half the German and Soviet columns moved at a walk);
+- lorry-loads of replacements and tanks going up; ambulances and prisoners coming back;
+- a dispatch rider, a staff car;
+- military police at the crossroads, engineers filling the shell holes, linemen on the wire.
+
+Your own side's lorries tell you what they carry and where it's going. When replacements and tanks
+reach the far edge, they join the front they were sent to. The enemy's rear is the same, when
+you're behind his lines.
+
+Destroy a convoy and it's a cut in that road on the war map. The fronts beyond it are short of
+shells, fuel and men until it's mended (a cut halves in about two hours). Their men start battles
+short of rounds, their batteries run low, their replacements don't come, and short supply weighs
+on every battle they fight. Blow up a depot and its sector supplies nothing. Off your map, both
+sides go for the roads too: fighter-bombers over the busiest routes, partisans on the lines in
+occupied country. Shooting up an ambulance, red crosses and all, is a crime to armies that cared
+about the Geneva Convention.
+
+**Orders, several at once.** The squad leader, the platoon sergeant, the adjutant's written orders,
+the fire direction centre, your briefing: you can hold several orders at a time. The panel shows the
+one you're on and the next two; `T` opens the orders book:
+
+- who gave each order, and how it reached you (shouted, by runner, on the radio, written);
+- when it was given and when it's due;
+- what doing it brings: trust, a line in your record, commendations, the quartermaster's credit,
+  promotion;
+- what failing brings, in your army's own terms.
+
+The punishments are carried out:
+
+- a first failure is a dressing-down and extra duty (a beating in the Japanese army), and the
+  fatigues are served at the next base before the adjutant gives you anything else;
+- three failures put you on report: a fine docked from your pay, no pass for a fortnight, and an
+  entry in your record;
+- five cost you your stripe; for a Red Army private, the penal company.
+
+Choose an order in the book and Enter gets on with that one.
+
+**Autopilot and succession.** `A` hands your soldier to his training: the same AI every man runs,
+following his orders (a squad you lead takes its orders from above), while you watch; `A` again
+takes over. With succession on (Options, WHEN YOU DIE), death isn't the end of the battle: the war
+goes on on the same field and you're someone else. Who is set by a rule:
+
+- squad: a man of your squad;
+- unit: your company or battery;
+- nearest: whoever's nearest;
+- role: the nearest man in your job;
+- rank: the most senior man near;
+- random: anyone on the field;
+- killer: the man who killed you.
+
+You can also allow either side, cap the number of lives, or be offered a list to choose from.
+Each of the fallen goes in the memorial, and each new man starts with his own kit, rank and a
+clean record.
+
 **Bigger battlefields.** New games default to a large battlefield: 270 x 180 tiles, about 540 x 360
 metres, with roughly twice the men on each side. A sector now holds a strong company or a weak
 battalion instead of a platoon, and the staff screen's numbers grow with it. Standard (180 x 120) is

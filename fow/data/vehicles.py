@@ -494,6 +494,23 @@ veh("ambulance", "field ambulance", "truck", ["usa", "uk", "ussr", "germany", "i
     "newzealand", "india"], (1930, 1950), (0, 0, 0, 0), speed=45, crush=1, crew=1, seats=6,
     open_top=False, freq=0, desc="A red cross painted on the canvas. It helps, sometimes.")
 
+# the rear's own transport (rear.py): not in the ordinary pools (freq 0)
+veh("studebaker", "Studebaker US6 truck", "truck", ["ussr"], (1942.5, 1950), (0, 0, 0, 0), speed=40, crush=1, crew=1,
+    seats=12, open_top=True, freq=0,
+    desc="Lend-Lease, from South Bend, Indiana: the Red Army's best truck and the Katyusha's chassis. 'Studer'.")
+veh("horse_wagon", "horse-drawn supply wagon", "truck", ["germany", "ussr", "italy", "japan", "poland", "hungary",
+    "romania", "finland", "china"], (1900, 1950), (0, 0, 0, 0), hp=40, speed=140, crush=0, crew=1, seats=2,
+    open_top=True, freq=0, glyph="w",
+    desc="Two horses and a wagon of shells or oats: the German army went to Russia with 600,000 horses and most "
+         "of its supplies moved like this, at a walk.")
+veh("panje_wagon", "panje cart", "truck", ["ussr", "germany", "poland"], (1900, 1950), (0, 0, 0, 0), hp=30,
+    speed=130, crush=0, crew=1, seats=1, open_top=True, freq=0, glyph="w",
+    desc="A light Russian farm cart and a shaggy pony: it goes where the lorries sink.")
+veh("motorcycle", "dispatch motorcycle", "car", ["usa", "uk", "germany", "ussr", "italy", "japan", "france",
+    "canada", "australia", "newzealand", "india", "hungary", "romania", "poland"], (1930, 1950), (0, 0, 0, 0), hp=35,
+    speed=30, crush=0, crew=1, seats=0, open_top=True, freq=0, glyph="m",
+    desc="A dispatch rider's machine - a BSA, a Harley, a BMW - with a leather pouch of orders.")
+
 # vehicle machine guns: aliases to infantry items with tweaks
 VEHICLE_MG_ALIASES = {
     "m2hb": ("m1919", dict(dmg=70, pen=18, name="M2 Browning .50", sound="heavy .50 cal fire")),

@@ -222,7 +222,12 @@ def best_step(game, a, maps, exposure_w=0.0, cohesion=None, spread=4, stay_bias=
                 if d > spread:
                     s += (d - spread) * UNIT * 1.5
             if mates:
-                s += crowd_penalty(game, a, x, y, mates)
+                n = 0                             # (crowd_penalty, inline: this runs for every step considered)
+                for mx, my in mates:
+                    if -1 <= mx - x <= 1 and -1 <= my - y <= 1:
+                        n += 1
+                if n > 1:
+                    s += (n - 1) * 1.2
             if avoid_fire and fire.item(x, y) > 0:
                 s += 60
             if not stay:
@@ -408,6 +413,14 @@ def choose_target(game, a, vis):
         return None
     best = None
     best_s = 0.0
+    t = game.turn
+    foc = a.squad.__dict__.get("focus") if a.squad is not None else None
+    if foc is not None and t - foc[1] > 8:
+        foc = None
+    fo = a.ai.get("fired_on")
+    if fo is not None and t - fo[2] > 6:
+        fo = None
+    aim = a.aim_target
     for e in vis:
         if getattr(e, "vt", None) is not None:
             if e.dead or e.abandoned or not can_hurt_vehicle(a, e):
@@ -430,6 +443,12 @@ def choose_target(game, a, vis):
             s = threat_value(e, a) * (0.2 + p) / (1 + d / 30)
             if e.is_player:
                 s *= 1.05
+            if aim is not None and aim == (e.x, e.y):
+                s *= 1.35                         # he's in your sights already: the aim you've taken counts
+            if foc is not None and foc[0] == e.id:
+                s *= 1.4                          # the target your section leader called
+            if fo is not None and max(abs(e.x - fo[0]), abs(e.y - fo[1])) <= 2:
+                s *= 1.5                          # the man shooting at you
         if s > best_s:
             best_s = s
             best = e
@@ -505,6 +524,14 @@ def squad_update(game, sq: Squad):
     for v in sq.vehicles:
         if v.visible and v.vis_turn >= t - 3:
             seen = True
+    if not seen:
+        # rounds cracking past: that's contact, whether or not anyone's seen who fired them
+        for mm in sq.members:
+            fo = mm.ai.get("fired_on")
+            if fo is not None and t - fo[2] <= 3 and mm.active:
+                seen = True
+                sq.fired_from = (fo[0], fo[1], t)
+                break
     if seen:
         sq.last_contact = t
     # morale
@@ -592,6 +619,7 @@ def squad_update(game, sq: Squad):
             sq.state = "hold" if sq.arrived else "advance"
         else:
             sq.state = "hold"
+    rally(game, sq)
     if sq.state != old:
         sq.state_turn = t
         on_state_change(game, sq, old)
@@ -609,8 +637,157 @@ def squad_update(game, sq: Squad):
                 sq.positions = {}
         elif d > o.radius + 12:
             sq.arrived = False
-    sq.phase = (t // 10) % 2
+    if seen and t % 4 == 0:
+        designate(game, sq)
+    if sq.state == "bound":
+        bound_phase(game, sq)
+    else:
+        sq.phase = (t // 10) % 2
+        sq.__dict__.pop("bph", None)
+    if sq.state in ("assault", "bound", "flank") and t % 6 == 0:
+        call_smoke(game, sq)
+    if sq.state == "hold" and t % 10 == 0:
+        beaten_zone(game, sq)
     return True
+
+
+def designate(game, sq):
+    """The section leader's fire control order: the target that matters, and everybody on it - the machine
+    gun first (the British 'fire control order', the German Feuerbefehl, the Soviet tselukazanie)."""
+    t = game.turn
+    anc = sq.anchor()
+    if anc is None:
+        return
+    best, bs = None, 0.0
+    looked = set()
+    for mm in sq.members:
+        if not mm.active or mm.vis_turn < t - 2:
+            continue
+        for e in mm.visible:
+            if id(e) in looked:
+                continue
+            looked.add(id(e))
+            if getattr(e, "vt", None) is not None or not e.alive or e.state != "ok" or e.downed:
+                continue                          # (tanks are the anti-tank men's business)
+            sc = threat_value(e, mm) / (1 + math.hypot(e.x - anc[0], e.y - anc[1]) / 40)
+            if sc > bs:
+                bs, best = sc, e
+    if best is None:
+        return
+    old = sq.__dict__.get("focus")
+    sq.focus = (best.id, t)
+    lead = sq.leader
+    if (old is None or old[0] != best.id) and contact_kind(best) in ("mg", "hmg") and lead is not None and \
+            lead.active and not lead.is_player and game.rng.random() < 0.5:
+        lead.say(phrase(game.rng, lead.nation, "fire_control"), t)
+
+
+def beaten_zone(game, sq):
+    """The shells keep landing on the same ground: the enemy has it registered.  Men in holes can sit it
+    out; a section in the open that stays there dies there - it shifts its positions off the beaten zone."""
+    t = game.turn
+    imp = [i for i in game.__dict__.get("impacts", ()) if t - i[2] <= 40]
+    if len(imp) < 3:
+        return
+    anc = sq.anchor()
+    if anc is None:
+        return
+    near = [i for i in imp if max(abs(i[0] - anc[0]), abs(i[1] - anc[1])) <= 10]
+    if len(near) < 3:
+        return
+    m = game.map
+    act = sq.active_members()
+    if not act or sum(float(m.pos_cover[mm.x, mm.y]) for mm in act) / len(act) >= 45:
+        return                                    # dug in: sit tight
+    cx = sum(i[0] for i in near) / len(near)
+    cy = sum(i[1] for i in near) / len(near)
+    sq.beaten = (cx, cy, 8, t + 240)
+    sq.positions = {}
+    sq._pos_try = -99
+
+
+def bound_phase(game, sq):
+    """Fire and movement: one team moves while the other shoots - and the teams change over when the movers
+    are down in cover, not by the clock (a rush is three to five seconds: 'I'm up, he sees me, I'm down')."""
+    t = game.turn
+    ph = sq.__dict__.get("bph")
+    if ph is None:
+        ph = sq.bph = [sq.phase, t]
+    el = t - ph[1]
+    if el >= 4:
+        brain = game.brains[sq.side]
+        movers = [mm for mm in sq.members if mm.active and mm.id % 2 == ph[0] and mm is not sq.leader]
+        ec = brain.enemy_center
+        m = game.map
+        down = all(mm.moved_turn < t - 1 or brain.exposure_at(mm.x, mm.y) < 0.5 or
+                   (ec is not None and max(m.cover_toward(mm.x, mm.y, int(ec[0]), int(ec[1])),
+                                           float(m.pos_cover[mm.x, mm.y])) >= 40) for mm in movers)
+        if down or el >= 14:
+            ph[0] ^= 1
+            ph[1] = t
+    sq.phase = ph[0]
+
+
+def call_smoke(game, sq):
+    """Crossing ground a machine gun or an anti-tank gun covers: a smoke grenade between them and it."""
+    t = game.turn
+    if t - sq.__dict__.get("smoke_turn", -999) < 90:
+        return
+    anc = sq.anchor()
+    if anc is None:
+        return
+    brain = game.brains[sq.side]
+    if brain.exposure_at(anc[0], anc[1]) < 1.2:
+        return
+    guns = [c for c in brain.live_contacts(10, False) if c.kind in ("mg", "hmg", "atgun", "bunker") and
+            8 <= math.hypot(c.x - anc[0], c.y - anc[1]) <= 45]
+    if not guns:
+        return
+    c = min(guns, key=lambda c: (c.x - anc[0]) ** 2 + (c.y - anc[1]) ** 2)
+    for mm in sq.members:
+        if not mm.active or mm.downed or mm.is_player:
+            continue
+        sm = next((g for g in mm.grenades() if g.t.gtype == "smoke"), None)
+        if sm is None:
+            continue
+        d = math.hypot(c.x - mm.x, c.y - mm.y)
+        k = min(A.throw_range(mm, sm), d * 0.45, 12) / max(1.0, d)
+        mm.ai["throw_smoke"] = (int(mm.x + (c.x - mm.x) * k), int(mm.y + (c.y - mm.y) * k), t)
+        sq.smoke_turn = t
+        lead = sq.leader
+        if lead is not None and lead.active and not lead.is_player:
+            lead.say(phrase(game.rng, lead.nation, "smoke"), t)
+        return
+
+
+def rally(game, sq):
+    """A section that's fallen back without orders doesn't run off the field: a few hundred yards back, in
+    cover, the leader stops it and gets it in order (retreat_act holds it there) - and as soon as its
+    nerve comes back it's in the fight again, as before."""
+    t = game.turn
+    ral = sq.__dict__.get("rally")
+    if sq.state != "retreat" or sq.order.kind == "retreat":
+        if ral is not None:
+            sq.__dict__.pop("rally", None)
+        return
+    anc = sq.anchor()
+    if anc is None:
+        return
+    brain = game.brains[sq.side]
+    home = brain.home
+    if home is None:
+        return
+    if ral is None:
+        sq.rally = {"from": int(home[anc[0], anc[1]]), "start": t, "at": None}
+        return
+    if ral.get("at") is None:
+        back = ral["from"] - int(home[anc[0], anc[1]])
+        if (back >= 25 * UNIT and brain.exposure_at(anc[0], anc[1]) < 0.4) or back >= 45 * UNIT or \
+                int(home[anc[0], anc[1]]) <= 8 * UNIT:
+            ral["at"] = anc
+            lead = sq.leader
+            if lead is not None and lead.active and not lead.is_player:
+                lead.say(phrase(game.rng, lead.nation, "o_regroup"), t)
 
 
 def leashed(sq) -> bool:
@@ -664,6 +841,9 @@ def decide_engagement(game, sq) -> str:
         return "engaged"
     contacts = brain.nearest_contacts(anc[0], anc[1], 8, max_age=10)
     if not contacts:
+        ff = sq.__dict__.get("fired_from")
+        if ff is not None and game.turn - ff[2] <= 6 and sq.order.kind in ("attack", "assault", "move") and sq.kind not in ("mg", "mortar", "sniper", "hq", "at"):
+            return "bound"                        # fired on from somewhere out there: fire and movement
         return "engaged"
     near = [c for c in contacts if abs(c.x - anc[0]) + abs(c.y - anc[1]) < 14]
     ours = sq.strength()
@@ -681,7 +861,11 @@ def decide_engagement(game, sq) -> str:
     if doc.get("banzai") and sq.morale < 30 and rng.random() < 0.5:
         return "banzai"
     if o in ("attack", "assault", "move") or (o == "defend" and near and ours > theirs * 2):
-        if near and (ours >= theirs * 1.5 or enemy_sup > 45) and rng.random() < 0.3 + doc["aggression"] * 0.5:
+        # the last fifty yards go in when the enemy's heads are down (fire superiority) - or when we're on
+        # top of him and there are twice as many of us
+        close = [c for c in near if max(abs(c.x - anc[0]), abs(c.y - anc[1])) <= 8]
+        ready = enemy_sup > 40 or (close and ours >= theirs * 2.0)
+        if near and ready and rng.random() < 0.3 + doc["aggression"] * 0.5:
             return "assault"
         big = [c for c in contacts if c.kind in ("mg", "hmg", "bunker", "atgun")]
         if big and ours >= 4 and rng.random() < 0.35 + (1 - doc["aggression"]) * 0.3:
@@ -733,7 +917,13 @@ def assign_positions(game, sq):
         e_edge = game.home_edge(other_side(sq.side))
         ec = {"N": (tgt[0], 0), "S": (tgt[0], m.h - 1), "W": (0, tgt[1]), "E": (m.w - 1, tgt[1])}.get(
             e_edge, (m.w // 2, m.h // 2))
-    r = max(6, sq.order.radius + 2)
+    # a machine gun, a sniper or an anti-tank gun in the attack doesn't go onto the objective: it takes up a
+    # support-by-fire position where it's got to, with a field of fire over the objective
+    support = sq.kind in ("mg", "sniper", "at") and sq.order.kind == "attack" and anc is not None
+    obj = tgt
+    if support:
+        tgt, ec = anc, obj
+    r = max(6, sq.order.radius + 2) if not support else 7
     x0, x1 = max(1, tgt[0] - r), min(m.w - 1, tgt[0] + r + 1)
     y0, y1 = max(1, tgt[1] - r), min(m.h - 1, tgt[1] + r + 1)
     xs = np.arange(x0, x1)[:, None]
@@ -751,6 +941,15 @@ def assign_positions(game, sq):
     near_win[:, 1:] |= win[:, :-1]
     near_win[:, :-1] |= win[:, 1:]
     score = score + near_win * 45
+    if support:
+        bx0, by0 = max(0, min(x0, obj[0] - 1)), max(0, min(y0, obj[1] - 1))
+        bx1, by1 = min(m.w, max(x1, obj[0] + 2)), min(m.h, max(y1, obj[1] + 2))
+        fov = tcod.map.compute_fov(m.see[bx0:bx1, by0:by1], (obj[0] - bx0, obj[1] - by0),
+                                   radius=max(bx1 - bx0, by1 - by0), algorithm=tcod.constants.FOV_SYMMETRIC_SHADOWCAST)
+        score = score + fov[x0 - bx0:x1 - bx0, y0 - by0:y1 - by0] * 60     # sees the objective
+    bz = sq.__dict__.get("beaten")
+    if bz is not None and bz[3] > game.turn:
+        score = score - (((xs - bz[0]) ** 2 + (ys - bz[1]) ** 2) <= bz[2] ** 2) * 80
     d2 = (xs - tgt[0]) ** 2 + (ys - tgt[1]) ** 2
     score = score - np.sqrt(d2) * 1.5
     walk = m.walk[x0:x1, y0:y1] & (T.DOOR[m.t[x0:x1, y0:y1]] == 0)
@@ -853,6 +1052,16 @@ def soldier_act(game, a) -> int:
     # ---- wounded
     if a.downed:
         return downed_act(game, a)
+    sstate0 = sq.state if sq is not None else "hold"
+    if a.stance != 2 and game.turn - a.ai.get("near_shell", -99) <= 2 and sstate0 not in (
+            "assault", "banzai", "flank", "bound", "retreat", "rout") and m.water[a.x, a.y] < 1 and not (T.FLOOR[m.t[a.x, a.y]] and m.pos_cover[a.x, a.y] >= 45):
+        return fix_stance(game, a, 2) or 100      # the whistle, the crump: flat on your face
+    ts = a.ai.pop("throw_smoke", None)
+    if ts is not None and game.turn - ts[2] < 10:
+        sm = next((g for g in a.grenades() if g.t.gtype == "smoke"), None)
+        if sm is not None:
+            fix_stance(game, a, 1 if a.stance == 0 else a.stance)
+            return A.throw(game, a, sm, ts[0], ts[1]) or 100
     if a.ai.get("litter"):
         from .medevac import bearer_act
         update_actor_vision(game, a)
@@ -931,6 +1140,13 @@ def soldier_act(game, a) -> int:
         alt = switch_weapon(game, a)
         if alt:
             return alt
+    if w is not None and w.t.kind == "gun" and not vis and 0 < w.loaded <= w.t.mag // 3 and w.t.mag >= 5 and \
+            near_enemy > 15 and w.t.cat not in ("mortar", "at_launcher") and \
+            (sq is None or game.turn - sq.last_contact > 2) and game.turn - a.ai.get("tac_reload", -99) > 20:
+        a.ai["tac_reload"] = game.turn
+        c = A.reload(game, a)                     # a lull: a full magazine on now, not when he's out
+        if c:
+            return c
     # ---- walking a prisoner of ours back to the rear
     if a.ai.get("escort_prisoner") is not None and a.side == game.player_side:
         c = prisoner_escort_act(game, a)
@@ -961,6 +1177,13 @@ def soldier_act(game, a) -> int:
             return c
     if vis:
         return engage_act(game, a, vis, sq, sstate)
+    fo = a.ai.get("fired_on")
+    if (fo is None or game.turn - fo[2] > 4) and sq is not None:
+        fo = sq.__dict__.get("fired_from")         # (where the section's being fired on from)
+    if fo is not None and game.turn - fo[2] <= 4 and sstate not in ("assault", "flank"):
+        c = return_fire(game, a, sq, fo)
+        if c:
+            return c
     if sq is not None and game.turn - sq.last_contact < 12:
         c = suppress_known(game, a, sq)
         if c:
@@ -1015,6 +1238,10 @@ def engage_act(game, a, vis, sq, sstate) -> int:
         return 100
     td = dist(a, target)
     cover = in_cover_from(game, a, target.x, target.y)
+    if sstate not in ("assault", "banzai"):
+        c = hide_from_tanks(game, a, vis)
+        if c:
+            return c
     # bounding / assault / flank movement takes priority for the maneuver element
     moving = False
     if sq is not None and not leashed(sq):
@@ -1036,6 +1263,11 @@ def engage_act(game, a, vis, sq, sstate) -> int:
     if moving:
         c = maneuver_step(game, a, sq, sstate, target)
         if c:
+            return c
+    if cover < 35 and td > 4 and sstate not in ("assault", "banzai"):
+        c = fire_position(game, a, target, cover)
+        if c:
+            fix_stance(game, a, 1)
             return c
     # exposed? find cover first unless the enemy is very close or we're an assault
     if cover < 35 and td > 6 and sstate not in ("assault",) and a.suppression + (20 if td < 25 else 0) > 15:
@@ -1059,6 +1291,15 @@ def engage_act(game, a, vis, sq, sstate) -> int:
         thresh = 0.02 if suppressor else (0.05 if td < w.t.rng else 0.1)
         if a.suppression > 60:
             thresh *= 2
+        if sq is not None and sstate in ("hold", "engaged") and sq.order.kind in ("defend", "hold") and \
+                not suppressor:
+            t = game.turn
+            fo = a.ai.get("fired_on")
+            opened = sq.__dict__.get("opened", -999)
+            if a.hit_turn < t - 20 and (fo is None or t - fo[2] > 10) and t - opened > 30 and td >= 20 and p < 0.15:
+                fix_stance(game, a, 2 if a.stance == 0 else a.stance)
+                return 100                        # hold your fire till they're close: don't give yourself away
+            sq.opened = t                         # (once the section's opened up, it all fires)
         if p >= thresh or td < 8:
             # aim at long range
             # take aim when there's time for it: at range, not under the gun, and it'd help
@@ -1097,6 +1338,110 @@ def engage_act(game, a, vis, sq, sstate) -> int:
     return 100
 
 
+def fire_position(game, a, target, cover_now) -> int | None:
+    """A step to a spot with more cover toward him that still has a line of fire on him: a man behind a wall
+    he can't see over is safe, and no use to anyone.  (Tried now and then, not every second.)"""
+    from .relief import body_height
+    from .senses import los_clear
+    t = game.turn
+    if a.ai.get("fp_try", -99) > t - 6:
+        return None
+    a.ai["fp_try"] = t
+    m = game.map
+    brain = game.brains[a.side]
+    sa, va = game.soldier_at, game.vehicle_at
+    hb = body_height(target)
+    best, bs = None, cover_now + 15
+    for dx in (-1, 0, 1):
+        for dy in (-1, 0, 1):
+            x, y = a.x + dx, a.y + dy
+            if (not dx and not dy) or not m.in_bounds(x, y) or not m.walk[x, y] or (x, y) in sa or (x, y) in va:
+                continue
+            if m.fire[x, y] > 0 or m.water[x, y] >= 1:
+                continue
+            mn = m.mines.get((x, y))
+            if mn is not None and a.side in mn.known:
+                continue
+            c = max(m.cover_toward(x, y, target.x, target.y), float(m.pos_cover[x, y]))
+            sc = c - brain.exposure_at(x, y) * 6
+            if sc <= bs:
+                continue
+            if not los_clear(game, x, y, target.x, target.y, False, 1.1, hb):
+                continue
+            best, bs = (dx, dy), sc
+    return do_step(game, a, best) if best is not None else None
+
+
+def hide_from_tanks(game, a, vis) -> int | None:
+    """A tank he can do nothing to, its machine guns sweeping: out of its sight or behind something solid
+    first (the anti-tank men deal with it), and flat if there's nothing."""
+    m = game.map
+    tk = None
+    for e in vis:
+        if getattr(e, "vt", None) is not None and not e.dead and not e.abandoned and not can_hurt_vehicle(a, e) \
+                and e.side != a.side and max(e.vt.armor[:3]) > 8 and dist(a, e) < 35:
+            if tk is None or dist(a, e) < dist(a, tk):
+                tk = e
+    if tk is None:
+        return None
+    here = max(m.cover_toward(a.x, a.y, tk.x, tk.y), float(m.pos_cover[a.x, a.y]))
+    if here >= 50:
+        return None
+    t = game.turn
+    if a.ai.get("tank_hide", -99) <= t - 4:
+        a.ai["tank_hide"] = t
+        sa, va = game.soldier_at, game.vehicle_at
+        best, bs = None, here + 15
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                x, y = a.x + dx, a.y + dy
+                if (not dx and not dy) or not m.in_bounds(x, y) or not m.walk[x, y] or (x, y) in sa or \
+                        (x, y) in va or m.fire[x, y] > 0:
+                    continue
+                c = max(m.cover_toward(x, y, tk.x, tk.y), float(m.pos_cover[x, y]))
+                if c > bs:
+                    best, bs = (dx, dy), c
+        if best is not None:
+            c = do_step(game, a, best)
+            if c:
+                fix_stance(game, a, 1)
+                return c
+    if a.stance != 2:
+        return fix_stance(game, a, 2) or None
+    return None
+
+
+def return_fire(game, a, sq, fo) -> int | None:
+    """Shot at by a man he can't see: fire back at where it came from - the flash in the hedge, the crack
+    from the treeline - near enough, not exactly (he heard it, he didn't see it)."""
+    from .senses import los_clear
+    w = a.weapon
+    if w is None or w.t.kind != "gun" or w.loaded <= 0 or w.t.cat in ("mortar", "at_launcher", "at_disposable",
+                                                                       "at_rifle", "flamer", "sniper"):
+        return None
+    if sq is not None and getattr(sq.order, "roe", "free") == "hold":
+        return None                               # (hold fire means hold fire)
+    rng = game.rng
+    if rng.random() > (0.8 if w.t.cat in ("lmg", "hmg") else 0.45):
+        return None
+    ox, oy = fo[0], fo[1]
+    d = math.hypot(ox - a.x, oy - a.y)
+    if d < 3 or d > w.t.rng * 1.2:
+        return None
+    j = max(1, int(d / 12))
+    tx = min(game.map.w - 1, max(0, ox + rng.randint(-j, j)))
+    ty = min(game.map.h - 1, max(0, oy + rng.randint(-j, j)))
+    if not los_clear(game, a.x, a.y, tx, ty):
+        return None
+    if any(o.side == a.side and o.alive and abs(o.x - tx) <= 3 and abs(o.y - ty) <= 3 for o in game.actors
+           if o.vehicle is None):
+        return None
+    fix_stance(game, a, want_stance(game, a, True, False, False))
+    if w.t.modes and "single" in w.t.modes and w.t.cat not in ("lmg", "hmg"):
+        w.mode = w.t.modes.index("single")
+    return safe_fire(game, a, tx, ty, None, area=True)
+
+
 def maneuver_step(game, a, sq, sstate, target) -> int | None:
     brain = game.brains[a.side]
     anc = sq.anchor() if sq else None
@@ -1126,10 +1471,16 @@ def maneuver_step(game, a, sq, sstate, target) -> int | None:
     # don't advance into point-blank range of the enemy unless assaulting
     if target is not None and dist(a, target) < 8:
         return None
+    ec = brain.enemy_center
+    if ec is not None and in_cover_from(game, a, int(ec[0]), int(ec[1])) >= 40 and a.suppression > 70:
+        return None                               # pinned, but in cover: stay down and fire back
+    if a.stance == 2 and (ec is None or in_cover_from(game, a, int(ec[0]), int(ec[1])) < 40):
+        fix_stance(game, a, 1)                    # up - you don't crawl across open ground under fire
     st = best_step(game, a, [(mp, 1.0)], exposure_w=6.0, cohesion=anc, spread=6)
     c = do_step(game, a, st)
     if c:
-        fix_stance(game, a, 1 if a.suppression < 55 else 2)
+        cov = in_cover_from(game, a, int(ec[0]), int(ec[1])) if ec is not None else 0.0
+        fix_stance(game, a, 2 if cov >= 40 and a.suppression >= 55 else 1)    # a rush: down in cover, or keep going
     return c
 
 
@@ -1171,7 +1522,9 @@ def suppress_known(game, a, sq) -> int | None:
         return None
     if getattr(sq.order, "roe", "free") != "free":
         return None
-    if w.t.cat not in ("lmg", "hmg") and not (sq.state in ("bound", "engaged") and game.rng.random() < 0.25):
+    overwatch = sq.state == "bound" and a.id % 2 != sq.phase          # the team that isn't moving
+    if w.t.cat not in ("lmg", "hmg") and not (sq.state in ("bound", "engaged") and
+                                              game.rng.random() < (0.6 if overwatch else 0.25)):
         return None
     brain = game.brains[a.side]
     cs = brain.nearest_contacts(a.x, a.y, 4, max_age=10)
@@ -1426,6 +1779,21 @@ def runner_act(game, a, vis) -> int | None:
 def retreat_act(game, a, vis) -> int:
     brain = game.brains[a.side]
     if brain.home is None:
+        return 100
+    sq = a.squad
+    ral = sq.__dict__.get("rally") if sq is not None else None
+    if ral is not None and ral.get("at") is not None:
+        rx, ry = ral["at"]
+        if max(abs(a.x - rx), abs(a.y - ry)) > 3:
+            c = path_step(game, a, rx, ry)
+            if c:
+                fix_stance(game, a, 1 if a.suppression < 60 else 2)
+                return c
+        fix_stance(game, a, 2 if vis else 1)
+        if vis and a.weapon and a.weapon.t.kind == "gun" and a.weapon.loaded > 0:
+            t = choose_target(game, a, vis)
+            if t:
+                return safe_fire(game, a, t.x, t.y, t)
         return 100
     if int(brain.home[a.x, a.y]) == 0:
         game.exit_map(a, "withdrew")
@@ -2484,7 +2852,7 @@ def vehicle_move(game, v, vis, tgt) -> int:
         if d < 8 and getattr(tgt, "vt", None) is None and tgt.role == "at_soldier":
             return vehicle_step_away(game, v, tgt)
         if d <= rng_want and (v.reload > 0 or game.rng.random() < 0.8):
-            return 100
+            return face_the_threat(game, v) or 100
     dest = None
     if sq is not None:
         dest = order_target(game, sq)
@@ -2494,7 +2862,9 @@ def vehicle_move(game, v, vis, tgt) -> int:
     if dest is None:
         return 100
     if max(abs(v.x - dest[0]), abs(v.y - dest[1])) <= 3:
-        return 100
+        return face_the_threat(game, v) or 100
+    if sq is not None and sq.kind == "tank" and not v.passengers and waits_for_infantry(game, v, dest):
+        return face_the_threat(game, v) or 100
     crush = vt.crush
     wide = v.size[1] >= 2
     mp = brain.vehicle_map(dest[0], dest[1], crush, wheeled, wide=wide)
@@ -2547,6 +2917,49 @@ def vehicle_move(game, v, vis, tgt) -> int:
             if c is not None:
                 return c
     return 100
+
+
+def waits_for_infantry(game, v, dest) -> bool:
+    """Tanks go forward with the infantry, not ahead of it: alone in the hedges or the streets a tank is blind
+    and the first man with a Panzerfaust or a PIAT kills it.  A tank more than a hundred yards ahead of the
+    nearest of our own riflemen going the same way halts until they come up."""
+    t = game.turn
+    ck = v.ai.get("inf_wait")
+    if ck is not None and ck[0] == t // 4:
+        return ck[1]
+    dv = max(abs(v.x - dest[0]), abs(v.y - dest[1]))
+    best = None
+    for q in game.squads:
+        if q.side != v.side or q.kind in ("tank", "mortar", "hq", "staff", "rear", "aid", "supply") or q.gone or \
+                q.__dict__.get("convoy") or not q.members:
+            continue
+        anc = q.anchor()
+        if anc is None or max(abs(anc[0] - v.x), abs(anc[1] - v.y)) > 35:
+            continue
+        di = max(abs(anc[0] - dest[0]), abs(anc[1] - dest[1]))
+        if best is None or di < best:
+            best = di
+    wait = best is not None and dv < best - 12 and game.turn - v.ai.get("hit_turn", -999) > 20
+    v.ai["inf_wait"] = (t // 4, wait)
+    return wait
+
+
+def face_the_threat(game, v) -> int | None:
+    """Halted, the hull's front toward whatever can knock it out (the thickest armour is the front)."""
+    if v.vt.static or v.moved_turn >= game.turn - 1 or game.turn % 3:
+        return None
+    brain = game.brains[v.side]
+    cs = [c for c in brain.live_contacts(20, False) if c.kind in ("tank", "atgun") and
+          max(abs(c.x - v.x), abs(c.y - v.y)) <= 70]
+    if not cs:
+        return None
+    c = min(cs, key=lambda c: (c.x - v.x) ** 2 + (c.y - v.y) ** 2)
+    want = octant(c.x - v.x, c.y - v.y)
+    diff = (want - v.facing) % 8
+    if diff in (0, 1, 7):
+        return None
+    step = (v.facing + (1 if diff <= 4 else -1)) % 8
+    return 150 if game.turn_vehicle(v, step) else None
 
 
 def vehicle_step_away(game, v, threat) -> int:

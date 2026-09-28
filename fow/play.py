@@ -785,6 +785,22 @@ class PlayState:
                 self.flash_red = False
             return
         p = g.player
+        if g.__dict__.get("succession_pending"):
+            if not self.popups:
+                self._succession_menu()
+            return
+        if g.__dict__.get("autopilot") and not g.game_over:
+            from .succession import set_autopilot
+            if p.state != "ok" or not p.alive:
+                set_autopilot(g, False)
+            else:
+                g.world_turn()                     # your soldier acts on his own, as every other man does
+                g.player_fov()
+                if g.effects:
+                    self._start_anim()
+                self.check_over()
+                self.anim_next = now + 0.03
+                return
         if not p.body.conscious and not g.game_over:
             for _ in range(5):
                 if p.body.conscious or g.game_over:
@@ -1010,6 +1026,14 @@ class PlayState:
             return
         if not p.body.conscious:
             return
+        if g.__dict__.get("autopilot") and not self.popups and self.inv_screen is None and self.mode == "normal":
+            # on autopilot: A or Esc takes him back; looking, the map, the books and the help still work
+            if key.char == "A" or key.sym == E.KeySym.ESCAPE:
+                return self.cmd_autopilot()
+            if key.char not in ("?", "m", "x", ";", "T", "@", "P", "V", "G", "C", "+", "-", "=") and \
+                    key.sym not in (E.KeySym.F1, E.KeySym.F2, E.KeySym.F3, E.KeySym.F4, E.KeySym.F5, E.KeySym.HOME):
+                g.msg("Your soldier's on autopilot. (A to take over)", "info")
+                return
         if self.inv_screen is not None:
             return self.inv_screen.on_key(key)
         if self.popups:
@@ -1078,6 +1102,7 @@ class PlayState:
             "v": self.cmd_vehicle_mg, "s": lambda: self.act(100), "V": self.cmd_nearby,
             "+": lambda: self.zoom(1), "=": lambda: self.zoom(1), "-": lambda: self.zoom(-1),
             "G": self.cmd_staff, "W": self.cmd_pace, "!": self.cmd_safe_mode, "'": self.cmd_ignore_danger,
+            "T": self.cmd_orders_book, "A": self.cmd_autopilot,
         }.get(c)
         if handler:
             return handler()
@@ -1749,6 +1774,12 @@ class PlayState:
                 what = "drop a bomb down the tube" if pm[0].kind == "mortar" else "lay the gun and fire"
                 return (f"{what}: azimuth {d['az']:04d}, elevation {d['qe']:04d}, charge {d['charge']}",
                         lambda: self._fire_mission_round())
+        foc = g.__dict__.get("order_focus")
+        if foc == "base" and g.__dict__.get("base_order") and p.vehicle is None:
+            from . import base as BASE
+            plan = BASE.order_plan(self)               # (you chose the adjutant's orders in the book)
+            if plan is not None:
+                return plan
         if p.vehicle is not None:
             bo = g.__dict__.get("base_order")
             if bo and bo.get("kind") == "supply_run" and bo.get("truck") == p.vehicle.id:
@@ -1912,7 +1943,13 @@ class PlayState:
                 out.append((crew, UI_TEXT))
             if p.vehicle is v and (v.vt.ap or v.vt.he):
                 out.append((f"{v.ap} AP, {v.he} HE aboard; machine-gun belts: {v.mg_ammo} rounds", UI_DIM))
+            from .rear import describe as convoy_load
+            load = convoy_load(v)
+            if load:
+                out.append((load[0].upper() + load[1:], (200, 190, 150)))
         else:
+            if v.vt.id == "ambulance" and close:
+                out.append(("red crosses on its sides and roof", (230, 120, 110)))
             seen = VD.visible_damage(v) if close or v.burning else (["burning"] if v.burning else [])
             if seen:
                 out.append((", ".join(seen), ENEMY_COLOR))
@@ -4482,6 +4519,42 @@ class PlayState:
                 if a is not p and a.active and a.has_tool("radio") and abs(a.x - p.x) + abs(a.y - p.y) <= 3:
                     return True
         return False
+
+    def cmd_autopilot(self):
+        """A: hand your soldier to his training - the same AI as every man on the field - and back."""
+        from .succession import autopilot_on, set_autopilot
+        g = self.game
+        if g.player.state != "ok" or g.game_over:
+            return
+        self.stop_auto()
+        set_autopilot(g, not autopilot_on(g))
+
+    def _succession_menu(self):
+        """You died, and chose to choose: who carries on."""
+        from . import succession as SU
+        g = self.game
+        cands = SU.pending(g)
+        if not cands:
+            g.__dict__.pop("succession_pending", None)
+            g.game_over = True
+            self.check_over()
+            return
+        dead = g.player
+        opts = []
+        for a in cands[:12]:
+            d = int(math.hypot(a.x - dead.x, a.y - dead.y) * 2.2)
+            side = "" if a.side == dead.side else " (the other side)"
+            same = ", your squad" if a.squad is dead.squad else ""
+            opts.append((f"{a.rank_short} {a.name}, {a.role_name.lower()}{same} - {d} yd{side}", a, None, True))
+        self.open_popup(Popup("Who carries on?", opts, self._screen_anchor(),
+                              lines=[(f"{dead.rank_full} {dead.name} is dead. The war goes on.", UI_DIM)]),
+                        lambda a: (SU.choose(g, a), self.recenter()))
+
+    def cmd_orders_book(self):
+        """T: every order you hold - who, how, by when, and what follows either way."""
+        from .ui import OrdersState
+        self.game.update_orders(force=True)
+        self.app.push(OrdersState(self.app, self))
 
     def cmd_radio(self):
         g = self.game

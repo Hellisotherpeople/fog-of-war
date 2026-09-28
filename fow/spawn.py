@@ -569,6 +569,7 @@ def populate(game, sector, att_side, att_edge):
     ensure_aid_posts(game)
     from .floors import place_upstairs
     place_upstairs(game)                  # the defenders' snipers in the church towers
+    _short_of_ammunition(game)            # what the roads behind didn't bring up
     # each side's company ammunition point, behind its own line
     if sector.biome != "sea":
         for side in SIDES:
@@ -1219,3 +1220,29 @@ def create_player(game, nation: str, role: str | None = None) -> tuple[Actor, li
     p.morale = max(30, p.morale)
     game.player = p
     return p, notes
+
+
+def _short_of_ammunition(game):
+    """A sector whose supply roads are cut or long: the men in it have fewer rounds and grenades than they should,
+    in proportion (the war map's supply: Strategic.supply_of)."""
+    from .logistics import sector_supply
+    rng = game.rng
+    p = game.player
+    for side in SIDES:
+        sup = sector_supply(game, side)
+        if sup >= 0.5:
+            continue
+        short = min(0.8, (0.5 - sup) * 1.6)
+        for a in game.actors:
+            if a.side != side or a.is_player or not a.alive:
+                continue
+            for it in list(a.inv):
+                if it is a.weapon:
+                    continue
+                if it.t.kind in ("mag", "clip", "grenade") and rng.random() < short:
+                    a.remove_item(it)
+                elif it.t.kind == "ammo" and it.count > 1:
+                    it.count = max(1, int(it.count * (1 - short)))
+        if p is not None and side == p.side:
+            game.msg("Ammunition is short here: the roads behind have been cut or are too long. Men are counting "
+                     "their rounds.", "warn")

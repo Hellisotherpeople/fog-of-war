@@ -104,6 +104,46 @@ flee map is the distance-to-the-enemy field multiplied by -1.2 and scanned again
 integers, so a ring of buckets replaces the heap), otherwise `tcod.path.dijkstra2d`, with
 identical results either way.
 
+On top of the maps, the small-unit tactics of the manuals, in `ai.py` and `commander.py`:
+
+- **Fire control.** Every few seconds a section leader picks the target that matters, the machine
+  gun first, and calls it (`designate`, with the shout). Each man's target choice (`choose_target`)
+  weighs that target, the man already in his sights (aim taken counts) and whoever is shooting at
+  him.
+- **Contact.** Rounds cracking past are contact (`combat.suppress_line` stamps `ai["fired_on"]`
+  with where they came from), whether or not the shooter has been seen. The section goes to fire
+  and movement, and returns fire at the flash in the hedge, near enough (`return_fire`).
+- **Fire and movement.** Bounding teams change over when the movers are down in cover, not by the
+  clock (`bound_phase`). The team that isn't moving puts rounds on the known positions. Movers go
+  in rushes: up, across, down in cover, never crawling over open ground under fire. An assault
+  goes in when the enemy is suppressed, or when the section is close with odds of two to one.
+- **Smoke.** Crossing ground a machine gun or anti-tank gun covers, a man with a smoke grenade
+  throws it between them (`call_smoke`).
+- **Cover.** A man in the open looks for a spot a step away with more cover that still has a line
+  of fire (`fire_position`). At the crump of a shell he goes flat. A section holding ground where
+  the shells keep falling moves its positions off the beaten zone (`beaten_zone`, from
+  `game.impacts`). A rifleman facing a tank he can do nothing to gets out of its machine guns'
+  sight first (`hide_from_tanks`).
+- **Fire discipline.** Defenders hold their fire at long range until the section opens up. A lull
+  is for putting a full magazine on.
+- **The approach.** Going for ground the enemy holds, the covered map to the objective charges
+  extra for open ground near it (`Brain._open_ground`). Men keep to hedges, walls, woods and dead
+  ground whether or not anyone has been seen there yet.
+- **Support.** A machine gun, sniper or anti-tank team in the attack takes up a position with a
+  field of fire over the objective, where it has got to (`assign_positions`).
+- **Falling back.** A section that falls back without orders stops in cover a few hundred yards
+  back instead of leaving the field (`rally`), and is back in the fight when its nerve returns.
+- **Tanks.** A tank stays with its infantry: more than a hundred yards ahead, it halts until they
+  come up (`waits_for_infantry`). Halted, it turns its front armour toward the gun that can kill it
+  (`face_the_threat`).
+- **Commanders.** An attack goes where the enemy is known to be weakest, with up to three squads
+  together (a Schwerpunkt). A lost position is counterattacked at once only if what is left there
+  can beat what is known to be in it.
+
+These were checked against the old AI in mirrored battles and small infantry fights (same field,
+same seed, each side taking the new AI in turn). The side with the new AI fought at least as well
+in every test, and a little better on balance, at no cost in speed.
+
 What keeps a big battle quick:
 - `GameMap.refresh()` diffs the tile array against the last one and recomputes only the changed
   rectangle (plus a margin for directional cover), and counts separately whether walking,
@@ -113,6 +153,9 @@ What keeps a big battle quick:
 - Lines of sight are cached per map (keyed by `see_base_version`); lines through the smoke's
   bounding box skip the cache.
 - Concealment is cached per target per turn; binoculars are looked up once a minute.
+- A soldier's look round is one compiled call: every line of sight from him to the men he might
+  see, drawn in numba (`fastpath.sight_lines`; the same Bresenham line and crest check as
+  `senses.los_clear`, which is what runs without numba).
 - One distance matrix per side per turn serves every soldier's vision (`game._vis_mat`).
 
 ## The war around you
@@ -304,6 +347,9 @@ without a model ready falls back to the system engine line by line.
 | `medevac.py` | calling stretcher-bearers, the evacuation chain, hospital time, back to duty |
 | `agents.py`, `data/agents.py`, `data/items_special.py` | the secret war: careers, covers, agent and resistance missions, the wireless and direction-finding, supply drops from special-duties squadrons, the special weapons and gadgets |
 | `relief.py`, `floors.py` | the heightmap (generation, viewsheds, crest checks, slope costs, hillshade) and building floors (stairs, cellars, open tops, falls, AI use) |
+| `rear.py` | the living rear: convoys, columns and posts on the supply roads; destroying them cuts the road on the war map (`Strategic.interdict`, supply parents and traffic in `compute_supply`) |
+| `orders.py` | the orders book (all the orders you hold, who gave them, rewards and punishments, carried out) |
+| `succession.py` | autopilot, and carrying on as another soldier when you die |
 | `melee.py` | hand to hand: moves, parries, where blows land, clinches, silent kills |
 | `skills.py` | twelve skills per soldier: rolled at birth, floors from role and unit, practice, the helpers the systems use |
 | `fastpath.py` | Dijkstra maps: numba Dial's algorithm, or tcod |

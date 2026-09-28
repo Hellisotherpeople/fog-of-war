@@ -66,10 +66,11 @@ def commander_update(game, side: str):
             load[sq.order.obj] += 1
     rng = game.rng
     from .command import low_on_ammo, nearest_ammo
+    held = _strength_at(game, side, objs)
     for sq in squads:
         if sq.player_led or sq.order.kind == "retreat" or getattr(sq.order, "src", "ai") == "player":
             continue
-        if sq.kind in ("staff", "rear", "aid", "supply"):
+        if sq.kind in ("staff", "rear", "aid", "supply") or sq.__dict__.get("convoy"):
             continue                # quartermasters, clerks and surgeons stay at their posts; trucks do their run
         if sq.order.kind == "resupply" and game.turn - sq.order.issued < 500:
             continue
@@ -102,8 +103,11 @@ def commander_update(game, side: str):
                 for o2 in f.squads:
                     if o2 is not sq and not o2.gone and o2.order.kind == "attack" and o2.order.obj is not None:
                         mates[o2.order.obj] = mates.get(o2.order.obj, 0) + 1
+            # where they're weakest, and a real weight of attack there (a Schwerpunkt, not a squad at every
+            # objective): what we know is holding each one, and up to three squads together
             best = min(targets, key=lambda i: ((objs[i].x - anc[0]) ** 2 + (objs[i].y - anc[1]) ** 2) ** 0.5
-                       + 35 * load[i] - 45 * mates.get(i, 0) + rng.random() * 10)
+                       + 5 * held[i] - 14 * min(3, load[i]) + 35 * max(0, load[i] - 3)
+                       - 45 * mates.get(i, 0) + rng.random() * 10)
             if o.obj is not None and o.obj in load:
                 load[o.obj] -= 1
             load[best] += 1
@@ -112,8 +116,11 @@ def commander_update(game, side: str):
         else:
             # defender
             if o.kind == "defend" and o.obj is not None and objs[o.obj].owner == enemy:
-                # lost it - counterattack if strong enough, else fall back to another
-                if sq.morale > 40 and sq.strength() >= 4 and rng.random() < 0.6:
+                # lost it - counterattack at once, before they've dug in, if what's left of us here can beat
+                # what we know is there (the German Gegenstoss); else fall back to another
+                near = [q for q in squads if q.order.obj == o.obj and q.anchor() is not None]
+                ours = sum(q.strength() for q in near)
+                if sq.morale > 30 and sq.strength() >= 3 and ours >= held[o.obj] * 1.2:
                     sq.order = Order("attack", obj=o.obj, radius=objs[o.obj].radius, issued=game.turn)
                     sq.arrived = False
                     continue
@@ -132,3 +139,14 @@ def commander_update(game, side: str):
                 load[best] += 1
                 sq.order = Order("defend", obj=best, radius=objs[best].radius, issued=game.turn)
                 sq.arrived = False
+
+
+def _strength_at(game, side, objs) -> dict:
+    """How much of the enemy this side knows is at each objective (its contacts there, weighted)."""
+    brain = game.brains[side]
+    out = {i: 0.0 for i in range(len(objs))}
+    cs = brain.live_contacts(60, False)
+    for i, ob in enumerate(objs):
+        r2 = (ob.radius + 10) ** 2
+        out[i] = sum(min(4.0, c.threat) for c in cs if (c.x - ob.x) ** 2 + (c.y - ob.y) ** 2 <= r2)
+    return out

@@ -68,6 +68,11 @@ class Sector:
                 and (kind is None or i[0] == kind)]
 
 
+def _partisan_theatres():
+    from .threat import PARTISANS
+    return PARTISANS
+
+
 class Strategic:
     def __init__(self, theatre: dict, rng: random.Random, year: float, scale: float = 1.0):
         self.th = theatre
@@ -639,6 +644,8 @@ class Strategic:
         from collections import deque
         old = getattr(self, "supply", {}) or {}
         sup = {}
+        par = {}
+        cut = self.__dict__.setdefault("interdiction", {})
         rear_edge = {self.attacker: self.att_from, self.defender: OPP[self.att_from]}
         for side in SIDES:
             q = deque()
@@ -663,19 +670,39 @@ class Strategic:
                 if src > 0:
                     best[(s.x, s.y)] = src
                     q.append(s)
+            # a source whose own roads are cut sends less
+            for k in list(best):
+                best[k] = max(0.0, best[k] - 0.55 * cut.get((side,) + k, 0.0))
             while q:
                 s = q.popleft()
                 v = best[(s.x, s.y)]
                 for n in self.neighbors(s):
                     if n.control != side and not (n.biome == "sea" and side == self.attacker):
                         continue
-                    nv = v - 0.12
+                    # every sector the supplies pass through costs a little; a cut road there, a lot
+                    nv = v - 0.12 - 0.55 * cut.get((side, n.x, n.y), 0.0)
                     if nv > best.get((n.x, n.y), 0.0) + 1e-6:
                         best[(n.x, n.y)] = nv
+                        par[(side, n.x, n.y)] = (s.x, s.y)
                         q.append(n)
             for s in self.sectors():
                 if s.control == side:
                     sup[(side, s.x, s.y)] = max(0.0, best.get((s.x, s.y), 0.0))
+        self.supply_parent = par
+        # the traffic on each road: every front sector's supplies come up through the sectors behind it
+        traffic = {}
+        for side in SIDES:
+            for s in self.sectors():
+                if s.control != side or not s.playable or not self.is_front(s, side):
+                    continue
+                w = 1.0 + power(s.units[side]) / 12.0
+                k = (s.x, s.y)
+                seen = set()
+                while k is not None and k not in seen:
+                    seen.add(k)
+                    traffic[(side,) + k] = traffic.get((side,) + k, 0.0) + w
+                    k = par.get((side,) + k)
+        self.traffic = traffic
         # news of pockets
         for (side, x, y), v in sup.items():
             if v <= 0.0 and old.get((side, x, y), 1.0) > 0.0:
@@ -684,6 +711,50 @@ class Strategic:
                     self.news.append(f"{s.name} is cut off. The {'Allied' if side == ALLIES else 'Axis'} troops there are on their own.")
         self.supply = sup
         return sup
+
+    # ------------------------------------------------------------ the roads the supplies come up
+    def lines(self, side, s):
+        """How the supplies run through sector s: (the neighbour they come from or None - the rear or a depot
+        here; the neighbours they go on to; how much traffic) - for convoys on the map (rear.py)."""
+        par = self.__dict__.get("supply_parent") or {}
+        src = par.get((side, s.x, s.y))
+        up = self.at(*src) if src else None
+        down = [n for n in self.neighbors(s) if par.get((side, n.x, n.y)) == (s.x, s.y) and n.control == side]
+        return up, down, (self.__dict__.get("traffic") or {}).get((side, s.x, s.y), 0.0)
+
+    def fed_by(self, side, s):
+        """The front sectors whose supplies come up through s."""
+        par = self.__dict__.get("supply_parent") or {}
+        out = []
+        for f in self.sectors():
+            if f.control != side or not self.is_front(f, side):
+                continue
+            k = (f.x, f.y)
+            seen = set()
+            while k is not None and k not in seen:
+                if k == (s.x, s.y):
+                    out.append(f)
+                    break
+                seen.add(k)
+                k = par.get((side,) + k)
+        return out
+
+    def interdict(self, side, s, amount, why=None):
+        """The road through s cut, a convoy burned, a depot blown: the supplies for everything beyond it are
+        short until it's repaired (it mends over hours: tick).  Returns the fronts it starves."""
+        cut = self.__dict__.setdefault("interdiction", {})
+        k = (side, s.x, s.y)
+        before = cut.get(k, 0.0)
+        cut[k] = min(1.0, before + amount)
+        fronts = self.fed_by(side, s)
+        if why and cut[k] >= 0.3 > before - 0.001:
+            names = ", ".join(f.name for f in fronts[:3]) or "the line"
+            self.news.append(f"{why} Supplies for {names} are held up.")
+        self.compute_supply()
+        return fronts
+
+    def cut_of(self, side, s) -> float:
+        return (self.__dict__.get("interdiction") or {}).get((side, s.x, s.y), 0.0)
 
     def supply_of(self, side, s) -> float:
         sup = getattr(self, "supply", None)
@@ -746,6 +817,13 @@ class Strategic:
         # (anything sent into the player's sector this tick must arrive as men on the map: see _arrive)
         self._psec = player_sector
         self._events = events
+        # cut roads are mended, convoys re-routed, the dumps restocked: a cut halves in about two hours
+        cut = self.__dict__.setdefault("interdiction", {})
+        for k in list(cut):
+            cut[k] *= 0.94
+            if cut[k] < 0.02:
+                del cut[k]
+        self._raid_the_roads(player_sector)
         self.compute_supply()
         # pockets wither: no food, no ammunition, no way out
         for s in act:
@@ -845,6 +923,28 @@ class Strategic:
             self._reinforce(player_sector, events)
         self._psec = self._events = None
         return events
+
+    def _raid_the_roads(self, player_sector):
+        """Off your map, the other side goes for the roads too: fighter-bombers over the busiest supply routes,
+        partisans on the railways in occupied country."""
+        rng = self.rng
+        th = self.th
+        traffic = self.__dict__.get("traffic") or {}
+        for side in SIDES:
+            enemy = other_side(side)
+            air = th.get("air", {}).get(enemy, 0.3)
+            busy = sorted(((v, k) for k, v in traffic.items() if k[0] == side), reverse=True)[:6]
+            for v, k in busy:
+                s = self.at(k[1], k[2])
+                if s is None or s is player_sector or self.is_front(s, side):
+                    continue
+                if rng.random() < air * 0.06:
+                    what = rng.choice(["Fighter-bombers caught a convoy on the road at", "Aircraft strafed the columns at",
+                                       "A supply column was bombed on the road through"])
+                    self.interdict(side, s, rng.uniform(0.15, 0.35), f"{what} {s.name}.")
+                elif side == AXIS and th.get("id") in _partisan_theatres() and rng.random() < 0.05:
+                    self.interdict(side, s, rng.uniform(0.2, 0.45), f"Partisans blew the line and ambushed the "
+                                                                     f"columns near {s.name}.")
 
     def _player_orders(self, player_sector, events):
         """Carry out the war-map orders.  Returns ids of sectors attacked by plan this tick."""
@@ -1035,7 +1135,8 @@ class Strategic:
                        and self.supply_of(side, s) > 0.2]
             while repl >= 1 and owned_f:
                 tgt = min(owned_f, key=lambda s: power(s.units[side]) + rng.random())
-                self._arrive(tgt, side, Counter({"inf": 1}))
+                if rng.random() < 0.3 + 0.7 * self.supply_of(side, tgt):   # (the lorries that bring them up)
+                    self._arrive(tgt, side, Counter({"inf": 1}))
                 repl -= 1
             owned = [s for s in self.active() if s.control == side]
             if not owned:
@@ -1051,7 +1152,7 @@ class Strategic:
                 if sea and rng.random() < 0.5:
                     rear = sea[:1]
             for s in rear:
-                if rng.random() < 0.45 * th.get("intensity", 1.0) * supply:
+                if rng.random() < 0.45 * th.get("intensity", 1.0) * supply * (0.4 + 0.6 * self.supply_of(side, s)):
                     add = Counter({"inf": self.sc(rng.randint(1, 2))})
                     if rng.random() < th["armor"].get(side, 0.3) * 0.5:
                         add["tank"] += self.sc(1)

@@ -46,6 +46,9 @@ def run(th, nat, seed, steps, app, verbose=False):
     if app.gfx is not None:
         app.gfx.enable_sprites(seed % 2 == 0)             # half the games in sprites, half in ASCII (as F2 does)
     role = random.Random(seed * 3 + len(th)).choice(ROLE_POOL) if ROLE_POOL else None
+    app.settings["succession"] = ("off", "on", "choose")[seed % 3]     # carrying on as someone else, a third each
+    app.settings["succession_rule"] = random.Random(seed).choice(("squad", "unit", "nearest", "role", "rank",
+                                                                   "random", "killer"))
     g = Game(th, nat, role=role, seed=seed)
     ps = PlayState(app, g)
     app.states = [ps]
@@ -170,6 +173,19 @@ def run(th, nat, seed, steps, app, verbose=False):
                 ps.context_menu(x, y, 10, 10)
         elif r < 0.985:
             key(c='V')
+        elif r < 0.99:
+            key(c='T')                                 # the orders book: look, choose one, close it
+            if app.states[-1] is not ps:
+                book = app.states[-1]
+                for _ in range(rng.randint(0, 3)):
+                    book.on_key(Key(sym=E.KeySym.DOWN))
+                app.console.clear()
+                book.render(app.console)
+                book.on_key(Key(sym=rng.choice((E.KeySym.RETURN, E.KeySym.ESCAPE))))
+                if app.states[-1] is book:
+                    app.pop()
+        elif r < 0.993:
+            key(c='A')                                 # autopilot on / off
         else:
             key(c='.')
         if step % 25 == 0:

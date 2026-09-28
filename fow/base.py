@@ -228,6 +228,10 @@ def _adjutant(ps, who):
     bo = g.__dict__.get("base_order")
     lines = [(f"{_name(who)}, adjutant, {who.ai.get('base', 'headquarters')} - {g.sector.name}.", UI_TEXT)]
     opts = []
+    owed = _state(g).get("fatigues", 0)
+    if owed:
+        lines.append((f"You've {owed} hours of extra duty on the board against your name.", (240, 180, 120)))
+        opts.append((f"Serve your extra duty ({owed} hours: fatigues)", "fatigues", (240, 180, 120), True))
     if bo and _done(g, bo) and bo.get("report_to_any", True):
         opts.append(("Report: orders carried out", "report", (180, 230, 150), True))
     if bo and not _done(g, bo):
@@ -250,6 +254,13 @@ def _adjutant(ps, who):
 
 def _adjutant_choice(ps, who, v):
     g = ps.game
+    if v == "fatigues":
+        h = _state(g).pop("fatigues", 0)
+        return _time_passes(ps, h * HOUR, f"{who.last_name} hands you over to the sergeant of the guard. {h} hours "
+                                         f"of digging latrines, peeling potatoes and whitewashing stones.")
+    if v == "orders" and _state(g).get("fatigues"):
+        g.msg(f"{who.last_name}: 'Extra duty first. Then we'll talk about orders.'", "info")
+        return
     if v == "report":
         return complete(ps, who)
     if v == "cancel":
@@ -413,6 +424,10 @@ def _clerk_choice(ps, who, v):
     p = g.player
     if v == "pay":
         days = _days_owed(g)
+        fine = min(days, _state(g).pop("fine_days", 0))
+        if fine:
+            g.msg(f"{who.last_name} runs a finger down the sheet: {fine} days stopped, by order.", "warn")
+        days -= fine
         usd = PAY[max(0, min(len(PAY) - 1, p.rank))] * days / 30.0
         sym, rate = MONEY.get(p.nation, ("$", 1.0))
         cr = max(1, int(usd * 0.4))
@@ -1301,6 +1316,8 @@ def _reward(game, o, who=None):
         bits.append(f"+{r['credit']} credit")
     if r.get("merit", 0) >= 3:
         bits.append("a line in your record")
+        from .orders import reward_record
+        reward_record(game, f"{o['by']['name']}: orders carried out - {o.get('menu') or o.get('text', '')}")
     game.msg("Well done." + (f" ({', '.join(bits)})" if bits else ""), "good")
     try:
         game.command.consider_promotion(game, why="orders well carried out")

@@ -63,8 +63,8 @@ The game fetches one voice per language the first time a battle needs it (60-80 
 soldier sounds like himself. The system voice speaks until a voice arrives, and always for
 Japanese and Chinese. Esc > Options > Voice engine switches back to the system voice.
 
-**Faster (optional).** The soldiers' route-finding runs several times quicker with
-[numba](https://numba.pydata.org/) installed; big battles feel it most:
+**Faster (optional).** The soldiers' route-finding and their lines of sight run several times
+quicker with [numba](https://numba.pydata.org/) installed; big battles feel it most:
 
 ```sh
 .venv/bin/pip install -r requirements-fast.txt        # Windows: .venv\Scripts\pip ...
@@ -178,6 +178,15 @@ name, traits, weapon and kit. Leave any of it to chance.</td>
 - **Command at every level.** Orders travel by voice, hand signal, radio, relay or runner, and
   arrive late or not at all. When your leader falls, the next man takes over, and sometimes that's
   you. Promotion, battlefield commissions, and each nation's medals.
+- **The roads behind the line** are full of convoys, columns and ambulances, and cutting them starves
+  the front they feed, on the war map and in its battles. Orders come several at a time, each with
+  who gave it, when it's due, and the reward and punishment your army really used. Autopilot, and an
+  optional succession mode: die, and carry on as someone else on the same battlefield.
+- **Squads fight by the manual**: section leaders call targets, the machine gun first; being shot at is
+  contact whether or not anyone's seen the shooter; teams fire and move in rushes from cover to
+  cover; smoke goes down in front of a machine gun; defenders hold their fire until the attack is
+  close; tanks keep pace with their infantry and turn their front armour toward the gun that can
+  kill them.
 - **Kinds of war**: front-line battles, the big push, holding the line, tank battles, night patrols,
   commando raids, agents behind the lines (SOE, OSS, Jedburghs, the Cichociemni, partisan organisers,
   Abwehr and Greif) with covers, silenced weapons, suitcase radios, detector cars and night supply
