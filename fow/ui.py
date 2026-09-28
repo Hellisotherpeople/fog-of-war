@@ -1542,6 +1542,10 @@ class OptionsState:
              None),
             ("Safe mode", "safe_mode", "toggle", "With the enemy in sight or rounds coming in, a step stops with a "
              "warning; step again to go anyway. (! in play; ' ignores what you can see.)", None),
+            ("Quiet time goes quickly", "fast_quiet", "toggle", "Walking somewhere, or on autopilot, with no "
+             "enemy in sight: the seconds run as fast as your machine can simulate them, the view drawn a few times "
+             "a second. Every second is still simulated, for everyone. (Waiting with z or Z always goes quickly.)",
+             None),
             ("Read the ground", "going", "toggle", "Tint the battlefield by the going: red where there's no way "
              "through (for you on foot, or the vehicle you're in), amber where it's slow - the deeper the amber, "
              "the slower. X in play.", None),

@@ -88,6 +88,7 @@ class PlayState:
         self.travel_path = None
         self.travel_dest = None
         self.auto_wait = 0
+        self.wait = None              # a wait you chose (z, Z): what you're waiting for, and since when
         self.running = None
         self.pending = None           # callback when a target is picked
         self.target_list = []
@@ -265,6 +266,11 @@ class PlayState:
                 top.print(0, 0, f" {hint} ", fg=(20, 20, 20), bg=(220, 200, 120))
                 if self.overlay is not None:
                     self.overlay.rgba["bg"][: len(hint) + 2, 0, 3] = 255
+        elif self.__dict__.get("wait") is not None and self.auto_wait > 0 and not self.wait.get("quick"):
+            hint = self.wait_banner()
+            top.print(0, 0, f" {hint} ", fg=(20, 20, 20), bg=(170, 200, 230))
+            if self.overlay is not None:
+                self.overlay.rgba["bg"][: len(hint) + 2, 0, 3] = 255
 
     # ------------------------------------------------------------ the camera
     def _view_tiles(self, gfx):
@@ -829,11 +835,19 @@ class PlayState:
             if p.state != "ok" or not p.alive:
                 set_autopilot(g, False)
             else:
-                g.world_turn()                     # your soldier acts on his own, as every other man does
-                g.player_fov()
+                # your soldier acts on his own, as every other man does - second by second; with nobody in
+                # sight, as many seconds a frame as the machine can simulate (Options: quiet time goes quickly)
+                deadline = time.perf_counter() + (self.WAIT_BUDGET if self._fast_quiet() else 0.0)
+                while True:
+                    g.world_turn()
+                    g.player_fov()
+                    self.check_over()
+                    if g.game_over or not g.__dict__.get("autopilot") or time.perf_counter() >= deadline or \
+                            not self._fast_quiet():
+                        break
+                    self._skip_replay()
                 if g.effects:
                     self._start_anim()
-                self.check_over()
                 self.anim_next = now + 0.03
                 return
         if not p.body.conscious and not g.game_over:
@@ -845,6 +859,56 @@ class PlayState:
             self.anim_next = now + 0.05
             self.check_over()
             return
+        if self.travel_path:
+            deadline = time.perf_counter() + (self.WAIT_BUDGET if self._fast_quiet() else 0.0)
+            while True:
+                self._travel_step(now)
+                sts = getattr(self.app, "states", None)
+                if not self.travel_path or g.game_over or time.perf_counter() >= deadline or \
+                        not self._fast_quiet() or self.popups or (sts and sts[-1] is not self):
+                    return
+                self._skip_replay()
+        if self.running:
+            if self.interrupted():
+                self.stop_auto()
+                return
+            dx, dy = self.running
+            m = g.map
+            nx, ny = p.x + dx, p.y + dy
+            mn = m.mines.get((nx, ny)) if m.in_bounds(nx, ny) else None
+            if not m.in_bounds(nx, ny) or not m.walk[nx, ny] or (nx, ny) in g.soldier_at or \
+                    (mn is not None and p.side in mn.known):
+                self.stop_auto()
+                return
+            if not self.do_move(dx, dy, auto=True):
+                self.stop_auto()
+            self.anim_next = now + 0.02
+            return
+        if self.__dict__.get("ff_until"):
+            self._ff_tick()
+            self.anim_next = now + 0.01
+            return
+        if self.__dict__.get("digging"):
+            if self.interrupted():
+                self.stop_auto("You stop digging.")
+                return
+            c = A.dig(g, p)
+            if c is None:
+                self.digging = False
+                return
+            self.act(c)
+            if T.DEFS[int(g.map.t[p.x, p.y])].key in ("foxhole", "trench_snow"):
+                self.digging = False
+            self.anim_next = now + 0.01
+            return
+        if self.auto_wait > 0:
+            self._wait_tick()
+            self.anim_next = now + 0.005
+
+    def _travel_step(self, now):
+        """One step of a walk-to (the route replanned where what you guessed at turns out otherwise)."""
+        g = self.game
+        p = g.player
         if self.travel_path:
             if self.interrupted():
                 self.stop_auto("You stop.")
@@ -902,47 +966,168 @@ class PlayState:
                 if ok and then is not None:
                     then()
             self.anim_next = now + 0.02
-            return
-        if self.running:
-            if self.interrupted():
-                self.stop_auto()
-                return
-            dx, dy = self.running
-            m = g.map
-            nx, ny = p.x + dx, p.y + dy
-            mn = m.mines.get((nx, ny)) if m.in_bounds(nx, ny) else None
-            if not m.in_bounds(nx, ny) or not m.walk[nx, ny] or (nx, ny) in g.soldier_at or \
-                    (mn is not None and p.side in mn.known):
-                self.stop_auto()
-                return
-            if not self.do_move(dx, dy, auto=True):
-                self.stop_auto()
-            self.anim_next = now + 0.02
-            return
-        if self.__dict__.get("ff_until"):
-            self._ff_tick()
-            self.anim_next = now + 0.01
-            return
-        if self.__dict__.get("digging"):
-            if self.interrupted():
-                self.stop_auto("You stop digging.")
-                return
-            c = A.dig(g, p)
-            if c is None:
-                self.digging = False
-                return
-            self.act(c)
-            if T.DEFS[int(g.map.t[p.x, p.y])].key in ("foxhole", "trench_snow"):
-                self.digging = False
-            self.anim_next = now + 0.01
-            return
-        if self.auto_wait > 0:
-            if self.interrupted():
-                self.stop_auto("Something catches your attention.")
-                return
+
+    # ------------------------------------------------------------ time going by (z, Z; walking; autopilot)
+    WAIT_BUDGET = 0.1         # seconds of simulation between frames when time is going quickly
+
+    def _fast_quiet(self) -> bool:
+        """Nobody in sight, nothing coming at you: the seconds may go by as fast as they can be simulated."""
+        st = getattr(self.app, "settings", None) or {}
+        if not st.get("fast_quiet", True):
+            return False
+        g = self.game
+        p = g.player
+        if p.suppression > 5 or g.turn - p.hit_turn < 20 or not p.body.conscious:
+            return False
+        if any(a.side != p.side and a.alive and player_can_see_actor(g, a) for a in g.actors):
+            return False
+        return not any(v.side != p.side and v.active and g.map.in_bounds(v.x, v.y) and g.map.visible[v.x, v.y]
+                       for v in g.vehicles)
+
+    def _skip_replay(self):
+        """Seconds that went by quickly aren't played back one by one: the shots and bursts far off, and the
+        shouting, happened - they're in the log - but aren't replayed or voiced."""
+        g = self.game
+        self.anim = 0
+        self.anim_groups = []
+        g.effects = []
+        self.shake = 0.0
+        ev = g.__dict__.get("audio_events")
+        if ev:
+            g.audio_events = [e for e in ev if e[0] != "voice"]
+
+    def _orders_sig(self):
+        """What orders you hold, and when each was given: a new one changes it."""
+        from .orders import book
+        try:
+            return frozenset((e.get("key"), e.get("issued")) for e in book(self.game))
+        except Exception:
+            return frozenset()
+
+    def begin_wait(self, kind, secs, quick=False):
+        """Wait (z: a minute; Z: the menu): second by second, every second simulated, as fast as the machine
+        can manage, stopping for anything that matters."""
+        g = self.game
+        self.stop_auto()
+        self.wait = dict(kind=kind, start=g.turn, secs=int(secs), t0=time.perf_counter(), sig=self._orders_sig(),
+                         quick=quick)
+        self.auto_wait = int(secs)
+        self.mark_interrupt()
+        if not quick:
+            g.msg({"event": "You settle down to wait. (any key stops)",
+                   "dawn": "You settle down to wait for the light. (any key stops)",
+                   "dark": "You settle down to wait for dark. (any key stops)",
+                   "orders": "You wait for orders. (any key stops)"}.get(kind, "You wait. (any key stops)"), "info")
+        else:
+            g.msg("You wait, watching.", "info")
+
+    def _wait_tick(self):
+        g = self.game
+        p = g.player
+        deadline = time.perf_counter() + self.WAIT_BUDGET
+        while self.auto_wait > 0:
             self.auto_wait -= 1
             self.act(100)
-            self.anim_next = now + 0.01
+            sts = getattr(self.app, "states", None)
+            if g.game_over or (sts and sts[-1] is not self) or not p.body.conscious or self.popups:
+                self.auto_wait = 0
+                self.wait = None
+                return
+            why = self._wait_stop()
+            if why is not None:
+                self._end_wait(why)
+                return
+            if self.auto_wait <= 0 or time.perf_counter() >= deadline:
+                break
+            self._skip_replay()
+        if self.auto_wait <= 0:
+            self._end_wait("")
+
+    def _wait_stop(self):
+        """Why the wait ends now: a message (\"\" for 'what you waited for'), or None to go on."""
+        g = self.game
+        if self.interrupted():
+            return "Something catches your attention."
+        w = self.wait
+        if w is None:
+            return None
+        if w["kind"] == "dawn" and not g.is_night():
+            return "It's getting light."
+        if w["kind"] == "dark" and g.is_night():
+            return "It's dark."
+        if (g.turn - w["start"]) % 5 == 0 and self._orders_sig() != w["sig"]:
+            return "New orders." if w["kind"] != "orders" else ""
+        return None
+
+    def _end_wait(self, why):
+        g = self.game
+        w = self.wait
+        self.wait = None
+        self.auto_wait = 0
+        if w is None:
+            if why:
+                g.msg(why, "info")
+            return
+        span = g.turn - w["start"]
+        if w.get("quick") and not why:
+            return                              # (a minute, as asked: nothing to say)
+        text = self.span_words(span)
+        g.msg(f"{why} {text}".strip() if why else text, "info")
+        g.update_orders(force=True)
+
+    def span_words(self, secs) -> str:
+        """How long that was - to the minute with a watch; without one, a feeling."""
+        if self.game.player.has_tool("watch") is not None:
+            h, mnt = secs // 3600, (secs % 3600) // 60
+            if not h and not mnt:
+                return f"{secs} seconds go by."
+            if not h:
+                return f"{mnt} minute{'s' if mnt != 1 else ''} go{'es' if mnt == 1 else ''} by."
+            return f"{h} hour{'s' if h != 1 else ''} {mnt} minute{'s' if mnt != 1 else ''} go by."
+        return ("A moment passes." if secs < 90 else "A few minutes pass." if secs < 600 else
+                "Time passes." if secs < 2400 else "A long while passes." if secs < 7200 else "Hours pass.")
+
+    def wait_banner(self) -> str:
+        """WAITING, what for, how long so far (with a watch), and how much faster than life it's going."""
+        g = self.game
+        w = self.wait
+        what = {"event": "until something happens", "dawn": "for first light", "dark": "for dark",
+                "orders": "for orders"}.get(w["kind"], "")
+        gone = g.turn - w["start"]
+        bits = ["WAITING" + (f" {what}" if what else "")]
+        if g.player.has_tool("watch") is not None:
+            h, mnt = gone // 3600, (gone % 3600) // 60
+            if w["kind"] == "time":
+                th, tm = w["secs"] // 3600, (w["secs"] % 3600) // 60
+                bits.append(f"{h}:{mnt:02d} of {th}:{tm:02d}")
+            else:
+                bits.append(f"{h}:{mnt:02d} gone")
+        wall = time.perf_counter() - w["t0"]
+        if wall > 0.5 and gone > 5:
+            bits.append(f"time x{gone / wall:.0f}")
+        bits.append("any key stops")
+        return "  -  ".join(bits)
+
+    def cmd_wait(self):
+        """Z: how long to wait - to the minute with a watch; without one, by feel and by the sky."""
+        g = self.game
+        p = g.player
+        if g.__dict__.get("domain") == "aboard" and (g.aboard or {}).get("kind") == "ship" and self._quiet_aboard():
+            return self.fast_forward()
+        watch = p.has_tool("watch") is not None
+        opts = [("Until something happens (up to three hours)", ("event", 3 * 3600), None, True)]
+        spans = ((("5 minutes", 300), ("15 minutes", 900), ("30 minutes", 1800), ("An hour", 3600),
+                  ("Three hours", 3 * 3600)) if watch else
+                 (("A few minutes", 300), ("A while", 1200), ("A good while", 3600), ("Hours", 3 * 3600)))
+        opts += [(lab, ("time", secs), None, True) for lab, secs in spans]
+        if g.is_night():
+            opts.append(("Until first light", ("dawn", 16 * 3600), None, True))
+        else:
+            opts.append(("Until dark", ("dark", 18 * 3600), None, True))
+        opts.append(("Until there are new orders", ("orders", 6 * 3600), None, True))
+        self.open_popup(Popup("Wait", opts, self._screen_anchor(),
+                              footer="every second is fought out; anything that matters stops it"),
+                        lambda v: v and self.begin_wait(*v))
 
     def mark_interrupt(self):
         g = self.game
@@ -980,6 +1165,11 @@ class PlayState:
         self.running = None
         self.auto_wait = 0
         self.digging = False
+        w = self.__dict__.get("wait")
+        if w is not None:
+            self.wait = None
+            if not w.get("quick") and self.game.turn > w["start"]:
+                self.game.msg("You stop waiting. " + self.span_words(self.game.turn - w["start"]), "info")
         if msg:
             self.game.msg(msg, "info")
 
@@ -1090,6 +1280,8 @@ class PlayState:
             from . import aboard as AB
             if key.char in ("<", ">"):
                 return AB.climb(self, "up" if key.char == "<" else "down")
+            if key.char == "z" and self._quiet_aboard():
+                return self.fast_forward()
         elif key.char in ("<", ">") and p.vehicle is None:
             # the stairs, or the cellar trapdoor
             c = A.climb(g, p, 1 if key.char == "<" else -1)
@@ -1099,8 +1291,6 @@ class PlayState:
                 return
             g.player_fov()
             return self.act(c)
-            if key.char == "Z" or (key.char == "z" and self._quiet_aboard()):
-                return self.fast_forward()
         if getattr(key, "ctrl", False) and key.move():
             gfx = getattr(self.app, "gfx", None)
             wv, hv = self._view_tiles(gfx) if gfx is not None else (VIEW_W, VIEW_H)
@@ -1133,7 +1323,7 @@ class PlayState:
             "P": self.cmd_log, "?": self.cmd_help, "e": self.cmd_vehicle, "o": self.cmd_door,
             "O": self.cmd_orders, "D": self.cmd_dig, "R": self.cmd_radio, "z": self.cmd_rest,
             "C": self.cmd_command, "q": self.cmd_peek,
-            "Z": self.cmd_rest, "S": self.cmd_resupply, "@": self.cmd_charsheet, "Y": self.cmd_yell,
+            "Z": self.cmd_wait, "S": self.cmd_resupply, "@": self.cmd_charsheet, "Y": self.cmd_yell,
             "v": self.cmd_vehicle_mg, "s": lambda: self.act(100), "V": self.cmd_nearby,
             "+": lambda: self.zoom(1), "=": lambda: self.zoom(1), "-": lambda: self.zoom(-1),
             "G": self.cmd_staff, "W": self.cmd_pace, "!": self.cmd_safe_mode, "'": self.cmd_ignore_danger,
@@ -3112,9 +3302,8 @@ class PlayState:
         self.enter_mode("look", (p.x, p.y))
 
     def cmd_rest(self):
-        self.auto_wait = 60
-        self.mark_interrupt()
-        self.game.msg("You wait, watching.", "info")
+        """z: wait a minute, watching (Z for longer)."""
+        self.begin_wait("time", 60, quick=True)
 
     def cmd_overmap(self):
         from .ui import OvermapState

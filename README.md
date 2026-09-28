@@ -214,6 +214,9 @@ name, traits, weapon and kit. Leave any of it to chance.</td>
   drops from real special-duties squadrons, resistance bands, encirclement, the
   rearguard, captivity and escape; at sea, surface actions, carrier battles, convoys and submarine
   patrols; in the air, fighter sweeps, interceptions and bomber raids.
+- **Waiting without mashing keys**: `Z` waits until something happens, for a set time, till dawn or
+  till new orders - every second simulated for everyone, just not drawn, so it runs 70-100x faster than
+  life in a battle and hundreds of times faster behind the lines, stopping for anything that matters.
 - **Honest time.** Aiming takes time, recoil throws off the next shot, captured weapons are clumsy
   until you learn them, breath and fatigue and load govern your speed.
 - **The same rules for everyone.** Pace, breath, cold, heat, stealth and wounds apply to every
