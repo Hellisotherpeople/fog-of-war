@@ -526,6 +526,23 @@ class CreatorState:
                 self.v["side"] = NATIONS[d["nation"]]["side"]
                 if self._theatre() not in d["theatres"]:
                     self.v["theatre"] = next((t for t in d["theatres"] if t in THEATRES), self.v["theatre"])
+        if key == "unit":
+            self._special_fix()
+
+    def _special_fix(self):
+        """A special unit means its army, and a battle it fought in."""
+        u = self.v.get("unit")
+        if not isinstance(u, str) or u in ("regular", "random", "default") or u.startswith("notable:"):
+            return
+        from .data.special import SPECIAL
+        d = SPECIAL.get(u)
+        if d is None:
+            return
+        if self._nation() not in d["nations"]:
+            self.v["nation"] = d["nations"][0]
+            self.v["side"] = NATIONS[d["nations"][0]]["side"]
+        if d.get("theatres") and self._theatre() not in d["theatres"]:
+            self.v["theatre"] = next((t for t in d["theatres"] if t in THEATRES), self.v["theatre"])
 
     def _open(self, key):
         app = self.app
@@ -1953,7 +1970,14 @@ class POWState:
         if return_to_war(g, self.done):
             g.msg("You're back with your own side - thin, filthy, and alive. The quartermaster will find you a rifle.",
                   "good")
-        self.app.pop()
+            self.app.pop()
+            return
+        # nowhere of ours to get to: back behind the wire (the camp goes on)
+        self.done = None
+        self.log.append(("There's no way through to our lines. You lie up, and they find you. Back behind the wire.",
+                         (230, 170, 90)))
+        if g.pow is not None:
+            g.pow["stage"] = "camp"
 
     def on_click(self, tx, ty, b):
         self.on_key(Key(sym=E.KeySym.RETURN))

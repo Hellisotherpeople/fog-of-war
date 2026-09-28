@@ -388,6 +388,13 @@ class Game:
             self._join_notable(p, unit.split(":", 1)[1], notes)
             unit = None
         if unit and unit != "regular":
+            from .data.special import SPECIAL, eligible
+            if unit in SPECIAL and not eligible(unit, p.nation, self.year, self.theatre_id,
+                                                p.__dict__.get("service", "army")):
+                notes.append(f"(The {SPECIAL[unit]['name']} took no {NATIONS[p.nation]['adj']} volunteers "
+                             f"there and then: you serve with your own army's line.)")
+                unit = None
+        if unit and unit != "regular":
             from .data.special import SPECIAL
             from .spawn import apply_special
             apply_special(self, p, unit)
@@ -2956,6 +2963,8 @@ class Game:
                 a.morale = min(100.0, max(0.0, a.morale))      # (brave or broken, but within the scale)
             a.moves += a.speed(self.turn) if a is not p else a.speed()
             if a is p and not self.__dict__.get("autopilot"):
+                # (no banking seconds while you're out cold or idle: a turn's worth, never a fortnight's)
+                a.moves = min(a.moves, max(100, a.speed()))
                 continue                          # (on autopilot, you're one of them: succession.py)
             guard = 0
             while a.moves > 0 and a.alive and guard < 4:

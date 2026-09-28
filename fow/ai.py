@@ -1236,8 +1236,8 @@ def soldier_act(game, a) -> int:
         c = suppress_known(game, a, sq)
         if c:
             return c
-    if sq is not None and not leashed(sq) and sstate in ("flank", "assault", "bound"):
-        team = a.id % 2
+    if sq is not None and not leashed(sq) and sstate in ("flank", "assault", "bound") and a.ai.get("to_aid") is None:
+        team = a.id % 2                               # (the walking wounded aren't in the bounds: they're going back)
         if sstate != "bound" or team == sq.phase:
             c = maneuver_step(game, a, sq, sstate, None)
             if c:
@@ -1606,6 +1606,8 @@ def suppress_known(game, a, sq, force=False) -> int | None:
 def move_with_squad(game, a, sq, sstate) -> int:
     brain = game.brains[a.side]
     m = game.map
+    if a.ai.get("to_aid") is not None:
+        return 100                                    # (the walking wounded are going back, not with the squad)
     if sq is None:
         fix_stance(game, a, want_stance(game, a, False, False, False))
         return 100
@@ -2306,6 +2308,10 @@ def medic_act(game, a, vis) -> int | None:
     if a.carrying is not None:
         return evacuate_act(game, a, vis)
     near_enemy = min((dist(a, e) for e in vis), default=999)
+    if near_enemy <= 10:
+        a.ai["med_enemy"] = game.turn
+    calm = game.turn - a.ai.get("med_enemy", -99) > 8          # (a few quiet seconds before he goes out again)
+    committed = a.ai.get("patient")
     best = None
     bs = 0.0
     for o in game.near(a.x, a.y, 30, a.side):
@@ -2321,7 +2327,8 @@ def medic_act(game, a, vis) -> int | None:
         if need >= 1.0 and not MED.can_help(game, a, o):
             need = 0.0
         # a stabilised man who can't walk still needs carrying out
-        if o.downed and b.bleed_rate() < 0.05 and not MED.at_aid_post(game, o) and near_enemy > 10:
+        if o.downed and b.bleed_rate() < 0.05 and not MED.at_aid_post(game, o) and \
+                (calm or (committed == o.id and near_enemy > 5)):
             need = max(need, 12.0)
         if need < 1.0:
             continue
