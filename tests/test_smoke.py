@@ -1213,6 +1213,48 @@ def test_squad_tactics():
     assert not AI.waits_for_infantry(g, tank, anc)                # (going back toward them: no waiting)
 
 
+def test_interface_pictures():
+    """Every picture the interface can ask for paints (the renderer hides a painter's error as a blank)."""
+    from fow import icons as I
+    from fow.data.items import ITEMS
+    from fow.data.nations import NATIONS
+    from fow.entities import Item
+    from fow.strategic import BIOME_GLYPH
+    n = 0
+    for tid in ITEMS:
+        try:
+            it = Item(tid)
+        except Exception:
+            continue
+        k = I.item_key(it)
+        if k is None:
+            continue
+        for w, h in ((20, 4), (4, 2), (5, 2)):
+            a = I.paint(I.oriented(k, w, h), w * 10, h * 19)
+            assert a is not None and a.shape == (h * 19, w * 10, 4), (tid, k)
+            n += 1
+    keys = ["doll|head:96c88c:,torso:e6c850:b2:1,l_arm:f06e3c:B:1,r_arm:96c88c::0,l_leg:f04632:T:2,r_leg:96c88c::0",
+            "stance|0|0", "stance|1|40", "stance|2|80", "stance|swim|0", "stance|veh|0", "rounds|4|8|8", "rounds|0|0|30",
+            "rounds|120|180|250", "watch|06:15", "sky|0.3|overcast|0.1", "sky|0.05|clear|0.8", "sky|0.8|snow|0.5",
+            "sky|0.7|fog|0.5", "pointer|135|compass", "pointer|300|hand", "man|ok", "man|dead", "man|down",
+            "sight|0|40|40|0|1.0", "sight|2|0|85|1|0.2", "badge:dim|8/8", "badge:warn|LIVE!", "~gun:rifle",
+            "vehicle|tank|green|driver:on,gunner:you,commander:off"]
+    keys += [f"emblem|{nat}" for nat in NATIONS] + [f"recruit|{nat}|rifleman" for nat in NATIONS]
+    keys += [f"recruit|usa|{r}" for r in I.ROLE_ARMS] + ["recruit||rifleman"]
+    keys += [f"terrain|{b}|{c}|{sk}|3,4" for b in BIOME_GLYPH for c in ("ours", "theirs", "none", "unknown")
+             for sk in (0, 1)]
+    keys += [f"log:x|{c}" for c in ("sound", "radio", "shout", "hurt", "hit", "death", "good", "warn", "think",
+                                     "combat")]
+    keys += [f"how:x|{h}" for h in ("shouted", "by runner", "on the radio", "written orders", "briefing",
+                                     "the fire direction centre's numbers")]
+    keys += [f"sense:x|{s_}" for s_ in ("cold", "hot", "mild", "breath", "load", "nerves")]
+    for k in keys:
+        a = I.paint(k, 90, 57)
+        assert a is not None and a[..., 3].max() > 0, k
+        n += 1
+    assert n > 1000
+
+
 if __name__ == "__main__":
     import time
     tests = [(k, v) for k, v in dict(globals()).items() if k.startswith("test_") and callable(v)]

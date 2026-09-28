@@ -306,6 +306,24 @@ vehicles from their real footprints, and soldier figures built from what each ma
 wearing and carrying (`figures.py`), so a Soviet sniper in a winter smock looks like one. Nothing
 is loaded from image files except the fonts.
 
+The interface's pictures (`icons.py`) are painted by code too. Any screen asks for a picture over a
+rectangle of text cells with `icons.pic(x, y, w, h, key)`: a key such as `gun:rifle`,
+`doll|head:96c88c:,...`, `rounds|4|8|8` (sure of 4 of 8) or `terrain|bocage|ours|0|12,7`.
+`gfx.present` paints it at exactly that rectangle's pixel size and caches it as a texture. Painters
+work in unit coordinates at 3× and are scaled down, so a picture is crisp at any window size.
+Translucent ink goes on a clear sheet and is composited, because PIL would overwrite rather than
+blend.
+
+There are three layers:
+- `under`, beneath the text console: its cells are made see-through by `icons.under`, which leaves
+  a dark label behind each letter. The war map's squares use this.
+- `ui`, over the text console.
+- `over`, over the overlay console (the kit screen).
+
+Popups, lists and tooltips call `icons.erase` over their boxes so nothing painted earlier shows
+through. The text under a picture stays: it's what shows without a renderer, and with Options >
+Pictures in the interface off.
+
 ## Sound
 
 `audio.py` synthesises every sound at start-up (gunfire by calibre, explosions, engines, the
@@ -347,6 +365,7 @@ without a model ready falls back to the system engine line by line.
 | `medevac.py` | calling stretcher-bearers, the evacuation chain, hospital time, back to duty |
 | `agents.py`, `data/agents.py`, `data/items_special.py` | the secret war: careers, covers, agent and resistance missions, the wireless and direction-finding, supply drops from special-duties squadrons, the special weapons and gadgets |
 | `relief.py`, `floors.py` | the heightmap (generation, viewsheds, crest checks, slope costs, hillshade) and building floors (stairs, cellars, open tops, falls, AI use) |
+| `icons.py` | pictures in the interface: painters (kit, body, stance, rounds, sky, map sheet, sight picture...), keys, and the per-frame picture list that `gfx.present` paints, caches and draws under, over and above the consoles |
 | `rear.py` | the living rear: convoys, columns and posts on the supply roads; destroying them cuts the road on the war map (`Strategic.interdict`, supply parents and traffic in `compute_supply`) |
 | `orders.py` | the orders book (all the orders you hold, who gave them, rewards and punishments, carried out) |
 | `succession.py` | autopilot, and carrying on as another soldier when you die |

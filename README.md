@@ -182,6 +182,10 @@ name, traits, weapon and kit. Leave any of it to chance.</td>
   the front they feed, on the war map and in its battles. Orders come several at a time, each with
   who gave it, when it's due, and the reward and punishment your army really used. Autopilot, and an
   optional succession mode: die, and carry on as someone else on the same battlefield.
+- **An interface you can read at a glance**: the panel draws your body with its wounds and dressings,
+  your stance behind real cover, the rounds you know are in the magazine, the sky and your watch. The
+  kit screen draws every item, aiming shows a sight picture, and the war map is an inked map sheet.
+  All the words stay beside the pictures.
 - **Squads fight by the manual**: section leaders call targets, the machine gun first; being shot at is
   contact whether or not anyone's seen the shooter; teams fire and move in rushes from cover to
   cover; smoke goes down in front of a machine gun; defenders hold their fire until the attack is

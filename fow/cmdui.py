@@ -503,6 +503,11 @@ def draw_markers(con, ps):
         bx = max(0, int(bx))
         if 0 <= ty < con.height:
             con.print(bx, ty, f"[{label}]", fg=(20, 20, 20), bg=col)
+            from . import icons
+            if icons.on() and bx >= 2:
+                # the unit's sign, as a staff map has it, framed in the colour of how it's doing
+                icons.pic(bx - 2, ty, 2, 1, f"unit:x|{sq.kind if not sq.vehicles or sq.kind != 'rifle' else 'tank'}|"
+                                            f"{icons.hexcol(col)}", "over")
     for job in cmd.pending:
         sq = next((s for s in g.squads if s.id == job["sq"]), None)
         if sq is None:

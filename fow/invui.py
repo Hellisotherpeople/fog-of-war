@@ -240,23 +240,39 @@ class InventoryScreen:
         sx = x0 + 2
         sy = y0 + 2
         slot_w = 24 if w > 50 else w - 4
+        from . import icons
+        pics = icons.on() and w > 50
         for s in SLOTS:
             it = inv.slots[s]
             name = SLOT_NAME[s].split(" (")[0]
-            con.print(sx, sy, f"{name[:9]:9}", fg=UI_DIM, bg=UI_BG)
-            box_x = sx + 10
+            if not pics:
+                con.print(sx, sy, f"{name[:9]:9}", fg=UI_DIM, bg=UI_BG)
+            box_x = sx + 10 if not pics else sx + 1
             txt = it.name if it is not None else "-"
             if it is not None and it.t.kind == "gun" and it.t.cat not in ("melee",):
                 txt = f"{it.t.name} [{it.ammo_estimate()}]"
             hands = pane is self.own and it is not None and it is self.game.player.weapon
             col = (255, 240, 170) if hands else (UI_TEXT if it is not None else UI_DIM)
-            con.print(box_x, sy, txt[: slot_w - 10 + (0 if w > 50 else 10)], fg=col,
-                      bg=(40, 36, 26) if it is not None else UI_BG)
+            key = icons.item_key(it) if (pics and it is not None) else None
+            if pics:
+                # the thing itself (or the empty place for it), with where it's worn and what it is beside it
+                con.draw_rect(box_x, sy, 5, 2, ord(" "), bg=(40, 36, 26) if it is not None else (26, 24, 18))
+                if key is not None:
+                    icons.pic(box_x, sy, 5, 2, icons.oriented(key, 5, 2), "over")
+                elif s in icons.GHOST:
+                    icons.pic(box_x, sy, 5, 2, "~" + icons.oriented(icons.GHOST[s], 5, 2), "over")
+                tw = max(4, slot_w - 6)
+                con.print(box_x + 6, sy, name[:tw], fg=UI_DIM, bg=UI_BG)
+                con.print(box_x + 6, sy + 1, (txt if len(txt) <= tw else txt[: tw - 1] + "…"), fg=col, bg=UI_BG)
+            else:
+                con.print(box_x, sy, txt[: slot_w - 10 + (0 if w > 50 else 10)], fg=col,
+                          bg=(40, 36, 26) if it is not None else UI_BG)
             if hands:
                 con.print(box_x - 1, sy, "»", fg=(255, 220, 120), bg=UI_BG)
             self.cells.append(dict(kind="slot", slot=s, pane=pane, item=it,
-                                   rect=(box_x, sy, max(4, slot_w - 10), 1)))
-            sy += 2 if w > 50 else 1
+                                   rect=(box_x, sy, max(4, slot_w - 10) if not pics else slot_w - 1,
+                                         2 if pics else 1)))
+            sy += (3 if pics else 2) if w > 50 else 1
         if pane is self.own and inv.hands is not None:
             con.print(sx, sy, "Hands", fg=UI_DIM, bg=UI_BG)
             con.print(sx + 10, sy, inv.hands.name[:20], fg=(255, 240, 170), bg=(40, 36, 26))
@@ -318,16 +334,22 @@ class InventoryScreen:
             self._draw_item_block(con, it, x + ix * CW, y + iy * CH, w * CW, h * CH)
 
     def _draw_item_block(self, con, it, x, y, w, h):
+        from . import icons
         base = KIND_COL.get(it.t.kind, (80, 80, 80))
         sel = self.cells and self.cells[self.cursor % len(self.cells)].get("item") is it
-        bg = tuple(min(255, int(c * 1.5)) for c in base) if sel else base
+        key = icons.item_key(it) if icons.on() else None
+        if key is not None:
+            base = tuple(int(c * 0.55) for c in base)       # (a pouch, a pocket: the thing itself on it)
+        bg = tuple(min(255, int(c * 1.5)) + (18 if key else 0) for c in base) if sel else base
         for dx in range(w):
             for dy in range(h):
                 con.print(x + dx, y + dy, " ", bg=bg)
         lab = label_for(it)
         lines = textwrap.wrap(lab, max(1, w)) or [lab]
         for k, line in enumerate(lines[: max(1, h - (1 if h > 1 else 0))]):
-            con.print(x, y + k, line[:w], fg=(240, 235, 215), bg=bg)
+            con.print(x, y + k, line[:w], fg=(240, 235, 215) if key is None else bg, bg=bg)
+        if key is not None:
+            icons.pic(x, y, w, h, icons.oriented(key, w, h), "over")
         tag = ""
         t = it.t
         if t.kind == "mag":
@@ -340,6 +362,9 @@ class InventoryScreen:
             tag = "LIVE!"
         if tag:
             con.print(x + max(0, w - len(tag)), y + h - 1, tag[:w], fg=(255, 230, 140), bg=bg)
+            if key is not None:
+                icons.badge(x + max(0, w - len(tag)), y + h - 1, tag[:w], "over",
+                            "warn" if tag == "LIVE!" else "dim")
 
     def _draw_ground(self, con, pane, x, y):
         g = pane.ground_grid(self.game)

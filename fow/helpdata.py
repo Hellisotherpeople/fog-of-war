@@ -188,6 +188,7 @@ SECTIONS = [
         ("k", "right-click", "everything you can do with that spot"),
         ("k", "hover", "a description of whatever's there"),
         ("k", "Esc", "the menu: Options has the sound mixer, key hints, safe mode, animation speed..."),
+        ("t", "Options > Pictures in the interface: the kit, the body, the map sheet drawn - or words only."),
         ("t", "{Ctrl} also means {Cmd} or {Alt}. The number row isn't used anywhere."),
     ]),
     ("Menus & screens", [
@@ -249,7 +250,9 @@ SECTIONS = [
         ("k", "Space|.", "wait ten seconds"),
     ]),
     ("What you know", [
-        ("t", "There are no hit points. Your body is on the right: watch the colours and the bleeding marks (~)."),
+        ("t", "There are no hit points. Your body is on the right: watch the colours, the blood and the dressings."),
+        ("t", "The panel draws what you'd see or feel: the way you're lying and what shields you, the rounds in the"),
+        ("t", "magazine (faded where you're guessing), the sky, your watch, which way you were pointed, your mates."),
         ("t", "A watch tells you the time; a compass or map, which way a sound came from; a map, the objectives."),
         ("t", "You only know how many rounds are left if you count them ({r} on a full gun, or the kit screen)."),
         ("t", "Suppression narrows your vision. Blood loss drains the colour from the world."),

@@ -46,6 +46,9 @@ class Graphics:
         self._map_font_key = None
         self._font_key = None
         self._sprite_key = None
+        self._pics = {}                 # painted pictures (icons.py), as textures, by (key, width, height)
+        from . import icons
+        icons.ENABLED = True
         self.check_resize(force=True)
 
     # ------------------------------------------------------------ layout
@@ -173,12 +176,16 @@ class Graphics:
         """Draw the UI, then the map layers (shifted by a sub-cell pixel offset for smooth scrolling)."""
         r = self.renderer
         self.check_resize()
+        from . import icons
+        icons.SHOW = bool(self.settings.get("pictures", True))
         r.draw_color = (0, 0, 0, 255)
         r.clear()
         ox, oy = self.origin
         cw, ch = self.cell
+        self._pictures(icons.FRAME["under"])        # (beneath the text: the console's cells there are see-through)
         tex = self._render("ui", "text", ui)
         r.copy(tex, dest=(ox, oy, ui.width * cw, ui.height * ch))
+        self._pictures(icons.FRAME["ui"])
         if layers:
             kind = "sprite" if self.sprites_on() else "mapfont"
             mw, mh = self.map_cell
@@ -194,4 +201,37 @@ class Graphics:
         if overlay is not None:
             tex = self._render("overlay", "text", overlay)
             r.copy(tex, dest=(ox, oy, overlay.width * cw, overlay.height * ch))
+        self._pictures(icons.FRAME["over"])
+        icons.clear()
         r.present()
+
+    def _pictures(self, lst):
+        """Paint (or fetch) and draw this frame's pictures, each over its rectangle of text cells."""
+        if not lst:
+            return
+        from . import icons
+        r = self.renderer
+        ox, oy = self.origin
+        cw, ch = self.cell
+        if len(self._pics) > 900:
+            self._pics.clear()
+        for x, y, w, h, key in lst:
+            pw, ph = int(w * cw), int(h * ch)
+            k = (key, pw, ph)
+            tex = self._pics.get(k)
+            if tex is None:
+                try:
+                    a = icons.paint(key, pw, ph)
+                except Exception:
+                    import os
+                    if os.environ.get("FOW_DEBUG"):
+                        raise
+                    a = None                      # (a picture that won't paint is left out, not a crash)
+                if a is None:
+                    self._pics[k] = False
+                    continue
+                tex = r.upload_texture(a)
+                tex.blend_mode = tcod.sdl.render.BlendMode.BLEND
+                self._pics[k] = tex
+            if tex:
+                r.copy(tex, dest=(ox + int(x * cw), oy + int(y * ch), pw, ph))

@@ -827,9 +827,29 @@ What you know is what your soldier knows.
 - **Menus come from your `@`**: inventory, item actions, throws, orders and the radio pop out of
   your soldier with a connector line. Item actions chain off the selected line.
   **Tooltips point at the tile** you look at or hover.
-- **No hit points.** The body doll on the right shows each part's condition in colour, plus
-  bleeding marks. Suppression narrows your vision. Blood loss drains colour from the world.
-  Pain flashes red. Blasts deafen you.
+- **No hit points.** The body doll on the right shows each part's condition in colour, the
+  blood where it's coming out, the dressings and tourniquets on. `@` shows it large, with every
+  wound marked. Suppression narrows your vision. Blood loss drains colour from the world. Pain
+  flashes red. Blasts deafen you.
+- **Pictures, not only words.** The interface draws what your soldier would see or feel. Every
+  word is still there beside the picture. Options > Pictures in the interface switches them off.
+  - The panel: you in your stance, behind cover as high as the cover really is; the weapon in
+    your hands; the rounds in its magazine, brass where you've counted them and faded across the
+    range your guess covers; your grenades; the sky as it is; your watch, if you have one; a
+    compass needle, or the arrow of your leader's arm; a figure for each man of your section in
+    his state.
+  - The kit screen: every item drawn, rifle, clips, grenades, the letter from home. Empty slots
+    show a faint outline of what goes there.
+  - The log: a sign by each line for what kind of news it is (heard, shouted, radio, wounds,
+    warnings).
+  - Aiming: a sight picture. The man shows only as much as his cover leaves, and the spread of
+    your rounds is a circle as big as the hit chance makes it, in the same band as the words.
+  - The war map: a map sheet in ink, with woods, hedgerows, villages and roads, and who holds
+    each square in grease pencil. Without a map it's a pencil sketch of the ground you've walked.
+  - The orders book: how each order reached you (shouted, runner, radio, written).
+  - A crewman's panel: the vehicle from above with each seat marked, yours, manned or empty.
+  - The new-game screen: the man you're making, in his army's cloth and helmet, with his job's
+    weapon.
 - **Sound**: gunfire you can't see appears on the map where you think it came from, as
   `crack`, `brrrt` or `BOOM`. Veterans can tell a Garand from a Kar98k.
 - **Speech bubbles**: soldiers shout in their own languages ("Handgranate!", "Sanitar!",
