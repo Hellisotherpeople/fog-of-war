@@ -122,7 +122,9 @@ class Squad:
         return [m for m in self.members if m.alive and m.state == "ok"]
 
     def strength(self) -> float:
-        s = sum(1 for m in self.members if m.active and not m.downed)
+        # (the wounded gone back to the aid post aren't in the line)
+        s = sum(1 for m in self.members if m.active and not m.downed and m.ai.get("to_aid") is None
+                and m.ai.get("at_aid") is None)
         s += sum(4 for v in self.vehicles if v.active)
         return s
 
@@ -163,7 +165,7 @@ def _mates_near(game, a):
 
 
 def best_step(game, a, maps, exposure_w=0.0, cohesion=None, spread=4, stay_bias=0.0,
-              avoid_fire=True, crowd=True, keep_range=None):
+              avoid_fire=True, crowd=True, keep_range=None, swap_cost=2 * UNIT):
     """Choose the neighbour (or stay) minimising the weighted desire.  Returns (dx,dy) or None."""
     m = game.map
     brain = game.brains[a.side]
@@ -202,7 +204,7 @@ def best_step(game, a, maps, exposure_w=0.0, cohesion=None, spread=4, stay_bias=
                 if o is not None:
                     if o.side != side or o.is_player or o.downed:
                         continue
-                    s = 2 * UNIT
+                    s = swap_cost                     # (a mate there: you change places - A.move)
             ok = True
             for mp, w in live:
                 v = mp.item(x, y)
@@ -351,6 +353,11 @@ def safe_fire(game, a, tx, ty, target=None, area=False):
         st = best_step(game, a, [(brain.safety, 0.3)], exposure_w=0.5) if brain.safety is not None else None
         c = do_step(game, a, st)
         return c or 100
+    if target is not None and not area and a.moved_turn >= game.turn:
+        # he's moved this second: what he saw from where he was may not be there from here
+        from .senses import los_clear
+        if not los_clear(game, a.x, a.y, tx, ty):
+            return 100
     return A.fire(game, a, tx, ty, target, area=area) or 100
 
 
@@ -1664,11 +1671,18 @@ def move_with_squad(game, a, sq, sstate) -> int:
             mp = brain.point_map(tgt[0], tgt[1], covered=True, radius=2)
     if mp is None:
         return 100
+    here = int(mp[a.x, a.y])
+    prog = a.ai.get("prog")
+    okey = (sq.order.kind, sq.order.obj, sq.order.target, sq.order.issued)
+    if prog is None or prog[2] != okey or here < prog[0] - UNIT:
+        a.ai["prog"] = prog = (here, game.turn, okey)
+    stuck = game.turn - prog[1] > 40 and game.turn - sq.last_contact > 30
     if a is sq.leader:
-        # wait for stragglers
-        mem = sq.active_members()
+        # wait for stragglers (the wounded at the aid post and the men carrying them aren't stragglers)
+        mem = [mm for mm in sq.active_members() if mm.ai.get("at_aid") is None and mm.ai.get("to_aid") is None
+               and not mm.downed and mm.carrying is None]
         far = [mm for mm in mem if max(abs(mm.x - a.x), abs(mm.y - a.y)) > 8]
-        if len(far) > len(mem) // 2 and game.rng.random() < 0.6:
+        if len(far) > len(mem) // 2 and game.rng.random() < 0.6 and not stuck:
             fix_stance(game, a, 1)
             return 100
         # attacks go in together: don't run far ahead of the other squads on this objective
@@ -1679,14 +1693,22 @@ def move_with_squad(game, a, sq, sstate) -> int:
                 if o2 is sq or o2.side != sq.side or o2.order.obj != sq.order.obj or o2.order.kind != "attack":
                     continue
                 an2 = o2.anchor()
+                ld2 = o2.leader
+                if ld2 is not None and ld2.ai.get("prog") and game.turn - ld2.ai["prog"][1] > 60:
+                    continue                          # (they're stuck themselves: don't wait on them)
                 if an2 is not None and o2.state in ("advance", "bound", "engaged"):
                     others.append(int(mp[an2[0], an2[1]]))
-            if others and mine < min(others) - 14 * UNIT and game.rng.random() < 0.8:
+            if others and mine < min(others) - 14 * UNIT and game.rng.random() < 0.8 and not stuck:
                 fix_stance(game, a, 1)
                 return 100
-        st = best_step(game, a, [(mp, 1.0)], exposure_w=2.0 if sstate == "advance" else 0.8)
+        if stuck:
+            # getting nowhere for the crowd and the road: push on, round the others or through them
+            st = best_step(game, a, [(mp, 1.0)], exposure_w=0.5, crowd=False, stay_bias=-3.0, swap_cost=0.5)
+        else:
+            st = best_step(game, a, [(mp, 1.0)], exposure_w=2.0 if sstate == "advance" else 0.8)
     else:
-        st = best_step(game, a, [(mp, 1.0)], exposure_w=2.0, cohesion=anc, spread=4)
+        st = best_step(game, a, [(mp, 1.0)], exposure_w=2.0 if not stuck else 0.5, cohesion=anc, spread=4,
+                       crowd=not stuck, stay_bias=-2.0 if stuck else 0.0, swap_cost=0.5 if stuck else 2 * UNIT)
     c = do_step(game, a, st)
     if c:
         fix_stance(game, a, 1 if (game.turn - sq.last_contact < 30 or brain.exposure_at(a.x, a.y) > 0.8) else 0)
@@ -2166,6 +2188,7 @@ def buddy_aid_act(game, a, vis) -> int | None:
     if dist(a, best) <= 1.5:
         a.ai["aid_cd"] = game.turn
         return A.treat(game, a, best)
+    a.ai["help_buddy"] = (best.id, game.turn)       # (committed: he goes on to him every second, not one in three)
     return path_step(game, a, best.x, best.y)
 
 
@@ -2235,7 +2258,7 @@ def role_act(game, a, vis, sq, sstate) -> int | None:
     c = wounded_act(game, a, vis)
     if c:
         return c
-    if r not in ("medic", "surgeon") and game.turn % 3 == a.id % 3:
+    if r not in ("medic", "surgeon") and (game.turn % 3 == a.id % 3 or a.ai.get("help_buddy") is not None):
         c = buddy_aid_act(game, a, vis) or share_ammo_act(game, a, vis)
         if c:
             return c
@@ -2393,7 +2416,7 @@ def surgeon_act(game, a, vis) -> int | None:
         if need > bs:
             bs, best = need, o
     if best is None:
-        return medic_act(game, a, vis)
+        return 100                      # nobody on the stretchers: he waits at the post (the medics bring them)
     if dist(a, best) > 1.5:
         return path_step(game, a, best.x, best.y)
     if best.body.bleed_rate() > 0.3 and MED.can_help(game, a, best):
@@ -2409,15 +2432,29 @@ def wounded_act(game, a, vis) -> int | None:
     if a.ai.get("to_aid") is None:
         return None
     if vis and min(dist(a, e) for e in vis) < 10:
+        a.ai["wa_fight"] = game.turn
         return None                     # fight first
+    if game.turn - a.ai.get("wa_fight", -99) < 8:
+        return None                     # (and a few seconds more before he turns his back on them)
     if MED.at_aid_post(game, a):
         if MED.fit_for_duty(a):
             a.ai.pop("to_aid", None)
             a.ai.pop("at_aid", None)
+            a.ai.pop("aid_since", None)
             if game.rng.random() < 0.5:
                 a.say(game.rng.choice(["Back to it.", "Right. Where's my squad?"]) if a.nation in
                       ("usa", "uk", "canada", "australia", "newzealand") else "", game.turn, tone="talk")
             return None
+        since = a.ai.setdefault("aid_since", game.turn)
+        if game.turn - since > 1800 and not a.is_player:
+            # not coming back to the line: the ambulance takes him down the road to the clearing station
+            if a.squad is not None and a in a.squad.members:
+                a.squad.members.remove(a)
+                if a.squad.leader is a:
+                    a.squad.leader = None
+            if hasattr(game, "remove_actor"):
+                game.remove_actor(a)
+            return 100
         fix_stance(game, a, 2)
         return 100
     post = MED.nearest_aid(game, a)
@@ -2970,8 +3007,9 @@ def vehicle_move(game, v, vis, tgt) -> int:
             if (x, y) in avoid:
                 continue
             o = game.soldier_at.get((x, y))
-            if o is not None and (o.side == v.side or not o.downed):
-                continue
+            if o is not None and (o.downed if o.side == v.side else not o.downed) or \
+                    (o is not None and o.is_player):
+                continue                              # (our men on their feet scramble clear: try_move_vehicle)
             # prefer to keep the front toward the enemy
             val += brain.exposure_at(x, y) * 2
             val += game.rng.random()
@@ -3081,7 +3119,11 @@ def transport_act(game, v, vis) -> int | None:
             return 100
         # move toward the beach through water
         return landing_craft_step(game, v)
-    if near_enemy < 22 or arrived or v.hp < vt.hp * 0.6:
+    lp = v.ai.get("last_pos")
+    if lp is None or (lp[0], lp[1]) != (v.x, v.y):
+        v.ai["last_pos"] = lp = (v.x, v.y, game.turn)
+    idle = game.turn - lp[2] > 60 and v.passengers              # (no way on for a minute: out and walk)
+    if near_enemy < 22 or arrived or v.hp < vt.hp * 0.6 or idle:
         game.disembark_all(v)
         return 150
     return None
@@ -3097,18 +3139,22 @@ def landing_craft_step(game, v) -> int:
     step = {"N": (0, 1), "S": (0, -1), "W": (1, 0), "E": (-1, 0)}.get(edge, (0, 1))
     tries = [step, (step[0] + (step[1] != 0), step[1] + (step[0] != 0)),
              (step[0] - (step[1] != 0), step[1] - (step[0] != 0))]
+    ahead = max(v.size) // 2 + 1                   # (the water in front of her bow, not under her own hull)
     for dx, dy in tries:
-        x, y = v.x + dx, v.y + dy
+        x, y = v.x + dx * ahead, v.y + dy * ahead
         if not m.in_bounds(x, y):
             continue
-        if m.water[x, y] >= 1 and game.vehicle_at.get((x, y)) in (None, v) and m.t[x, y] != T.ID["hedgehog"]:
-            v.stuck = 0
-            return game.move_vehicle(v, dx, dy)
         if T.DEFS[int(m.t[x, y])].key == "hedgehog":
             # ripped open on the obstacles
             if game.rng.random() < 0.15:
                 hit_vehicle(game, v, 100, 40, x, y, None, "a beach obstacle", kind="ap", face=0)
-    v.stuck += 1
+            continue
+        if m.water[x, y] >= 1:
+            c = game.try_move_vehicle(v, dx, dy)
+            if c is not None:                      # (only a move that happened counts as getting in)
+                v.stuck = 0
+                return c
+    v.stuck += 1                                   # aground, or boxed in: the ramp goes down (at 2)
     return 100
 
 

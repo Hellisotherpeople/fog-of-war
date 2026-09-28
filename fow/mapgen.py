@@ -213,6 +213,7 @@ class Gen:
         n = self.noise(0.08, salt=salt + len(self.roads))
         cost = (1 + (n + 1) * meander).astype(np.int32)
         cost[self.m.t == T.ID["deep"]] = 40
+        cost[T.HARD[self.m.t] | ~T.WALK[self.m.t] & self.protected] += 80     # (round the houses, not through them)
         path = tcod.path.path2d(cost, start_points=[start], end_points=[end], cardinal=2,
                                 diagonal=3)
         pts = [tuple(p) for p in path]
@@ -909,13 +910,17 @@ class Gen:
         bw, bh = r.randint(5, 7), r.randint(5, 6)
         if self.att in ("E", "W"):
             bw, bh = bh, bw
-        x, y = self.point_at_depth(depth, lat)
-        x -= bw // 2
-        y -= bh // 2
-        if not self.area_free(x - 1, y - 1, x + bw + 1, y + bh + 1):
-            self.protected[max(0, x - 1):x + bw + 1, max(0, y - 1):y + bh + 1] = False
-            if x < 2 or y < 2 or x + bw > self.w - 2 or y + bh > self.h - 2:
-                return
+        for _k in range(10):
+            x, y = self.point_at_depth(depth, lat)
+            x -= bw // 2
+            y -= bh // 2
+            if self.area_free(x - 1, y - 1, x + bw + 1, y + bh + 1):
+                break
+            # (not on a house, a road or the river: along the line a little)
+            depth = min(0.9, max(0.3, depth + r.uniform(-0.03, 0.03)))
+            lat = min(0.95, max(0.05, lat + r.uniform(-0.1, 0.1)))
+        else:
+            return
         b = self.building(x, y, bw, bh, style)
         if b:
             n = len([p for p in self.positions if p["kind"] == "bunker"]) + 1
@@ -1915,6 +1920,7 @@ class Gen:
             pos = spec.get("river_pos", self.rng.uniform(0.35, 0.65))
             self.river(orient, pos)
             self.bridge_over(orient, pos)
+            self._clear_flooded_buildings()
         from . import landmarks
         if b != "sea":
             landmarks.place(self)                 # windmills, stations, châteaux, cemeteries... (landmarks.py)
@@ -2020,6 +2026,31 @@ class Gen:
                 t[x, y] = T.ID["tomb"]
                 if x + 1 < self.w and free[x + 1, y] and T.WALK[t[x + 1, y]]:
                     t[x + 1, y] = T.ID["tomb"]
+
+    def _clear_flooded_buildings(self):
+        """The river runs where it runs: nobody built a house in it.  Whatever the river (or the road to its
+        bridge) cut through goes, and the ground is as it was."""
+        m = self.m
+        water = T.WATER[m.t] >= 1
+        roadish = np.isin(m.t, [T.ID[k] for k in ("road", "bridge", "cobble", "paved")])
+        keep = []
+        gid = T.ID[self.key("ground")]
+        for b in m.buildings:
+            x0, y0, bw, bh, style = b
+            wsub = water[x0:x0 + bw, y0:y0 + bh]
+            rsub = roadish[x0:x0 + bw, y0:y0 + bh]
+            # a road through its walls (not its door): the house is gone too
+            edge = np.zeros((bw, bh), bool)
+            edge[0, :] = edge[-1, :] = edge[:, 0] = edge[:, -1] = True
+            cut = wsub.any() or (rsub & edge).sum() > 2
+            if cut:
+                t = m.t[x0:x0 + bw, y0:y0 + bh]
+                dry = ~wsub & ~rsub
+                t[dry] = gid
+                (m.__dict__.get("storeys") or {}).pop((x0, y0, bw, bh), None)
+            else:
+                keep.append(b)
+        m.buildings = keep
 
     def _clear_spawn_edges(self):
         m = self.m

@@ -432,7 +432,15 @@ def _seek_supply(game, v):
 def call_truck(game, side, target=None, why=None) -> str | None:
     """A truck of shells (and a couple of fitters) up from the rear to where the vehicles are.  Returns a
     line to say, or None if none can come."""
-    if any(t.side == side and is_supply_truck(t) and t.ai.get("supply_run") for t in game.vehicles):
+    def on_its_way(t):
+        run = t.ai.get("supply_run")
+        if not run:
+            return False
+        lp = t.ai.get("run_pos")
+        if lp is None or (lp[0], lp[1]) != (t.x, t.y):
+            t.ai["run_pos"] = lp = (t.x, t.y, game.turn)
+        return game.turn - lp[2] < 600            # (a truck that hasn't moved in ten minutes isn't coming)
+    if any(t.side == side and is_supply_truck(t) and on_its_way(t) for t in game.vehicles):
         return "There's a truck up here already." if why else None
     if target is None:
         low = [v for v in game.vehicles if v.side == side and not v.dead and not v.abandoned and

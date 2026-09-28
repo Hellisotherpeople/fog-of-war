@@ -177,6 +177,11 @@ def draw_sprite_layers(bank, game, cam, frame=0, ui=None):
             if not (box == body_id).any():
                 continue                                  # burnt out: the wreck tiles show what's left
             gcp = 0xE000 + int(rec.get("ground", T.ID["grass"])) * 4
+            parts = rec.get("_parts")
+            if parts is None:
+                from .parked import cells as ac_cells
+                parts = rec["_parts"] = {(cx, cy) for cx, cy, _k in ac_cells(rec["model"], rx, ry, rec["facing"],
+                                                                          rec.get("folded", False))}
             for dx, dy, cp in bank.parked_pieces(rec["model"], rec.get("scheme", rec["nation"]), rec["nation"],
                                                  rec["facing"], rec.get("folded", False)):
                 wx, wy = rx + dx, ry + dy
@@ -186,8 +191,8 @@ def draw_sprite_layers(bank, game, cam, frame=0, ui=None):
                 tid = int(m.t[wx, wy])
                 if tid in acs:
                     terr.rgba["ch"][sx, sy] = gcp + int(m.var[wx, wy]) % 4      # the ground it stands on
-                elif not T.WALK[tid] or T.DEFS[tid].key == "ac_wreck":
-                    continue                              # a wreck, or something built there since
+                elif (wx, wy) in parts or not T.WALK[tid]:
+                    continue                              # that part's gone (a shell, a fire), or something's there
                 hulls.rgba["ch"][sx, sy] = cp
                 hulls.rgba["fg"][sx, sy] = tint_at(sx, sy)
 
