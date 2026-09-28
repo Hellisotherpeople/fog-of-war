@@ -320,6 +320,22 @@ class GameMap:
             m[self.w - depth:, :] = True
         return m
 
+    def memory(self):
+        """The ground as you last saw it: out of sight, a remembered tile is what it was then, not what the
+        shells have made of it since (senses.player_fov keeps it up to date where you can see)."""
+        mm = self.__dict__.get("mem")
+        if mm is None or mm.shape != self.t.shape:
+            mm = self.mem = self.t.copy()
+        return mm
+
+    def seen_t(self, xs, ys):
+        """The tiles of a window as you know them: live where you can see, remembered elsewhere."""
+        mm = self.__dict__.get("mem")
+        t = self.t[xs, ys]
+        if mm is None or mm.shape != self.t.shape:
+            return t
+        return np.where(self.visible[xs, ys], t, mm[xs, ys])
+
     def describe(self, x: int, y: int) -> str:
         d = self.tile(x, y)
         s = d.name

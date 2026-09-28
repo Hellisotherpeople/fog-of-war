@@ -571,6 +571,9 @@ def pickup(game, a, item, x=None, y=None) -> int | None:
     if a.add_item(item) is None:
         return None
     m.remove_item(x, y, item)
+    if a.is_player:
+        from .entities import lose_count
+        lose_count(item)
     return 80 + a.access_cost(item) // 3
 
 

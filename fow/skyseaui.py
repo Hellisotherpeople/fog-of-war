@@ -202,8 +202,9 @@ class SkySeaState:
     def _hint(self):
         ss = self.ss
         if ss.player_plane is not None:
+            out = "e/Esc back to the fuselage (bail out at the hatch)" if getattr(self, "aboard", False) else "e bail out"
             if ss.station == "pilot":
-                return "←→ turn (shift hard)  ↑↓ climb/dive  [ ] throttle  f fire  b bombs  t target  Tab station  e bail out  z fly on  +/- zoom"
+                return f"←→ turn (shift hard)  ↑↓ climb/dive  [ ] throttle  f fire  b bombs  t target  Tab station  {out}  z fly on  +/- zoom"
             if ss.station == "bombardier":
                 return "BOMBARDIER: b release over the target  t target  Tab station  z fly on  +/- zoom"
             return f"{ss.station.upper()}: t pick a fighter, f fire  Tab station  z fly on  +/- zoom"
@@ -618,8 +619,11 @@ class SkySeaState:
                 return False
             self.note = ss.launch_strike(ship, tgt)
             return True
-        if c == "o" and bridge and rank >= 13:
-            return self._fleet_order(ship)
+        if c == "o" and bridge:
+            if rank >= 13 or self.game.player.role in ("admiral", "ship_captain"):
+                return self._fleet_order(ship)
+            self.note = "Signalling the force is for the senior officer present - not you."
+            return False
         if ss.station == "aa gun" and c == "f":
             planes = [p for p in ss.planes if p.alive and p.side != ship.side and math.hypot(p.x - ship.x, p.y - ship.y) < 9]
             if not planes:
@@ -663,17 +667,30 @@ class SkySeaState:
                 ("Destroyers: attack with torpedoes", "torps", None, True), ("All ships: act independently", "free", None, True)]
 
         def pick(v):
+            if not v:
+                return
             tgt = ss.entity(-ship.target) if ship.target else None
+            if v in ("engage", "torps") and tgt is None:
+                self.note = "Pick a target first (t) - the signal needs one."
+                return
+            n = 0
             for i, s in enumerate(force):
                 if v == "follow":
                     s.ai.update(role="line", leader=ship.id, offset=(0, 2 + 2 * i))
-                elif v == "engage" and tgt is not None:
+                    n += 1
+                elif v == "engage":
                     s.target = tgt.id
-                elif v == "torps" and s.cls in ("dd", "pt") and tgt is not None:
+                    n += 1
+                elif v == "torps" and s.cls in ("dd", "pt"):
                     s.ai.update(role="strike", leader=None, wp=(tgt.x, tgt.y))
                     s.target = tgt.id
+                    n += 1
                 elif v == "free":
                     s.ai.update(role="screen", leader=None)
+                    n += 1
+            if not n:
+                self.note = "No ship of yours can do that - there are no destroyers with you."
+                return
             self.note = {"follow": "Signal: form line astern.", "engage": "Signal: concentrate fire on the enemy.",
                          "torps": "Signal: destroyers, attack!", "free": "Signal: engage at will."}[v]
         self.play.open_popup(Popup("Signal to the force", opts, (VIEW_W // 2, VIEW_H // 2)), pick)

@@ -108,9 +108,8 @@ def open_talk(ps, who, said=None):
     if not who.alive or max(abs(who.x - p.x), abs(who.y - p.y)) > 2:
         return
     who.ai["talking"] = g.turn + 30               # (he stops to talk - ai.soldier_act - unless the enemy turns up)
-    if who.side == p.side and who.active and not who.downed and who.role in (
-            "adjutant", "clerk", "mp", "armourer", "cook", "chaplain", "politruk", "motor_sergeant", "ops_officer",
-            "port_officer", "quartermaster", "intel") and said is None:
+    from .base import TALKERS
+    if who.side == p.side and who.active and not who.downed and who.role in TALKERS and said is None:
         from .base import talk
         if talk(ps, who):
             return
@@ -150,7 +149,8 @@ def _comrade(ps, who, said):
         ld = who.squad.leader if who.squad is not None else None
         if ld is not None and ld is not who and ld is not p and ld.alive:
             opts.append((f"What do you make of {ld.rank_short} {ld.last_name}?", "leader", None, True))
-        opts.append(("Pass the time with him", "chat", None, t - who.ai.get("chatted", -9999) > 600))
+        fresh = t - who.ai.get("chatted", -9999) > 600
+        opts.append(("Pass the time with him" + ("" if fresh else " (you just did)"), "chat", None, fresh))
     if who.morale < 35 or who.suppression > 50:
         opts.append(("Steady. Look at me - we'll get through this.", "steady", GOOD, True))
     w = p.weapon
@@ -158,10 +158,12 @@ def _comrade(ps, who, said):
         opts.append((f"Can you spare some ammunition for my {w.t.name}?", "ammo", None, True))
     if who.find(lambda i: i.t.tool == "cigarettes" and i.uses > 0) is not None:
         opts.append(("Got a smoke?", "smoke", None, True))
-    opts.append(("Got any water?", "water", None, who.find(lambda i: i.t.tool == "canteen" and i.uses > 0) is not None))
+    wet = who.find(lambda i: i.t.tool == "canteen" and i.uses > 0) is not None
+    opts.append(("Got any water?" + ("" if wet else " (his canteen's dry)"), "water", None, wet))
     if fighting:
         opts.append(("Cover me!", "cover", (240, 220, 140), True))
-    opts.append(("Trade...", "trade", (220, 200, 140), not fighting or op > 30))
+    opts.append(("Trade..." + ("" if (not fighting or op > 30) else " (not in the middle of this)"), "trade",
+                 (220, 200, 140), not fighting or op > 30))
     if p.find(lambda i: i.t.tool == "cigarettes" and i.uses > 0) is not None:
         opts.append(("Offer him a cigarette", "give_smoke", None, True))
     opts.append(("Give him something...", "gift", None, True))
@@ -251,7 +253,8 @@ def _comrade_choice(ps, who, v):
         cw = who.find(lambda i: i.t.tool == "canteen" and i.uses > 0)
         if cw is not None and (op > -20 or cw.uses > 3):
             cw.uses -= 1
-            p.body.temp = max(37.0, getattr(p.body, "temp", 37.0) - 0.4)
+            if getattr(p.body, "temp", 37.0) > 37.0:
+                p.body.temp = max(37.0, p.body.temp - 0.4)        # (it cools a man who's overheating)
             say = "Go easy. That's all I've got till the jeep comes up."
             PP.like(g, who, -1)
         else:
@@ -304,10 +307,10 @@ def _state_words(g, a) -> str:
     if getattr(a, "stamina", 100) < 35 or getattr(a, "fatigue", 0) > 60:
         bits.append("I could sleep for a week.")
     from . import thermal
-    tw = thermal.words(a)[0]
-    if "old" in tw or "hiver" in tw:
+    t = getattr(a.body, "temp", 37.0)
+    if t < 36.4:
         bits.append("And I'm freezing.")
-    elif "eat" in tw:
+    elif t > 38.0:
         bits.append("This heat's killing me.")
     w = a.weapon
     if w is not None and w.t.kind == "gun" and w.t.cal:
@@ -351,7 +354,7 @@ def _seen_words(ps, a) -> str:
         where = f"{direction_word(x - p.x, y - p.y)}, maybe {yd} yards" if known else "over there - that way"
         words.append(f"{what}, {where}, {ago}")
         g.add_sound_mark(x, y, {"tank": "TANK?", "atgun": "AT?", "mg": "MG?", "hmg": "MG?", "sniper": "SNIPER?"}.get(
-            kind, "them?"), 30, "intel")
+            kind, "them?"), 240, "intel")
     return "I saw " + "; ".join(words) + ". He points."
 
 
@@ -508,7 +511,7 @@ def _enemy(ps, who, said):
         opts.append(("Give him water", "water", None, True))
     opts.append(("Trade...", "trade", (220, 200, 140), who.state == "surrendered"))
     opts.append(("That's all.", "bye", UI_DIM, True))
-    ps.open_popup(Popup(g.name_of(who).capitalize(), opts, _anchor(ps, who), lines=lines, width=66),
+    ps.open_popup(Popup(g.name_of(who)[:1].upper() + g.name_of(who)[1:], opts, _anchor(ps, who), lines=lines, width=66),
                   lambda v: _enemy_choice(ps, who, v, und))
 
 
@@ -534,7 +537,9 @@ def _enemy_choice(ps, who, v, und):
         if rng.random() < talks:
             say = _prisoner_intel(ps, who, lie=rng.random() < (0.25 + (0.25 if v == "lean" else 0)))
         else:
-            say = rng.choice(["Nothing. I'll tell you nothing.", "I don't know. I'm a private, I know nothing.",
+            say = rng.choice(["Nothing. I'll tell you nothing.",
+                              "I don't know. I'm a private, I know nothing." if who.rank <= 1 else
+                              "I don't know. They tell us nothing.",
                               "Name, rank and number. That's all."])
     elif v == "offer":
         from .data.nations import NATIONS
@@ -591,9 +596,9 @@ def _prisoner_intel(ps, who, lie=False) -> str:
         x = max(0, min(g.map.w - 1, x + rng.randint(-40, 40)))
         y = max(0, min(g.map.h - 1, y + rng.randint(-40, 40)))
     from .senses import direction_word
-    yd = int(round(math.hypot(x - p.x, y - p.y) * 2.2 / 50.0) * 50) or 50
+    mtr = int(round(math.hypot(x - p.x, y - p.y) * 2.0 / 50.0) * 50) or 50     # (two metres a tile)
     g.add_sound_mark(x, y, "HE SAYS", 240, "intel")
-    return f"There's {what} - {direction_word(x - p.x, y - p.y)}, {yd} metres. That's all I know. (He points.)"
+    return f"There's {what} - {direction_word(x - p.x, y - p.y)}, {mtr} metres. That's all I know. (He points.)"
 
 
 # ============================================================================ trading, and giving
@@ -633,13 +638,17 @@ def _trade_close(ps, who, want, give):
     g = ps.game
     p = g.player
     fav = PP.opinion(g, who)
-    if not PP.deal(g, who, want, give, fav):
+    from .entities import Item
+    # one for one: a packet for a packet (the menu names one of each), not the whole stack
+    w1 = want if want.count <= 1 else Item(want.tid, 1)
+    g1 = give if give.count <= 1 else Item(give.tid, 1)
+    if not PP.deal(g, who, w1, g1, fav):
         from .social import line
         _reply(ps, who, "Not a chance." if lang(who.nation) == "en" else (line(g, who, "trade_no") or "No."))
         ps.act(200)
         return open_talk(ps, who)
-    got = who.remove_item(want)
-    gave = p.remove_item(give)
+    got = who.remove_item(want, 1 if want.count > 1 else None)
+    gave = p.remove_item(give, 1 if give.count > 1 else None)
     if who.add_item(gave) is None:
         g.map.add_item(who.x, who.y, gave)           # (he'll sort out where it goes)
     where = _take(g, p, got)
@@ -667,8 +676,8 @@ def gift(ps, who):
 def _gift(ps, who, it):
     g = ps.game
     p = g.player
-    v = PP.worth(g, who, it)
-    got = p.remove_item(it)
+    got = p.remove_item(it, 1 if it.count > 1 else None)
+    v = PP.worth(g, who, got)
     if who.add_item(got) is None:
         p.add_item(got)
         g.msg("He's got no room for it.", "info")

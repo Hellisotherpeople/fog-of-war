@@ -1040,9 +1040,11 @@ def create_player(game, nation: str, role: str | None = None) -> tuple[Actor, li
     # tank crew only where there are tanks to crew
     my_tanks = [sq for sq in game.squads if sq.side == side and sq.vehicles and
                 any(v.vt.vtype in ("tank", "td", "ltank", "spg") and v.active for v in sq.vehicles)]
+    my_tanks = [sq for sq in my_tanks if getattr(sq, "nation", None) == nation] or my_tanks
     if role == "tank_crew" and not my_tanks:
         role = "rifleman"
     my_guns = [v for v in game.vehicles if v.side == side and v.ai.get("battery") and v.active and v.squad is not None]
+    my_guns = [v for v in my_guns if v.nation == nation] or my_guns
     if role == "artilleryman" and not my_guns:
         role = "rifleman"
     special = game.theatre.get("special", set())
@@ -1072,6 +1074,8 @@ def create_player(game, nation: str, role: str | None = None) -> tuple[Actor, li
             "volkssturm": "volkssturm", "surgeon": "aid", "platoon_sergeant": "rifle", "first_sergeant": "hq",
             "sergeant_major": "hq"}.get(role, "hq" if role in COMMAND_ROLES else "rifle")
     mine = [sq for sq in game.squads if sq.side == side and sq.members]
+    ours = [sq for sq in mine if getattr(sq, "nation", None) == nation]
+    mine = ours or mine                              # (a US soldier in a US section, not a British one)
     placed = False
     if role == "artilleryman":
         # a number on a gun: the layer, who sets the sights and pulls the lanyard

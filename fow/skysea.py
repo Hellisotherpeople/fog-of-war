@@ -696,7 +696,9 @@ class SkySea:
                 g.msg("Five victories. You're an ace.", "good")
                 g.command._award(g, 2, "for five aerial victories")
         elif e.player:
-            g.msg(f"You've been hit hard - the {e.name} is going down! Bail out! (e)", "death")
+            crewed = (g.__dict__.get("aboard") or {}).get("kind") == "plane"
+            g.msg(f"You've been hit hard - the {e.name} is going down! Bail out! "
+                  + ("(back into the fuselage, e at the hatch)" if crewed else "(e)"), "death")
 
     def _player_wounded(self, amt):
         from .combat import hit_actor

@@ -559,6 +559,8 @@ def player_fov(game):
     fov &= win
     m.visible[:] = fov
     m.explored |= fov
+    mem = m.memory()
+    mem[fov] = m.t[fov]                            # (what you see now is what you'll remember)
 
 
 def _on_a_rise(m, x, y) -> bool:

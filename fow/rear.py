@@ -311,9 +311,9 @@ def convoy_hit(game, v, attacker=None):
         if side != p.side:
             if info["kind"] == "wounded":
                 _ambulance(game)
-            elif info["lost"] == 1 and fronts:
-                game.msg(f"That was {info['cargo']} for {info['dest']}. Their front at "
-                         f"{', '.join(f.name for f in fronts[:2])} will feel it.", "good")
+            elif info["lost"] == 1:
+                # (what you can see of it burning - not where it was going)
+                game.msg(f"It was carrying {info['cargo']}: it's burning all over the road.", "good")
     elif side == p.side and game.can_see(v.x, v.y) and info["lost"] == 1:
         game.msg(f"The {info['cargo']} for {info['dest']} is burning on the road.", "warn")
 

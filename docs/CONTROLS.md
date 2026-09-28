@@ -181,7 +181,8 @@ The right-click menu, depending on what's there:
 - **Water near a shore with the fleet offshore:** signal a boat to take you out.
 - **Beside you:** lean out this way.
 
-Your own men and vehicles don't get the shooting options. You can still shoot them with `f`.
+Your own men and vehicles don't get the shooting options, and `f` won't fire on them either ("That's one of
+ours!") - though a burst, a grenade or a shell doesn't care whose men are in the way.
 
 ## Pop-up menus
 
@@ -265,7 +266,7 @@ panel lists your own vehicle's damage. Seats and their keys (the blue hint line 
 - **Helping:**
   - Right-click the vehicle: *Help fix*, and time passes while you work (any key stops).
   - Idle infantry nearby help on their own.
-  - `O` > *Give the crew a hand* sends your squad.
+  - `O` > *Tasks* > *Give the crew a hand* sends your squad.
 - **Shells:**
   - Right-click an ammunition truck: *Take a crate*.
   - Carry the crate to the tank, and right-click the tank: *Hand up the shells*.
@@ -351,7 +352,7 @@ In command of sectors (colonels and up):
 | `r` | move reserves |
 | `d` | dig in and hold |
 | `p` | artillery priority |
-| `f` | air priority |
+| `f` | air priority (generals: a division or more) |
 | `x` | cancel orders here |
 | `o` | the staff screen |
 

@@ -203,7 +203,8 @@ def seat_help(v, st) -> str:
                 bits.append("move keys traverse the turret")
         if mgs_for(v, "gunner"):
             bits.append("v the " + ("coax" if vt.main else "machine gun"))
-        return ("; ".join(bits) + ".").capitalize() if bits else ""
+        s = "; ".join(bits) + "."
+        return s[:1].upper() + s[1:] if bits else ""
     if st == "loader":
         return "r hurries the next round, F changes the round."
     if st.startswith("mg"):

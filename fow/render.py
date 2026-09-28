@@ -202,7 +202,7 @@ def draw_map(con, game, cam, frame=0, going=False):
     draw_beyond(con, game, cam, VW, VH)
     if w <= 0 or h <= 0:
         return
-    t = m.t[x0:x0 + w, y0:y0 + h]
+    t = m.seen_t(slice(x0, x0 + w), slice(y0, y0 + h))      # (out of sight: as you last saw it)
     var = m.var[x0:x0 + w, y0:y0 + h]
     glyph = T.GLYPHS[t, var % T.MAXV].copy()
     jit = ((var % 17) - 8).astype(np.float32)[..., None]
@@ -554,7 +554,9 @@ def draw_order_pointer(con, game, cam):
     text = f"{label} - {how_far}"
     W, H = int(cam.vw * cam.tx), int(cam.vh * cam.ty)
     W, H = min(W, VIEW_W), min(H, VIEW_H)
-    if cam.on_screen(x, y):
+    # the exact spot: marked on your map - or where you can see the place he pointed at; otherwise just the way
+    known = p.has_tool("map") is not None or (game.map.in_bounds(x, y) and game.map.visible[x, y])
+    if cam.on_screen(x, y) and known:
         tx, ty = cam.to_text(x, y)
         put(con, tx, ty, "X", ORDER_COL, (70, 55, 15))
         lx = max(0, min(W - len(text) - 1, tx - len(text) // 2))

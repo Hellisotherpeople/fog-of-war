@@ -244,10 +244,14 @@ def fire_weapon(game, shooter, weapon, tx: int, ty: int, target=None, *, mode=No
         if weapon.loaded <= 0:
             break
         weapon.loaded -= 1
+        if i >= 1 and t.mag > 10 and shooter.is_player:
+            weapon.known_rounds = False           # (a burst from a big magazine: you've lost count)
         weapon.heat += t.heat
         shooter.stats["shots"] += 1
         # jam check
         jam = t.jam * (1 + max(0.0, weapon.heat - 70) / 40)
+        if weapon.data and game.turn - weapon.data.get("clean", -10 ** 9) < 3 * 86400:
+            jam *= 0.5                            # (the armourer's been over it: a new spring, clean and oiled)
         if game.map.climate in ("desert", "volcanic"):
             jam *= 1.8
         if game.map.climate == "winter":

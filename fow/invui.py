@@ -651,6 +651,9 @@ class InventoryScreen:
                     from .familiar import first_look
                     first_look(self.game, me, it.t)
         self.held = None
+        if origin is not self.own and target is self.own:
+            from .entities import lose_count
+            lose_count(it)                         # (his magazine: count it before you trust it)
         live = it.data and it.data.get("live") is not None
         if live and origin.ground is not None and target is not origin:
             game.pick_live(it, p)                  # in your hand (or pouch) now - and still ticking
@@ -695,6 +698,8 @@ class InventoryScreen:
                     game.map.add_item(p.x, p.y, it)
                 self.say("No room for that.")
                 return
+            from .entities import lose_count
+            lose_count(it)
             cost = 120
         self.say(f"You move the {it.name}.")
         self.spend(cost)

@@ -230,8 +230,9 @@ def strength(sq):
     return sum(1 for m in sq.members if m.active and not m.downed), sum(1 for v in sq.vehicles if v.active)
 
 
-def strength_text(sq):
-    men, veh = strength(sq)
+def strength_text(sq, known=None):
+    """Men and vehicles - live, or as last reported (known: the command's snapshot)."""
+    men, veh = strength(sq) if known is None else (known.get("men", 0), known.get("veh", 0))
     if veh and not men:
         return f"{veh} vehicle{'s' if veh != 1 else ''}"
     s = f"{men}/{max(men, sq.rep.get('men0', men))}"
@@ -937,8 +938,9 @@ class CommandState:
             return Order("move", target=(p.x, p.y), radius=4, issued=t, src="player",
                          roe=roe or (sq.order.roe if sq is not None else "free"))
         radius = {"defend": 7, "hold": 6, "move": 4, "attack": 4, "assault": 4, "ambush": 6, "dig": 6}.get(kind, 5)
+        carry = sq is not None and kind not in ("ambush",) and sq.order.kind != "ambush"
         o = Order(kind, target=target, radius=radius, issued=t, src="player",
-                  roe=roe or (sq.order.roe if sq is not None and kind not in ("ambush",) else "free"))
+                  roe=roe or (sq.order.roe if carry else "free"))
         if kind == "ambush":
             o.roe = "hold"
         # snap a target next to an objective onto it
@@ -1247,7 +1249,7 @@ class CommandState:
     def _snapshot(self, game, sq):
         pt = contact_point(sq) or (0, 0)
         men, veh = strength(sq)
-        return dict(x=pt[0], y=pt[1], turn=game.turn, men=men, veh=veh, state=status_word(sq))
+        return dict(x=pt[0], y=pt[1], turn=game.turn, men=men, veh=veh, state=status_word(sq), ld=leader_name(sq))
 
     def _observe(self, game):
         p = game.player

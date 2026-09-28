@@ -62,7 +62,12 @@ def set_autopilot(game, on):
             if sq is not None and keep.get("led") == sq.id and sq.leader is p:
                 sq.player_led = True
                 from .ai import Order
-                sq.order = Order("follow", issued=game.turn, src="player")
+                old = keep.get("order")
+                if old is not None and old.kind not in ("follow",) and getattr(old, "src", "ai") == "player":
+                    old.issued = game.turn
+                    sq.order = old                     # the order you'd given them before you let go
+                else:
+                    sq.order = Order("follow", issued=game.turn, src="player")
             if keep.get("veh") and p.vehicle is not None and p.vehicle.id == keep["veh"][0]:
                 p.vehicle.player_crewed = True
                 p.vehicle.player_station = keep["veh"][1]
@@ -138,6 +143,12 @@ def take_over(game, new, why=""):
     cmd.__dict__.pop("record", None)
     game.__dict__.pop("base_order", None)
     game.__dict__.pop("order_focus", None)
+    # and none of the dead man's troubles: his own side hunting him, the warrant, the missed ship
+    game.renegade = False
+    for k in ("wanted", "awol", "ship_ashore"):
+        game.__dict__.pop(k, None)
+    for a in game.actors:
+        a.ai.pop("op", None)                      # (what they thought of him isn't what they think of you)
     game.__dict__.pop("mission", None) if game.__dict__.get("mission") and \
         game.mission.get("kind") in ("agent", "raid", "patrol", "sniper") else None
     sq = new.squad

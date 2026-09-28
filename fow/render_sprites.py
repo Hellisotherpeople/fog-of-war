@@ -77,7 +77,7 @@ def draw_sprite_layers(bank, game, cam, frame=0, ui=None):
                 top.rgba["fg"][mk["x"] - x0, mk["y"] - y0] = (240, 140, 70, 200) if night else (190, 186, 180, 170)
 
     # ---------------------------------------------------------------- terrain + light
-    t = m.t[S]
+    t = m.seen_t(S[0], S[1])                     # (out of sight: the ground as you last saw it)
     var = m.var[S]
     vis = m.visible[S]
     exp = m.explored[S]

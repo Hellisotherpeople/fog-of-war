@@ -417,20 +417,21 @@ class PlayState:
         for a in g.actors:
             if not a.alive or a.vehicle is not None:
                 continue
-            if a.side != p.side and not player_can_see_actor(g, a):
+            if not (a.side == p.side and p.squad is not None and a.squad is p.squad) and \
+                    not player_can_see_actor(g, a):
                 continue
             cx, cy = x0 + a.x // bw, y0 + a.y // bh
             if x0 <= cx < x0 + W and y0 <= cy < y0 + H:
                 ch, col = ("·", (120, 190, 255)) if a.side == p.side else ("x", (255, 90, 70))
                 con.print(cx, cy, ch, fg=col, bg=tuple(int(c) for c in cols[cx - x0, cy - y0]))
         for v in g.vehicles:
-            if v.dead or (v.side != p.side and not m.visible[v.x, v.y]):
+            if v.dead or (p.vehicle is not v and not m.visible[v.x, v.y]):
                 continue
             cx, cy = x0 + v.x // bw, y0 + v.y // bh
             if x0 <= cx < x0 + W and y0 <= cy < y0 + H:
                 con.print(cx, cy, "▪", fg=(120, 190, 255) if v.side == p.side else (255, 90, 70),
                           bg=tuple(int(c) for c in cols[cx - x0, cy - y0]))
-        for i, o in enumerate(m.objectives):
+        for i, o in enumerate(m.objectives if p.has_tool("map") is not None else ()):
             cx, cy = x0 + o.x // bw, y0 + o.y // bh
             if x0 <= cx < x0 + W and y0 <= cy < y0 + H:
                 con.print(cx, cy, "ABCDEFGH"[i % 8], fg=(250, 220, 120), bg=tuple(int(c) for c in cols[cx - x0, cy - y0]))
@@ -566,7 +567,8 @@ class PlayState:
         p = g.player
         w = p.weapon
         e = g.soldier_at.get((cx, cy))
-        if not icons.on() or e is None or e is p or w is None or w.t.kind != "gun" or not g.map.visible[cx, cy]:
+        if not icons.on() or e is None or e is p or w is None or w.t.kind != "gun" or not g.map.visible[cx, cy] \
+                or not player_can_see_actor(g, e):
             return
         pr = estimate_hit(g, p, w, e)
         if not self.app.show_numbers:
@@ -662,8 +664,9 @@ class PlayState:
                 title = "You"
             else:
                 friend = a.side == p.side
+                far = d > 60 and not g.player_binoculars
                 title = (a.full_name if friend and a.squad is p.squad else
-                         f"{NATIONS[a.nation]['adj']} {a.role_name.lower()}")
+                         f"{NATIONS[a.nation]['adj']} {'soldier' if far else a.role_name.lower()}")
                 col = FRIEND_COLOR if friend else ENEMY_COLOR
                 st = {0: "standing", 1: "crouching", 2: "prone"}[a.stance]
                 if a.state == "surrendered":
@@ -717,9 +720,13 @@ class PlayState:
                         lines.append(("partly covered", (220, 200, 110)))
         elif v is not None and (vis or p.vehicle is v):
             friend = v.side == p.side
-            title = ("Friendly " if friend else "Enemy ") + v.vt.name
+            far = d > 70 and not g.player_binoculars and p.vehicle is not v
+            kind = {"tank": "tank", "ltank": "light tank", "td": "tank destroyer", "spg": "self-propelled gun",
+                    "halftrack": "half-track", "truck": "truck", "car": "car", "armcar": "armoured car",
+                    "atgun": "gun", "aagun": "anti-aircraft gun", "fieldgun": "field gun"}.get(v.vt.vtype, "vehicle")
+            title = ("Friendly " if friend else "Enemy ") + (kind if far else v.vt.name)
             lines += self._vehicle_state_lines(v, friend, d)
-            if friend and not v.dead:
+            if friend and not v.dead and d <= 8:
                 from . import maintenance as MT
                 wl = MT.work_left(v)
                 if wl is not None:
@@ -737,20 +744,24 @@ class PlayState:
                 lines.append((f"{yards(d)}, you're looking at {face}", UI_TEXT))
                 w = p.weapon
                 if p.vehicle is None and w is not None and w.t.kind == "gun":
-                    if w.t.cat not in ("at_launcher", "at_disposable", "at_rifle"):
+                    from .ai import can_hurt_vehicle
+                    if not can_hurt_vehicle(p, v):
                         lines.append(("Your rounds will just bounce off.", (240, 140, 80)))
+                    elif w.t.cat not in ("at_launcher", "at_disposable", "at_rifle") and max(v.vt.armor) <= 12:
+                        lines.append(("Thin skin: your rounds will go through it.", (200, 220, 150)))
         else:
             title = None
-            desc = m.describe(x, y) if vis else m.tile(x, y).name + " (remembered)"
-            if m.tile(x, y).key.startswith("ac_"):
+            tile = m.tile(x, y) if vis else T.DEFS[int(m.memory()[x, y])]       # (remembered: as it was)
+            desc = m.describe(x, y) if vis else tile.name + " (remembered)"
+            if tile.key.startswith("ac_"):
                 from .parked import describe as ac_describe
                 desc = ac_describe(m, x, y) or desc
             lines.append((desc[0].upper() + desc[1:], UI_TEXT if vis else UI_DIM))
             from .going import words as going_words
-            gw = going_words(g, x, y, self.app.show_numbers)
+            gw = going_words(g, x, y, self.app.show_numbers, tid=None if vis else tile.id)
             if gw is not None and not brief:
                 lines.append(gw)
-            tdesc = m.tile(x, y).desc
+            tdesc = tile.desc
             if tdesc and not brief:
                 import textwrap
                 lines += [(ln, UI_DIM) for ln in textwrap.wrap(tdesc, 58)[:4]]
@@ -1183,6 +1194,9 @@ class PlayState:
         p = g.player
         if cost is None or cost <= 0:
             return False
+        if g.__dict__.get("autopilot"):
+            g.msg("Your soldier's on autopilot. (A to take over)", "info")
+            return False
         self.flash_red = False
         self.log_scroll = 0
         hp_before = sum(p.body.hp.values())
@@ -1252,7 +1266,12 @@ class PlayState:
                 g.msg("You stir.", "info")
             self.stop_auto()
             return
+        if g.__dict__.get("succession_pending") and self.popups:
+            return self.popup_key(key)             # (who carries on: the dead man can still choose)
         if not p.body.conscious:
+            if key.sym == E.KeySym.ESCAPE and not self.popups:
+                from .ui import EscMenuState
+                self.app.push(EscMenuState(self.app, self))     # (out cold, you can still save and quit)
             return
         if g.__dict__.get("autopilot") and not self.popups and self.inv_screen is None and self.mode == "normal":
             # on autopilot: A or Esc takes him back; looking, the map, the books and the help still work
@@ -1391,8 +1410,18 @@ class PlayState:
         if button not in (1, 3) or ftx < 0 or fty < 0:
             return
         tx, ty = math.floor(ftx), math.floor(fty)
+        if g.__dict__.get("succession_pending") and self.popups:
+            pop = self.popups[-1]
+            it = pop.item_at(tx, ty)
+            if it is not None and button == 1:
+                pop.sel = it
+                return self.popup_select()
+            return
         if not g.player.body.conscious or g.map is None:
             return                               # (out cold: no walking, firing or menus by mouse either)
+        if g.__dict__.get("autopilot") and not self.popups and self.inv_screen is None:
+            g.msg("Your soldier's on autopilot. (A to take over)", "info")
+            return
         if self.inv_screen is not None:
             return self.inv_screen.on_click(tx, ty, button)
         if self.travel_path or self.running or self.auto_wait or self.__dict__.get("digging") or \
@@ -2013,7 +2042,14 @@ class PlayState:
         if g.__dict__.get("domain") == "aboard" and (g.aboard or {}).get("kind") == "ship":
             from . import shipboard as SB
             return SB.plan(self)
-        if g.support is not None:
+        foc = g.__dict__.get("order_focus")
+        if foc in ("squad", "command", "mission") and p.vehicle is None:
+            # (you chose your unit's order in the book: toward the objective)
+            tp = g.order_target_for_player() if p.squad is not None else None
+            if tp is not None and max(abs(tp[0] - p.x), abs(tp[1] - p.y)) > 3:
+                return ("move toward your objective", lambda: self.start_travel(tp[0], tp[1], stop_short=1))
+        chosen_other = (foc or "fire") != "fire"      # (you picked another order in the book: that one first)
+        if g.support is not None and not chosen_other:
             f = g.support.fires
             pm = f.player_mission(g)
             if pm is not None:
@@ -2021,7 +2057,6 @@ class PlayState:
                 what = "drop a bomb down the tube" if pm[0].kind == "mortar" else "lay the gun and fire"
                 return (f"{what}: azimuth {d['az']:04d}, elevation {d['qe']:04d}, charge {d['charge']}",
                         lambda: self._fire_mission_round())
-        foc = g.__dict__.get("order_focus")
         if foc == "base" and g.__dict__.get("base_order") and p.vehicle is None:
             from . import base as BASE
             plan = BASE.order_plan(self)               # (you chose the adjutant's orders in the book)
@@ -2220,7 +2255,8 @@ class PlayState:
                 hatch = ""
                 if seat == hatch_user(v):
                     hatch = " Hatch shut (e to open)." if v.buttoned else " Head out of the hatch (e to button up)."
-                elif seat in ("gunner", "driver") or seat.startswith("mg"):
+                elif (seat in ("gunner", "driver") or seat.startswith("mg")) and not v.vt.open_top and \
+                        not v.vt.static and v.vt.vtype not in ("truck", "car", "lc") and max(v.vt.armor) > 12:
                     hatch = " You see only through your sight."
                 return f"{C.name(v.vt, seat)}: {C.seat_help(v, seat)}{hatch} e: seats, get out."
             if riding(p):
@@ -2360,8 +2396,7 @@ class PlayState:
             span = g.turn - self.ff_start
             g.aboard["sleeping"] = False
             self.ff_until = None
-            h, mnt = span // 3600, (span % 3600) // 60
-            g.msg(f"{h} hour{'s' if h != 1 else ''} {mnt} minutes go by." if h else f"{mnt} minutes go by.", "info")
+            g.msg(self.span_words(span), "info")
             if g.player.stance == 2 and T.DEFS[int(g.map.t[g.player.x, g.player.y])].key == "bunk":
                 g.msg("Someone shakes you awake.", "info")
             g.update_orders(force=True)
@@ -3170,6 +3205,9 @@ class PlayState:
         from .pace import PACES, allowed, effective
         g = self.game
         p = g.player
+        if p.vehicle is not None:
+            g.msg("Your pace is the vehicle's. (Get out to walk.)", "info")
+            return
         cur = getattr(p, "pace", "walk")
         nxt = PACES[(PACES.index(cur) + 1) % len(PACES)] if cur in PACES else "walk"
         p.pace = nxt
@@ -3472,6 +3510,9 @@ class PlayState:
     def cmd_dig(self):
         g = self.game
         p = g.player
+        if p.vehicle is not None:
+            g.msg("Not from in there. Get out first.", "info")
+            return
         c = A.dig(g, p)
         if c is None:
             if not p.has_tool("shovel"):
@@ -3807,7 +3848,7 @@ class PlayState:
             for m in p.squad.members:
                 if m is not p and m.active:
                     m.suppression = max(0, m.suppression - 10)
-                    m.ai["cover_fire"] = g.turn
+                    m.ai["cover_for"] = g.turn + 20       # (they fire on what they know of the enemy)
         if what == "medic":
             p.ai["medic_call"] = g.turn
         self.act(50)
@@ -4251,6 +4292,10 @@ class PlayState:
         p = g.player
         if self.captive_blocks():
             return
+        v = p.vehicle
+        if v is not None and not v.vt.open_top and (v.buttoned or not v.player_crewed):
+            g.msg("Not through closed hatches. (Open up first - e - or get out.)", "info")
+            return
         gr = [i for i in p.inv if i.t.kind in ("grenade",)] + [i for i in p.inv if i.t.kind == "explosive"]
         if not gr:
             g.msg("You have nothing to throw.", "info")
@@ -4404,8 +4449,8 @@ class PlayState:
         if self.captive_blocks():
             return
         its = [i for i in p.inv if i.t.kind in ("gun", "melee") and i is not p.weapon]
-        if not its:
-            g.msg("You have nothing else to fight with.", "info")
+        if not its and p.weapon is None:
+            g.msg("You have nothing to fight with.", "info")
             return
         opts = [(f"{i.name}  ({LOC_NAME.get(p.loc(i), '')})", i, self._item_color(i), True) for i in its]
         if p.weapon is not None:
@@ -4567,8 +4612,10 @@ class PlayState:
             opts.append(("Throw a grenade there", "throw", None, True))
         if self._can_radio():
             opts.append(("Call artillery on it", "arty", (240, 170, 90), True))
-        if p.has_tool("flaregun"):
-            opts.append(("Fire a flare over it", "flare", None, True))
+        fg = p.has_tool("flaregun")
+        if fg is not None:
+            opts.append(("Fire a flare over it" + ("" if fg.uses > 0 else " (no cartridges left)"), "flare", None,
+                         fg.uses > 0))
         if p.squad is not None and p.squad.player_led:
             opts.append(("Order the squad there", "order_move", None, True))
             opts.append(("Order an assault on it", "order_attack", None, True))
@@ -4679,7 +4726,10 @@ class PlayState:
         elif v == "arty":
             self._fire_mission((x, y))
         elif v == "flare":
-            self.act(A.fire_flare(g, g.player, x, y))
+            c = A.fire_flare(g, g.player, x, y)
+            if c is None:
+                g.msg("Click. The flare pistol's empty.", "info")
+            self.act(c)
         elif v == "order_move":
             self._order_move((x, y))
         elif v == "order_attack":
@@ -4735,9 +4785,10 @@ class PlayState:
             sq.player_led = True
             text = "Hold here! Get into cover!"
         elif what == "dig":
-            sq.order = Order("hold", target=(p.x, p.y), radius=6, issued=g.turn)
+            sq.order = Order("dig", target=(p.x, p.y), radius=6, issued=g.turn)
             sq.arrived = True
             sq.positions = {}
+            sq.player_led = True
             text = "Dig in, boys. We're staying."
         elif what == "retreat":
             sq.order = Order("retreat", issued=g.turn)
@@ -4989,6 +5040,7 @@ class PlayState:
     def _air_mission(self, pos):
         g = self.game
         p = g.player
-        g.msg("You: 'Request air on the marked position, over.' Radio: 'Wilco. Mark with smoke.'", "radio")
-        g.support.launch_sortie(p.side, target=pos)
+        g.msg("You: 'Request air on the marked position, over.'", "radio")
+        if g.support.launch_sortie(p.side, target=pos):
+            g.msg("Radio: 'Wilco. Mark with smoke.'", "radio")
         self.act(300)

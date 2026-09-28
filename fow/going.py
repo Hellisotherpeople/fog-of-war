@@ -20,10 +20,15 @@ def _vehicle(game):
     return p.vehicle if p is not None and p.vehicle is not None else None
 
 
-def words(game, x, y, numbers=False):
-    """(text, colour) about getting across tile (x, y), or None where it's ordinary going."""
+STRUGGLE = (225, 120, 50)
+
+
+def words(game, x, y, numbers=False, tid=None):
+    """(text, colour) about getting across tile (x, y), or None where it's ordinary going.  tid: the tile as
+    you remember it (out of sight), rather than as it is."""
     m = game.map
-    tid = int(m.t[x, y])
+    remembered = tid is not None
+    tid = int(m.t[x, y]) if tid is None else int(tid)
     d = T.DEFS[tid]
     v = _vehicle(game)
     if v is not None:
@@ -34,7 +39,7 @@ def words(game, x, y, numbers=False):
             if d.crush and d.crush <= vt.crush:
                 return "The vehicle can smash through it.", SLOW
             return "No way through for the vehicle.", BLOCKED
-        r = int(m.vcost[x, y]) / 100.0
+        r = (int(m.vcost[x, y]) if not remembered else int(T.VCOST[tid])) / 100.0
     else:
         if not d.walk:
             s = "No way through"
@@ -45,7 +50,7 @@ def words(game, x, y, numbers=False):
             return s + ".", BLOCKED
         if d.water >= 2:
             return "Deep water: you'd have to swim for it.", BLOCKED
-        r = int(m.cost_foot[x, y]) / 100.0
+        r = (int(m.cost_foot[x, y]) if not remembered else int(T.COST[tid])) / 100.0
     if r <= 0.95:
         word, col = "Good going", GOOD
     elif r < 1.2:
@@ -57,7 +62,7 @@ def words(game, x, y, numbers=False):
     elif r < 3.2:
         word, col = "Very slow going", SLOW
     else:
-        word, col = "A struggle to get through", BLOCKED
+        word, col = "A struggle to get through", STRUGGLE       # (slow, not impassable: not the red of no way)
     blind = not d.see and v is None
     if word is None and not blind:
         return None
@@ -73,7 +78,8 @@ def words(game, x, y, numbers=False):
 def tint(game, xs, ys):
     """Colour and strength (0..1) of the going tint over the map window [xs, ys] (slices)."""
     m = game.map
-    t = m.t[xs, ys]
+    t = m.seen_t(xs, ys)
+    vis = m.visible[xs, ys]
     v = _vehicle(game)
     if v is not None:
         vt = v.vt
@@ -82,10 +88,10 @@ def tint(game, xs, ys):
         blocked = (~T.WALK[t] & (water < 1) & ~((crush > 0) & (crush <= vt.crush)))
         if vt.water != "amphib":
             blocked |= water >= 2
-        cost = m.vcost[xs, ys].astype(np.float32)
+        cost = np.where(vis, m.vcost[xs, ys], T.VCOST[t]).astype(np.float32)
     else:
-        blocked = ~m.walk[xs, ys] | (T.WATER[t] >= 2)
-        cost = m.cost_foot[xs, ys].astype(np.float32)
+        blocked = ~T.WALK[t] | (T.WATER[t] >= 2)
+        cost = np.where(vis, m.cost_foot[xs, ys], T.COST[t]).astype(np.float32)
     slow = np.clip((cost - 115.0) / 260.0, 0.0, 1.0)
     slow[blocked] = 0
     col = np.zeros(t.shape + (3,), np.float32)
