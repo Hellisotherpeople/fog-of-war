@@ -798,15 +798,52 @@ class PlayState:
             if self.interrupted():
                 self.stop_auto("You stop.")
                 return
+            m = g.map
+            nx0, ny0 = self.travel_path[0]
+            shut = not m.walk[nx0, ny0] and not T.DOOR[m.t[nx0, ny0]] and m.explored[nx0, ny0]
+            known = int(m.explored.sum())
+            if shut or (known != self.__dict__.get("travel_known", known) and
+                        any(m.explored[q] for q in self.__dict__.get("travel_blind", ()))):
+                # what you guessed at, you've now seen: plan again from here
+                if not self._replan_route():
+                    self.stop_auto("There's no way through that you can find.")
+                    return
+                self.travel_known = known
+                if not self.travel_path:
+                    self.travel_dest = None
+                    then = self.__dict__.get("travel_then")
+                    self.travel_then = None
+                    if then is not None:
+                        then()
+                    return
             nx, ny = self.travel_path.pop(0)
             dx, dy = nx - p.x, ny - p.y
-            if max(abs(dx), abs(dy)) != 1 or (nx, ny) in g.vehicle_at or \
-                    (g.soldier_at.get((nx, ny)) is not None and g.soldier_at[(nx, ny)].side != p.side):
+            if (g.soldier_at.get((nx, ny)) is not None and g.soldier_at[(nx, ny)].side != p.side):
                 self.stop_auto()
                 return
+            if max(abs(dx), abs(dy)) != 1 or (nx, ny) in g.vehicle_at:
+                # off the route (a door that took a moment to open, a man in the way, a vehicle parked
+                # across it): find the way again from here
+                if not self._replan_route() or not self.travel_path:
+                    self.stop_auto()
+                    return
+                nx, ny = self.travel_path.pop(0)
+                dx, dy = nx - p.x, ny - p.y
+                if max(abs(dx), abs(dy)) != 1:
+                    self.stop_auto()
+                    return
+            before = (p.x, p.y)
             ok = self.do_move(dx, dy, auto=True)
             if not ok:
                 self.stop_auto()
+            elif (p.x, p.y) == before and (p.x, p.y) != (nx, ny) and self.travel_path is not None:
+                # you didn't get there (you opened the door): the same step again, next
+                self.travel_path.insert(0, (nx, ny))
+                self.travel_retry = self.__dict__.get("travel_retry", 0) + 1
+                if self.travel_retry > 4 and not self._replan_route():
+                    self.stop_auto()
+            else:
+                self.travel_retry = 0
             if not self.travel_path:
                 self.travel_dest = None
                 then = self.__dict__.get("travel_then")
@@ -1445,13 +1482,16 @@ class PlayState:
         return self.start_travel(best[1], best[2], then=arrive)
 
     def start_travel(self, tx, ty, then=None, stop_short=0):
-        """Walk there (click, or an order): `then` is done on arrival; `stop_short` stops beside it."""
+        """Walk there (click, or an order): `then` is done on arrival; `stop_short` stops beside it.
+
+        The route is planned on what you know: ground you've seen as it is, ground you haven't as if you
+        could cross it.  As you go and see more - a hedge where you hoped for a gap, a stream - the route is
+        planned again from where you are, until you're there or every way you can think of is shut."""
         g = self.game
         p = g.player
         m = g.map
         self.travel_then = None
-        blind = then is not None or stop_short > 0          # an order: you'll find the way as you go
-        if not m.in_bounds(tx, ty) or (not m.explored[tx, ty] and not blind):
+        if not m.in_bounds(tx, ty):
             return False
         if p.vehicle is not None:
             return False
@@ -1459,44 +1499,105 @@ class PlayState:
             if then is not None:
                 then()
             return True
-        cost = np.maximum(1, T.COST[m.t] // 50).astype(np.int32)
-        cost[~m.walk] = 0
-        cost[T.DOOR[m.t] == 1] = 3
-        # deep water: never a route you'd choose - unless you're already in it (off a landing craft), when
-        # the way out is a swim
-        cost[m.water >= 2] = 10 if m.water[p.x, p.y] >= 2 else 0
-        if blind:
-            cost[~m.explored & (cost > 0)] += 2               # unknown ground: go round it if you can
-        else:
-            cost[~m.explored] = 0
-        for (x, y), mn in m.mines.items():
-            if p.side in mn.known:
-                cost[x, y] = 0
-        if stop_short:
-            cost[tx, ty] = max(1, int(cost[tx, ty]))      # the man you're going to is standing on it
-        if cost[tx, ty] == 0:
+        plan = self._plan_route(tx, ty, stop_short)
+        if plan is None:
+            g.msg("You can't see a way there from here." if m.explored[tx, ty] else
+                  "There's no way there that you can think of from here.", "info")
             return False
-        try:
-            path = tcod.path.path2d(cost, start_points=[(p.x, p.y)], end_points=[(tx, ty)],
-                                    cardinal=2, diagonal=3)
-        except Exception:
-            return False
-        pts = [(int(x), int(y)) for x, y in path][1:]
-        if blind and not pts and max(abs(tx - p.x), abs(ty - p.y)) > stop_short:
-            g.msg("You can't see a way there from here.", "info")
-            return False
-        if stop_short:
-            pts = pts[:max(0, len(pts) - stop_short)]
+        pts, (tx, ty) = plan
         if not pts:
             if then is not None:
                 then()
             return bool(then)
         if self.safe_mode_blocks(("travel", tx, ty)):
             return False
-        self.travel_path = pts
-        self.travel_dest = (tx, ty)
+        self.travel_replans = 0
+        self._set_route(pts, tx, ty, stop_short)
         self.travel_then = then
         self.mark_interrupt()
+        return True
+
+    def _set_route(self, pts, tx, ty, stop_short):
+        m = self.game.map
+        self.travel_path = pts
+        self.travel_dest = (tx, ty)
+        self.travel_short = stop_short
+        self.travel_known = int(m.explored.sum())
+        self.travel_blind = [q for q in pts if not m.explored[q]]    # the steps planned on guesswork
+        self.__dict__.setdefault("travel_replans", 0)
+
+    def _route_costs(self, tx, ty, stop_short):
+        """Step costs on what you know: seen ground as it is, unseen ground assumed passable (a little
+        dearer, so a known way is preferred when there is one)."""
+        g = self.game
+        p = g.player
+        m = g.map
+        cost = np.maximum(1, T.COST[m.t] // 50).astype(np.int32)
+        cost[~m.walk] = 0
+        cost[T.DOOR[m.t] == 1] = 3
+        # deep water: never a route you'd choose - unless you're already in it (off a landing craft), when
+        # the way out is a swim
+        cost[m.water >= 2] = 10 if m.water[p.x, p.y] >= 2 else 0
+        cost[~m.explored] = 3                           # ground you haven't seen: you'll find out
+        for (x, y), veh in g.vehicle_at.items():
+            if m.visible[x, y] and veh is not p.vehicle:
+                cost[x, y] = 0                          # a lorry parked across the lane: round it
+        for (x, y), mn in m.mines.items():
+            if p.side in mn.known:
+                cost[x, y] = 0
+        if stop_short:
+            cost[tx, ty] = max(1, int(cost[tx, ty]))    # the man you're going to is standing on it
+        return cost
+
+    def _plan_route(self, tx, ty, stop_short=0):
+        """(steps, destination) from where you stand, or None if you can't think of a way.  A destination
+        you now know can't be stood on (a wall, a hedge, deep water) becomes the nearest spot to it that can."""
+        g = self.game
+        p = g.player
+        m = g.map
+        cost = self._route_costs(tx, ty, stop_short)
+        if cost[tx, ty] == 0:
+            best = None
+            for r in range(1, 6):
+                for dx in range(-r, r + 1):
+                    for dy in range(-r, r + 1):
+                        x, y = tx + dx, ty + dy
+                        if max(abs(dx), abs(dy)) == r and m.in_bounds(x, y) and cost[x, y] > 0:
+                            d = math.hypot(dx, dy) + math.hypot(x - p.x, y - p.y) * 0.01
+                            if best is None or d < best[0]:
+                                best = (d, x, y)
+                if best is not None:
+                    break
+            if best is None:
+                return None
+            tx, ty = best[1], best[2]
+        try:
+            path = tcod.path.path2d(cost, start_points=[(p.x, p.y)], end_points=[(tx, ty)],
+                                    cardinal=2, diagonal=3)
+        except Exception:
+            return None
+        pts = [(int(x), int(y)) for x, y in path][1:]
+        if not pts and max(abs(tx - p.x), abs(ty - p.y)) > stop_short:
+            return None
+        if stop_short:
+            pts = pts[:max(0, len(pts) - stop_short)]
+        return pts, (tx, ty)
+
+    def _replan_route(self) -> bool:
+        """New ground seen on the way (or the next step turns out shut): plan again from here.  False if
+        there's no way left."""
+        g = self.game
+        if self.travel_dest is None:
+            return False
+        self.travel_replans = self.__dict__.get("travel_replans", 0) + 1
+        if self.travel_replans > 600:
+            return False
+        tx, ty = self.travel_dest
+        plan = self._plan_route(tx, ty, self.__dict__.get("travel_short", 0))
+        if plan is None or not plan[0]:
+            return plan is not None
+        pts, (tx, ty) = plan
+        self._set_route(pts, tx, ty, self.__dict__.get("travel_short", 0))
         return True
 
     def prompt_travel(self, edge):
@@ -2164,6 +2265,11 @@ class PlayState:
                 cb(cursor)
         if mode == "flare_target":
             return self.act(A.fire_flare(g, g.player, cursor[0], cursor[1]))
+        if mode == "look":
+            # Enter while looking: walk there (finding a way through what you haven't seen)
+            self.mode = "normal"
+            self.cursor = None
+            return self.start_travel(cursor[0], cursor[1])
 
     def visible_targets(self):
         g = self.game
@@ -4087,9 +4193,9 @@ class PlayState:
         if m.in_bounds(mx, my) and m.water[mx, my] >= 1 and max(abs(mx - p.x), abs(my - p.y)) <= 3 and \
                 g.sector.sea_edge is not None:
             opts.append(("Signal a boat to take you out to the fleet", "fleet", (140, 190, 255), True))
-        if m.in_bounds(mx, my) and m.explored[mx, my] and (mx, my) != (p.x, p.y) and \
-                (m.walk[mx, my] or T.DOOR[m.t[mx, my]]) and m.water[mx, my] < 2 and (mx, my) not in g.vehicle_at:
-            opts.append(("Go there", "go", None, True))
+        if m.in_bounds(mx, my) and (mx, my) != (p.x, p.y) and (not m.explored[mx, my] or (
+                (m.walk[mx, my] or T.DOOR[m.t[mx, my]]) and m.water[mx, my] < 2 and (mx, my) not in g.vehicle_at)):
+            opts.append(("Go there" + ("" if m.explored[mx, my] else " (find a way)"), "go", None, True))
         if p.weapon is not None and p.weapon.t.kind == "gun" or p.vehicle is not None:
             opts.append(("Fire at it", "fire", None, True))
         if any(i.t.kind == "grenade" for i in p.inv):

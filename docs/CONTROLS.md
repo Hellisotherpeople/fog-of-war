@@ -126,7 +126,7 @@ In all of them:
 |---|---|
 | **aim & fire** (`f`, Tab) | Tab / Shift+Tab next / previous target; `f`, `t`, `.` or Enter fire; `a` aim longer (snap > aimed > careful > precise); `A` aim all the way, then fire |
 | **throw** (`t`) | `t`, `f` or Enter throw; `c` cook the grenade (0, 1, 2, 3 seconds) |
-| **look** (`x`) | `x`, `;` or Esc done (the view stays where you looked) |
+| **look** (`x`) | Enter: walk there (finding a way, as a click does); `x`, `;` or Esc done (the view stays where you looked) |
 | **order** (from `O` or `C`) | pick the spot, Enter |
 | **fire mission** (`R`) | pick the target, Enter |
 | **flare** (a flare gun, `a`) | pick where, Enter |
@@ -153,7 +153,7 @@ panel.
 | | |
 |---|---|
 | hover | a tooltip on whatever's there (a friendly vehicle: what it needs, and the keys) |
-| left-click | walk there; the tile beside you: step there (or fight, or talk); off the map: to the edge |
+| left-click | walk there, seen or unseen: the route is planned on what you know, trying ground you haven't seen, and planned again as you see more (a hedge where you hoped for a gap: round it); the tile beside you: step there (or fight, or talk); off the map: to the edge |
 | right-click | the context menu: everything you can do with that tile, man or vehicle |
 | middle-drag | pan |
 | wheel | zoom toward the mouse; over the message log, scroll it |
@@ -163,7 +163,7 @@ panel.
 Edge scrolling (the mouse at the edge scrolls the view) is off by default: Options.
 
 The right-click menu, depending on what's there:
-- **Always:** Look, Go there.
+- **Always:** Look, Go there (on ground you haven't seen too: "find a way").
 - **A spot or an enemy:** Fire at it, Throw a grenade there, Call artillery on it, Fire a flare over it.
 - **If you lead a squad:** Order the squad there, Order an assault on it.
 - **A friend beside you:** give him ammunition for his gun, a field dressing, a grenade, a cigarette;
