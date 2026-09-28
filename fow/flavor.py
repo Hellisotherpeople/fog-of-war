@@ -145,7 +145,11 @@ def stamp(game, it, owner=None, nation=None):
     rng = game.rng
     t = it.t
     nat = getattr(owner, "nation", None) or nation or (t.nations[0] if t.nations else "usa")
-    town = rng.choice(HOMETOWNS.get(nat) or ["home"])
+    lf = None
+    if owner is not None and hasattr(owner, "ai"):
+        from .people import life
+        lf = life(owner)                        # (his own town, his own girl: every letter from the same place)
+    town = lf["town"] if lf else rng.choice(HOMETOWNS.get(nat) or ["home"])
     line = None
     text = None
     if t.kind == "gun" and t.cat not in ("mortar", "at_disposable"):
@@ -164,6 +168,14 @@ def stamp(game, it, owner=None, nation=None):
         line = _tags(game, owner)
     elif t.tool == "letter":
         who = rng.choices([s for s, _w in SENDERS], [w for _s, w in SENDERS])[0]
+        if lf is not None:
+            fam = lf["family"]
+            if who == "your wife" and fam != "married":
+                who = "Mother"
+            elif who == "your girl" and fam not in ("a girl", "engaged"):
+                who = "your sister"
+            if who in ("your wife", "your girl") and lf["partner"]:
+                who = f"{lf['partner']}" + (", your wife" if who == "your wife" else "")
         news = HOME_NEWS.get(nat) or GENERIC_NEWS
         a, b = rng.sample(news, 2) if len(news) > 1 else (news[0], news[0])
         end = rng.choice(LETTER_END.get(nat) or ["God keep you."])

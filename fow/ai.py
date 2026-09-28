@@ -30,6 +30,7 @@ from .data.nations import NATIONS
 from .data.phrases import phrase
 from .footprint import FACING_VEC
 from .gamemap import octant
+from .entities import riding
 from .senses import update_actor_vision
 
 UNIT = 4.0   # dijkstra units per tile (cost 2 * cardinal 2)
@@ -400,11 +401,45 @@ def can_hurt_vehicle(a, v) -> bool:
         return True
     if t.cat == "at_rifle":
         return min(v.vt.armor[1], v.vt.armor[2]) < t.pen + 5
-    if v.vt.open_top or v.static or max(v.vt.armor[:3]) <= 6:
-        return True
-    if t.pen and min(v.vt.armor[:3]) < t.pen:
-        return True
-    return False
+    return bullets_hurt(a, v, t.pen, t.rng) > 0
+
+
+def bullets_hurt(shooter, v, pen, rng) -> int:
+    """Can bullets from here do this vehicle any harm?  Through the armour it's showing you, if they go
+    through it (combat._hit_vehicle: bullets that get in under 25 mm); at the crew of an open-topped vehicle
+    or a gun from anywhere but dead ahead; at the men riding on its hull; at a commander with his head out.
+    Otherwise it's sparks off the plate and rounds you'll want later.
+    2: they'll do real harm; 1: only to a head out of the hatch (worth it when there's nothing better); 0: none."""
+    from .combat import vehicle_face
+    vt = v.vt
+    face = vehicle_face(v, shooter.x, shooter.y)
+    if (vt.open_top or v.static) and (face != 0 or v.static):
+        return 2
+    if any(riding(r) and r.alive for r in v.passengers):
+        return 2
+    arm = vt.armor[min(face, 2)]
+    d = math.hypot(v.x - shooter.x, v.y - shooter.y)
+    eff = (pen or 0) * max(0.5, 1.0 - d / max(1.0, rng * 3.0))       # (it falls off with range)
+    if arm < 25 and eff >= arm:
+        return 2
+    if not v.buttoned and not vt.open_top and not v.static and vt.vtype not in ("truck", "car", "lc") and d < 25:
+        from .vdamage import hatch_user
+        return 1 if hatch_user(v) is not None else 0                   # his head out of the hatch
+    return 0
+
+
+def mg_can_hurt(v, idxs, e) -> int:
+    """A vehicle's machine gun (the first of idxs): men, soft things - and armour only if it's thin enough
+    for these rounds on the side it's showing (bullets_hurt: 2 real harm, 1 a head out of a hatch, 0 none)."""
+    vt = getattr(e, "vt", None)
+    if vt is None:
+        return 2 if e.active else 0
+    if e.dead or e.abandoned:
+        return 0
+    mg = ITEMS[v.vt.mgs[idxs[0]]] if idxs and idxs[0] < len(v.vt.mgs) else None
+    if mg is None:
+        return 2 if _soft(e) else 0
+    return bullets_hurt(v, e, mg.pen, mg.rng)
 
 
 def choose_target(game, a, vis):
@@ -1067,6 +1102,8 @@ def soldier_act(game, a) -> int:
         update_actor_vision(game, a)
         return bearer_act(game, a) or 100         # a stretcher-bearer on a call: to the man, and back
     vis = update_actor_vision(game, a)
+    if not vis and a.ai.get("talking", 0) > game.turn and a.suppression < 30:
+        return 100                                # talking to you (talk.py): he stays put for it
     if vis:
         for e in vis:
             brain.report(e, game.turn)
@@ -1177,6 +1214,10 @@ def soldier_act(game, a) -> int:
             return c
     if vis:
         return engage_act(game, a, vis, sq, sstate)
+    if a.ai.get("cover_for", 0) > game.turn and sq is not None:
+        c = suppress_known(game, a, sq, force=True)          # a mate asked him to cover him (talk.py)
+        if c:
+            return c
     fo = a.ai.get("fired_on")
     if (fo is None or game.turn - fo[2] > 4) and sq is not None:
         fo = sq.__dict__.get("fired_from")         # (where the section's being fired on from)
@@ -1194,6 +1235,11 @@ def soldier_act(game, a) -> int:
             c = maneuver_step(game, a, sq, sstate, None)
             if c:
                 return c
+    if a.ai.get("errand") is not None:
+        from .social import errand_act
+        c = errand_act(game, a)                   # a quiet moment: to a dead friend, or the enemy's pockets
+        if c:
+            return c
     return move_with_squad(game, a, sq, sstate)
 
 
@@ -1428,6 +1474,9 @@ def return_fire(game, a, sq, fo) -> int | None:
     d = math.hypot(ox - a.x, oy - a.y)
     if d < 3 or d > w.t.rng * 1.2:
         return None
+    veh = game.vehicle_at.get((ox, oy))
+    if veh is not None and veh.side != a.side and not can_hurt_vehicle(a, veh):
+        return None                               # it came from a tank: firing back would only give you away
     j = max(1, int(d / 12))
     tx = min(game.map.w - 1, max(0, ox + rng.randint(-j, j)))
     ty = min(game.map.h - 1, max(0, oy + rng.randint(-j, j)))
@@ -1515,16 +1564,16 @@ def maybe_grenade(game, a, near) -> int | None:
     return None
 
 
-def suppress_known(game, a, sq) -> int | None:
-    """Fire at the last known position of an unseen enemy (MG teams especially)."""
+def suppress_known(game, a, sq, force=False) -> int | None:
+    """Fire at the last known position of an unseen enemy (MG teams especially; anyone asked to cover a mate)."""
     w = a.weapon
     if w is None or w.t.kind != "gun" or w.loaded <= 0:
         return None
     if getattr(sq.order, "roe", "free") != "free":
         return None
     overwatch = sq.state == "bound" and a.id % 2 != sq.phase          # the team that isn't moving
-    if w.t.cat not in ("lmg", "hmg") and not (sq.state in ("bound", "engaged") and
-                                              game.rng.random() < (0.6 if overwatch else 0.25)):
+    if w.t.cat not in ("lmg", "hmg") and not force and not (sq.state in ("bound", "engaged") and
+                                                            game.rng.random() < (0.6 if overwatch else 0.25)):
         return None
     brain = game.brains[a.side]
     cs = brain.nearest_contacts(a.x, a.y, 4, max_age=10)
@@ -1532,6 +1581,9 @@ def suppress_known(game, a, sq) -> int | None:
         d = math.hypot(c.x - a.x, c.y - a.y)
         if d > w.t.rng * 1.3 or d < 3:
             continue
+        ref = c.ref
+        if ref is not None and getattr(ref, "vt", None) is not None and not can_hurt_vehicle(a, ref):
+            continue                              # (a tank your rounds only rattle off: leave it to the AT men)
         # need a line of fire to near the contact
         from .senses import los_clear
         if los_clear(game, a.x, a.y, c.x, c.y):
@@ -2071,7 +2123,24 @@ def _willing(game, receiver) -> bool:
 
 
 def buddy_aid_act(game, a, vis) -> int | None:
-    """A mate bleeding near you and no medic about: patch him up."""
+    """A mate bleeding near you and no medic about: patch him up.  Your buddy, you go to further, and sooner
+    (social.wounded: he called his name)."""
+    hb = a.ai.get("help_buddy")
+    if hb is not None and game.turn - hb[1] < 150 and not (vis and min(dist(a, e) for e in vis) < 6):
+        o = next((m for m in game.near(a.x, a.y, 12, a.side) if m.id == hb[0]), None)
+        if o is None or not o.alive or o.state != "ok" or o.ai.get("carried_by") or \
+                (not o.downed and o.body.bleed_rate() < 0.5):
+            a.ai.pop("help_buddy", None)
+        elif dist(a, o) <= 1.5:
+            a.ai.pop("help_buddy", None)
+            if o.body.bleed_rate() >= 0.5 and (a.medical("bandage") is not None or a.medical("tourniquet") is not None):
+                a.ai["aid_cd"] = game.turn
+                return A.treat(game, a, o)
+        else:
+            fix_stance(game, a, 1)
+            c = path_step(game, a, o.x, o.y)
+            if c:
+                return c
     if vis and min(dist(a, e) for e in vis) < 12:
         return None
     if a.ai.get("aid_cd", -99) > game.turn - 25:
@@ -2761,7 +2830,7 @@ def vehicle_gunnery(game, v, vis, sq):
                 if vehicle_fire_main(game, v, tgt.x, tgt.y, tgt, ammo):
                     res = "main"
             idxs = C.mgs_for(v, "gunner")
-            if res is None and idxs and not blocked and _soft(tgt) and dist(v, tgt) < 45 \
+            if res is None and idxs and not blocked and mg_can_hurt(v, idxs, tgt) and dist(v, tgt) < 45 \
                     and mg_cd.get("gunner", -1) < game.turn:
                 if vehicle_fire_mg(game, v, tgt.x, tgt.y, tgt, idxs=idxs):
                     mg_cd["gunner"] = game.turn
@@ -2776,12 +2845,16 @@ def vehicle_gunnery(game, v, vis, sq):
         if not idxs:
             continue
         cands = []
-        if des is not None and _soft(des):
-            cands.append(des)
+        if des is not None and mg_can_hurt(v, idxs, des):
+            cands.append(des)                     # (what the commander points at, if the gun can do anything to it)
         if hold:
             cands = cands[:1]
         else:
-            cands += sorted((e for e in vis if _soft(e) and e is not des), key=lambda e: dist(v, e))
+            # each gunner on what his rounds will actually hurt: men, soft-skins, thin plate from the side
+            # it's showing, an open top - not sparks off a Tiger's glacis
+            graded = [(mg_can_hurt(v, idxs, e), e) for e in vis if e is not des]
+            cands += [e for g_, e in sorted(((g_, e) for g_, e in graded if g_ > 0),
+                                            key=lambda ge: (-ge[0], dist(v, ge[1])))]
         for e in cands[:6]:
             if dist(v, e) >= 40 or not C.mg_arc_ok(v, idxs[0], e.x, e.y):
                 continue
@@ -2814,6 +2887,8 @@ def vehicle_choose_target(game, v, vis):
             pen = mt.ap_pen * max(0.6, 1 - d / (mt.rng * 3))
             if v.ap <= 0:
                 continue
+            if pen < arm * 0.75:
+                continue                          # it'd bounce: hold the round for a flank shot or a softer target
             s = (8.0 if pen > arm * 0.9 else 1.5) / (1 + d / 40)
             if e.vt.vtype in ("tank", "td", "spg"):
                 s *= 1.5

@@ -182,6 +182,11 @@ name, traits, weapon and kit. Leave any of it to chance.</td>
   the front they feed, on the war map and in its battles. Orders come several at a time, each with
   who gave it, when it's due, and the reward and punishment your army really used. Autopilot, and an
   optional succession mode: die, and carry on as someone else on the same battlefield.
+- **Talk to anyone, and listen to the war**: every soldier has a home, a family and an opinion of you;
+  ask him how he's holding up, what he's seen, for a smoke or a trade; get a prisoner to talk. In a fight
+  the wounded scream in their own language and their buddies shout their names; in a lull men share
+  cigarettes, trade, pray and hum songs from home. Serve in the division of your choice - the Big Red
+  One, the Desert Rats, Rodimtsev's Guards, Großdeutschland - with its real regiments and commanders.
 - **An interface you can read at a glance**: the panel draws your body with its wounds and dressings,
   your stance behind real cover, the rounds you know are in the magazine, the sky and your watch. The
   kit screen draws every item, aiming shows a sight picture, and the war map is an inked map sheet.

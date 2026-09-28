@@ -187,6 +187,9 @@ def apply_kit(a: Actor, kit: dict, year: float = 1943.0):
                 g = Item(iid)
                 if a.add_item(g) is not None:
                     guns.append(g)
+    # the things a man keeps on him come first - tags round his neck, the letter in his breast pocket - so a
+    # full set of pouches never leaves them behind
+    items = sorted(items, key=lambda it_n: ITEMS[it_n[0]].tool not in ("dogtags", "letter", "photo"))
     for iid, n in items:
         t = ITEMS[iid]
         if t.kind == "gun":

@@ -185,6 +185,18 @@ class Game:
         sid = self.setup.get("scenario") or "front"
         service = self.setup.get("service") or "army"
         unit = self.setup.get("unit")
+        if unit and str(unit).startswith("notable:"):
+            # a famous division: it's in this battle (and the men of your company carry its regiments)
+            from .data.notable import NOTABLE, division
+            nd = NOTABLE.get(unit.split(":", 1)[1])
+            if nd is not None:
+                div = division(nd, self.theatre.get("id"))
+                divs = dict(self.theatre.get("divisions") or {})
+                have = list(divs.get(nd["nation"], []))
+                if div not in have:
+                    divs[nd["nation"]] = [div] + have
+                    self.theatre = dict(self.theatre, divisions=divs)
+            unit = None
         if unit and unit != "regular":
             from .data.special import SPECIAL
             d = SPECIAL.get(unit, {})
@@ -342,6 +354,25 @@ class Game:
         self._hq_start = True
         return s
 
+    def _join_notable(self, p, key, notes):
+        """You chose a famous division: your papers (and your section's) carry its real regiments; veterans
+        know their business."""
+        from .data.nations import notable_designation
+        from .data.notable import NOTABLE, label
+        d = NOTABLE.get(key)
+        if d is None or d["nation"] != p.nation:
+            return
+        text = notable_designation(self.rng, p.nation, d, self.theatre_id)
+        mates = [m for m in (p.squad.members if p.squad is not None else [p])]
+        for m in mates:
+            m.unit = text
+            if d.get("veteran") and m.is_player is False and self.rng.random() < 0.35:
+                m.traits.add("veteran")
+            if d.get("veteran"):
+                m.morale = min(100, m.morale + 5)
+        p.unit = text
+        notes.append(f"You serve with the {label(d)}. {d['desc']}")
+
     def _apply_setup(self, p, notes):
         """The creator's choices: name, rank, traits, weapon, extra kit, and whether the start is kind."""
         su = self.setup
@@ -353,6 +384,9 @@ class Game:
                      if SPECIAL[k]["role"] == p.role or self.rng.random() < 0.3]
             if cands and self.rng.random() < 0.04:
                 unit = self.rng.choice(cands)
+        if unit and str(unit).startswith("notable:"):
+            self._join_notable(p, unit.split(":", 1)[1], notes)
+            unit = None
         if unit and unit != "regular":
             from .data.special import SPECIAL
             from .spawn import apply_special
@@ -1560,12 +1594,12 @@ class Game:
 
     # ================================================================== death & wounds
     def on_wounded(self, a, attacker, res):
+        from . import social
+        social.wounded(self, a, attacker, res)       # the cry, where he's hit - and his buddy's
         if a.is_player:
             self.stats["wounds"] += 1
             self.command.on_wounded(self)
             return
-        if res["dmg"] > 15 and self.rng.random() < 0.5:
-            a.say(self.shout(a, "pain"), self.turn, 2, tone="scream")
         if a.squad is not None:
             for m in a.squad.members:
                 if m.active:
@@ -1591,6 +1625,9 @@ class Game:
             if self.game_over or a.is_player:
                 return
             # someone else carries on (succession.py): this body is one of the war's dead like any other
+        else:
+            from . import social
+            social.died(self, a, killer)             # his buddy, and the man who shot him
         self.body_falls(a, killer, seen)
 
     def body_falls(self, a, killer, seen=None):
@@ -3000,6 +3037,9 @@ class Game:
             self._medical_tick()
         if self.turn % 40 == 17:
             self._banter_tick()
+        if self.turn % 2 == 0 and self.__dict__.get("domain", "land") == "land":
+            from . import social as _SOC
+            _SOC.tick(self)                           # the noise of a fight, the life of a quiet hour
         if self.turn % 20 == 9:
             self._execution_tick()
         if self.turn % 15 == 11:

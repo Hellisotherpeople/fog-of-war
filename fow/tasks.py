@@ -239,18 +239,21 @@ def _scavenge(game, a, sq, t):
             for i in list(inv.items()):
                 if not _wanted(k, i, a):
                     continue
+                n = i.count if i.t.kind != "mag" else 1      # (counted before it goes in: a stack merges and empties)
+                name = i.t.name
                 inv.remove(i)
+                if k == "papers":
+                    i.data = dict(i.data or {}, scavenged=True, owner=(it.data or {}).get("name", "a dead man"))
                 if a.add_item(i) is None:
                     inv.add(i)
                     break
-                if k == "papers":
-                    i.data = dict(i.data or {}, scavenged=True, owner=(it.data or {}).get("name", "a dead man"))
-                t["found"][i.t.name] += i.count if i.t.kind != "mag" else 1
+                t["found"][name] += n
                 took += 1
         elif _wanted(k, it, a):
+            n = it.count if it.t.kind != "mag" else 1
             if A.pickup(game, a, it, x, y) is None:
                 break
-            t["found"][it.t.name] += it.count if it.t.kind != "mag" else 1
+            t["found"][it.t.name] += n
             took += 1
     a.ai.pop("task_pile", None)
     if not took:

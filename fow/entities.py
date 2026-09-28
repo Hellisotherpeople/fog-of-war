@@ -159,6 +159,34 @@ class Item:
         return "nearly empty"
 
 
+def things_at(m, x, y) -> list:
+    """Everything lying at (x, y): loose on the ground, and on the dead there (in their kit).
+    [(item, holder)]: holder None for the ground, else the dead man's Inventory."""
+    out = []
+    for it in m.items_at(x, y):
+        if it.t.kind == "corpse":
+            inv = (it.data or {}).get("inv")
+            if inv is not None:
+                out += [(i, inv) for i in inv.items()]
+        else:
+            out.append((it, None))
+    return out
+
+
+def take_thing(m, x, y, it, holder):
+    if holder is None:
+        m.remove_item(x, y, it)
+    else:
+        holder.remove(it)
+
+
+def return_thing(m, x, y, it, holder):
+    """Back where it came from (or beside the body, if his kit won't take it back)."""
+    if holder is None or holder.add(it) is None:
+        m.add_item(x, y, it)
+        it.where = "ground"
+
+
 def make_corpse(actor) -> Item:
     c = Item("corpse")
     c.data = dict(name=actor.full_name, nation=actor.nation, side=actor.side,

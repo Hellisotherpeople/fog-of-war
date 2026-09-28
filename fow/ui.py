@@ -358,6 +358,17 @@ class CreatorState:
                     "line units. A few found themselves in something else."),
                    ("An ordinary line unit", "regular", "")]
             nats = [self._nation()] if self._nation() else [n for n in NATIONS]
+            # the divisions (brigades, regiments) that fought this battle - or, with none chosen, any battle
+            from .data.notable import NOTABLE, label
+            for key, d in NOTABLE.items():
+                if d["nation"] not in nats or (th is not None and th["id"] not in d["theatres"]):
+                    continue
+                if self._side() and NATIONS[d["nation"]]["side"] != self._side():
+                    continue
+                where = ", ".join(THEATRES[t]["battle"] for t in d["theatres"] if t in THEATRES)
+                out.append((label(d) + ("" if self._nation() else f" ({NATIONS[d['nation']]['adj']})"),
+                            f"notable:{key}", f"{d['desc']}\n\nFought at: {where}." +
+                            ("\n\nVeterans: they'd been at it a long time before this." if d.get("veteran") else "")))
             for sid, d in SPECIAL.items():
                 ok = any(eligible(sid, n, year if year else d["years"][0], th["id"] if th else (d["theatres"] or [None])[0],
                                   v.get("service", "army")) for n in nats)
@@ -506,6 +517,15 @@ class CreatorState:
             sd = NATIONS[self._nation()]["side"]
             if self._side() != sd:
                 self.v["side"] = sd
+        if key == "unit" and isinstance(self.v.get("unit"), str) and self.v["unit"].startswith("notable:"):
+            # a division means its army, and one of the battles it fought
+            from .data.notable import NOTABLE
+            d = NOTABLE.get(self.v["unit"].split(":", 1)[1])
+            if d is not None:
+                self.v["nation"] = d["nation"]
+                self.v["side"] = NATIONS[d["nation"]]["side"]
+                if self._theatre() not in d["theatres"]:
+                    self.v["theatre"] = next((t for t in d["theatres"] if t in THEATRES), self.v["theatre"])
 
     def _open(self, key):
         app = self.app
@@ -1451,6 +1471,21 @@ def _voice_engine_desc() -> str:
     if not NV.available():
         base += "  (Piper isn't installed: pip install -r requirements-voices.txt - until then it's the system voice.)"
     return base
+
+
+_STARTED = __import__("time").time()
+
+
+def _build() -> str:
+    """The code's own version: the git commit it was started from (or 'unknown')."""
+    try:
+        here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        head = open(os.path.join(here, ".git", "HEAD")).read().strip()
+        if head.startswith("ref:"):
+            head = open(os.path.join(here, ".git", head.split()[1])).read().strip()
+        return head[:8]
+    except OSError:
+        return "unknown"
 
 
 class OptionsState:
@@ -2548,11 +2583,21 @@ class App:
                 pass
 
     def _log_error(self, tb):
+        """error.log in the save folder: when, which build, and the traceback - the same error over and over (a
+        sound that fails every frame) is written once a minute, not hundreds of times."""
         try:
+            import time as _t
             from .game import SAVE_DIR
+            key = tb.strip().splitlines()[-1] if tb.strip() else ""
+            seen = self.__dict__.setdefault("_errors_seen", {})
+            now = _t.time()
+            if now - seen.get(key, 0) < 60:
+                return
+            seen[key] = now
             os.makedirs(SAVE_DIR, exist_ok=True)
             with open(os.path.join(SAVE_DIR, "error.log"), "a") as f:
-                f.write(tb + "\n")
+                f.write(f"--- {_t.strftime('%Y-%m-%d %H:%M:%S')}  (build {_build()}, started "
+                        f"{_t.strftime('%H:%M', _t.localtime(_STARTED))})\n{tb}\n")
         except OSError:
             pass
 

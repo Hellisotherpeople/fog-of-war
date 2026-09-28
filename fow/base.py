@@ -655,12 +655,16 @@ def _chaplain(ps, who):
     g = ps.game
     p = g.player
     tags = [i for i in p.inv if i.t.tool == "dogtags" and i.data and i.data.get("name")]
+    keeps = [i for i in p.inv if i.data and i.data.get("for")]
     lines = [(f"{_name(who)}, {staff_title(who)}. A stole in {who.his} pocket, mud to the knees. "
               f"{_he(who).capitalize()}'s buried a lot of men.", UI_TEXT)]
     opts = [(f"Talk with {who.him}", "talk", None, _ready(g, "chaplain", HOUR * 12)),
             (f"Give {who.him} the tags of {len(tags)} dead {'man' if len(tags) == 1 else 'men'}" if tags else
              "Give over a dead man's tags", "tags", None, bool(tags)),
             (f"Ask {who.him} to write to a dead friend's family", "write", None, _ready(g, "condolence", DAY))]
+    if keeps:
+        opts.insert(1, (f"Give {who.him} what a dying man asked you to send home ({len(keeps)})", "keeps",
+                        (220, 200, 140), True))
     _menu(ps, who, "Chaplain", lines, opts, lambda v: _chaplain_choice(ps, who, v, tags))
 
 
@@ -674,6 +678,20 @@ def _chaplain_choice(ps, who, v, tags):
         p.suppression = 0
         g.msg(f"You sit on an ammunition box and {who.last_name} lets you talk, and doesn't say much. It helps.", "good")
         return _time_passes(ps, 900)
+    if v == "keeps":
+        keeps = [i for i in p.inv if i.data and i.data.get("for")]
+        for it in keeps:
+            p.remove_item(it)
+        g.duty.rep += 3 * len(keeps)
+        g.command.merit += len(keeps)
+        p.morale = min(100, p.morale + 6)
+        rec = g.command.__dict__.setdefault("record", [])
+        for it in keeps[:3]:
+            rec.append(f"{g.datetime_str()}: carried {it.data.get('from_dead', 'a dying man')}'s last things home.")
+        where = keeps[0].data.get("for", "his family")
+        g.msg(f"{who.last_name} wraps {'them' if len(keeps) > 1 else 'it'} in a field-service envelope and writes the "
+              f"address: {where}. 'It'll get there. You did right by him.'", "good")
+        return ps.act(300)
     if v == "tags":
         names = [t.data.get("name") for t in tags]
         for t in tags:

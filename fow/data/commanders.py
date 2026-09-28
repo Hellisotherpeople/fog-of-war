@@ -260,10 +260,10 @@ _f("changsha41", "japan", "theatre", "China Expeditionary Army", None, [(None, N
 _f("changsha41", "japan", "army", "11th Army", "China Expeditionary Army", [(None, None, S2, "Korechika Anami", None)])
 
 # ------------------------------------------------------------------ 1942
-_f("alamein42", "uk", "theatre", "Middle East Command", None, [(None, None, S4, "Harold Alexander", None)])
-_f("alamein42", "uk", "army", "Eighth Army", "Middle East Command", [(None, None, S3, "Bernard Montgomery", None)])
-_f("alamein42", "uk", "corps", "XXX Corps", "Eighth Army", [(None, None, S3, "Oliver Leese", None)])
-_f("alamein42", "uk", "corps", "X Corps", "Eighth Army", [(None, None, S3, "Herbert Lumsden", None)])
+_f("alamein42", ("uk", "australia", "newzealand", "india"), "theatre", "Middle East Command", None, [(None, None, S4, "Harold Alexander", None)])
+_f("alamein42", ("uk", "australia", "newzealand", "india"), "army", "Eighth Army", "Middle East Command", [(None, None, S3, "Bernard Montgomery", None)])
+_f("alamein42", ("uk", "australia", "newzealand", "india"), "corps", "XXX Corps", "Eighth Army", [(None, None, S3, "Oliver Leese", None)])
+_f("alamein42", ("uk", "australia", "newzealand", "india"), "corps", "X Corps", "Eighth Army", [(None, None, S3, "Herbert Lumsden", None)])
 _f("alamein42", "uk", "division", "51st Highland Division", "XXX Corps", [(None, None, S2, "Douglas Wimberley", None)])
 _f("alamein42", "uk", "division", "7th Armoured Division", "Eighth Army", [(None, None, S2, "John Harding", None)])
 _f("alamein42", "uk", "division", "1st Armoured Division", "X Corps", [(None, None, S2, "Raymond Briggs", None)])
@@ -588,3 +588,27 @@ _f("okinawa45", "japan", "army", "32nd Army", None,
    [(None, (1945, 6, 22), S2, "Mitsuru Ushijima", "ritual suicide as the army died")])
 _f("okinawa45", "japan", "division", "62nd Division", "32nd Army", [(None, None, S2, "Takeo Fujioka", None)])
 _f("okinawa45", "japan", "division", "24th Division", "32nd Army", [(None, None, S2, "Tatsumi Amamiya", None)])
+
+
+# ------------------------------------------------------------------ the notable divisions' commanders (data/notable.py)
+_f("tunisia43", "usa", "division", "1st Infantry Division", "II Corps", [(None, None, S2, "Terry Allen", None)])
+_f("tunisia43", "usa", "division", "9th Infantry Division", "II Corps", [(None, None, S2, "Manton Eddy", None)])
+_f("sicily43", "usa", "division", "2nd Armored Division", "Seventh Army", [(None, None, S2, "Hugh Gaffey", None)])
+_f("sicily43", ("uk", "canada"), "army", "Eighth Army", "15th Army Group", [(None, None, S4, "Bernard Montgomery", None)])
+_f("sicily43", ("uk", "canada"), "corps", "XXX Corps", "Eighth Army", [(None, None, S3, "Oliver Leese", None)])
+_f("sicily43", "uk", "division", "51st Highland Division", "XXX Corps", [(None, None, S2, "Douglas Wimberley", None)])
+_f("sicily43", "canada", "division", "1st Canadian Infantry Division", "XXX Corps",
+   [(None, None, S2, "Guy Simonds", None)])
+_f("bastogne44", "usa", "division", "10th Armored Division", "VIII Corps", [(None, None, S2, "William Morris", None)])
+_f("arnhem44", "uk", "corps", "XXX Corps", "21st Army Group", [(None, None, S3, "Brian Horrocks", None)])
+_f("arnhem44", "uk", "division", "43rd (Wessex) Division", "XXX Corps", [(None, None, S2, "Ivor Thomas", None)])
+_f("alamein42", "australia", "division", "9th Australian Division", "XXX Corps",
+   [(None, None, S3, "Leslie Morshead", None)])
+_f("alamein42", "newzealand", "division", "2nd New Zealand Division", "XXX Corps",
+   [(None, None, S3, "Bernard Freyberg", None)])
+_f("alamein42", "india", "division", "4th Indian Division", "Eighth Army", [(None, None, S2, "Francis Tuker", None)])
+_f("kursk43", "germany", "corps", "XLVIII. Panzerkorps", "4. Panzerarmee",
+   [(None, None, S3, "Otto von Knobelsdorff", None)])
+_f("kursk43", "germany", "division", "Panzergrenadier-Division Großdeutschland", "XLVIII. Panzerkorps",
+   [(None, None, S2, "Walter Hörnlein", None)])
+_f("guadalcanal42", "japan", "division", "2nd Division (Sendai)", "17th Army", [(None, None, S2, "Masao Maruyama", None)])

@@ -46,6 +46,7 @@ SECTIONS = [
         ("k", "Enter", "carry out your current order: walk there and do it"),
         ("k", "T", "the orders book: every order you hold - who gave it, how, by when, the reward and the price"),
         ("k", "A", "autopilot: your soldier acts on his training and orders while you watch; A again takes over"),
+        ("k", "E", "talk to whoever's beside you: his life, how he is, what he's seen, a smoke, a trade - or a prisoner"),
         ("k", "<|>", "on stairs: up a floor or down (towers, roofs, haylofts); on a trapdoor: the cellar and back"),
         ("h", "Walking into things"),
         ("l", "enemy", "fight hand to hand"),

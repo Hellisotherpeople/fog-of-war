@@ -717,6 +717,12 @@ class InventoryScreen:
         t = it.t
         pane = cell["pane"]
         if pane is not self.own:
+            if self.play.usable_here(it):
+                # a dressing on the ground, the dead man's syrette, his canteen: used where it lies
+                pos, holder = self._where(pane, it)
+                if pos is not None:
+                    self.play.inv_screen = None
+                    return self.play.use_where_it_lies(it, pos, holder, "self" if t.kind == "medical" else "use")
             return self.quick_move(it, cell)
         if t.kind in ("gun", "melee"):
             from .actions import wield
@@ -740,6 +746,15 @@ class InventoryScreen:
         # hand off to the normal item actions (medical, tools, food...)
         self.play.inv_screen = None
         self.play.item_action(it, "self" if t.kind == "medical" else "use")
+
+    def _where(self, pane, it):
+        """Where a thing in a loot pane lies: ((x, y), the dead man's kit or None for the ground)."""
+        if pane.ground is not None:
+            return pane.ground, None
+        at = getattr(pane, "at", None)
+        if at is not None and pane.inv is not None:
+            return at, pane.inv
+        return None, None
 
     def load(self, it):
         game = self.game
@@ -896,5 +911,6 @@ def loot_sources_at(game, x, y, reach=0):
                 d = it.data
                 p = Pane(f"Searching {d.get('name', 'a body')}{where}", d["inv"])
                 p.tab = f"{d.get('name', 'body').split()[-1]}{where}"
+                p.at = (sx, sy)
                 panes.append(p)
     return panes
