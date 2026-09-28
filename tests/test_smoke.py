@@ -985,6 +985,41 @@ def test_relief_and_floors():
     assert A.climb(g, p, 1) and p.z == 0
 
 
+def test_walk_through_unseen_ground():
+    """Click on ground you haven't seen, behind the hedges: the walk tries it, goes round what it finds in
+    the way, and gets there."""
+    import numpy as np
+    from fow.play import PlayState
+    fa = FakeApp()
+    arrived = 0
+    for seed in (1, 3):
+        g = Game("bocage44", "usa", seed=seed, setup={"battlefield": "standard"})
+        ps = PlayState(fa, g)
+        fa.states = [ps]
+        p = g.player
+        m = g.map
+        for a in list(g.actors):
+            if a.side != p.side and a.alive:
+                a.body.dead = True
+                g.kill(a, None)
+        g.waves = []
+        for b in g.support.fires.batteries:
+            b.ammo = 0
+        g.support.next_sortie = {k: 10 ** 9 for k in g.support.next_sortie}
+        g.player_fov()
+        cand = np.argwhere(~m.explored & m.walk)
+        tx, ty = (int(v) for v in max(cand[::97], key=lambda q: abs(q[0] - p.x) + abs(q[1] - p.y)))
+        assert not m.explored[tx, ty] and ps.start_travel(tx, ty)
+        for _ in range(3000):
+            if not ps.travel_path or not p.alive:
+                break
+            ps.anim = ps.anim_next = ps.auto_wait = 0
+            ps.mark_interrupt()
+            ps.tick()
+        arrived += max(abs(p.x - tx), abs(p.y - ty)) <= 1
+    assert arrived >= 1
+
+
 if __name__ == "__main__":
     import time
     tests = [(k, v) for k, v in dict(globals()).items() if k.startswith("test_") and callable(v)]

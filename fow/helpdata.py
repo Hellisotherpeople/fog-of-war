@@ -32,7 +32,9 @@ SECTIONS = [
     ("Moving", [
         ("k", "arrows|numpad|hjklyubn", "one step; {End}, {PgUp} and {PgDn} are diagonals too"),
         ("k", "Shift+dir|HJKLUN", "run until something happens ({Y} and {B} are shout and bandage, not moves)"),
-        ("k", "left-click", "walk to a spot; any key stops you"),
+        ("k", "left-click", "walk to a spot - seen or not; any key stops you"),
+        ("t", "The route goes on what you know: unseen ground is tried, and when a hedge turns out to be in the way"),
+        ("t", "you go round it (it's planned again as you see more). No way at all, and you're told."),
         ("k", ".|s|numpad 5", "wait a second"),
         ("k", "z|Z", "wait until something happens (up to a minute)"),
         ("k", "c", "crouch (again: stand)"),
@@ -161,7 +163,7 @@ SECTIONS = [
         ("t", "the edge of the map, or the X on the ground, is where your orders send you."),
     ]),
     ("Looking around", [
-        ("k", "x|;", "look: move the cursor; {Esc} done - or just rest the mouse on something"),
+        ("k", "x|;", "look: move the cursor ({Enter}: walk there); {Esc} done - or just rest the mouse on something"),
         ("k", "V", "everything around you in a list, nearest first: the men and vehicles you can see, the sounds"),
         ("k", "", "you've heard, what's lying in sight"),
         ("h", "In the V list"),

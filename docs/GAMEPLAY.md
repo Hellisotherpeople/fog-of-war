@@ -790,7 +790,7 @@ the keys for whatever's beside you. The ones you'll use most:
 
 | key | action |
 |---|---|
-| arrows / numpad / `hjklyubn` | move (Shift or `HJKLUN`: run); left-click walks there |
+| arrows / numpad / `hjklyubn` | move (Shift or `HJKLUN`: run); left-click walks there, finding a way through ground you haven't seen (`x`, then Enter, from the keyboard) |
 | Enter | carry out your current order |
 | `c` / `p` | crouch / prone |
 | `f` or Tab | aim & fire (`Tab` next target, `a` aim longer, `A` aim fully and fire) |
