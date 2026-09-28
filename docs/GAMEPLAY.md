@@ -570,7 +570,9 @@ Choose an order in the book and Enter gets on with that one.
 
 **Autopilot and succession.** `A` hands your soldier to his training: the same AI every man runs,
 following his orders (a squad you lead takes its orders from above), while you watch; `A` again
-takes over. With succession on (Options, WHEN YOU DIE), death isn't the end of the battle: the war
+takes over. It's for the land: aboard ship or aircraft your job is your station, and Enter and `Z`
+cover it. With nobody in sight it runs as fast as the machine can simulate (Options: quiet time goes
+quickly). With succession on (Options, WHEN YOU DIE), death isn't the end of the battle: the war
 goes on on the same field and you're someone else. Who is set by a rule:
 
 - squad: a man of your squad;
