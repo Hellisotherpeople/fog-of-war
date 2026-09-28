@@ -218,6 +218,8 @@ def talk(ps, who) -> bool:
 
 
 def _menu(ps, who, title, lines, opts, handler, width=64):
+    # a greyed line says why, if it doesn't already (mostly: you had one not long ago)
+    opts = [(lab if ok or "(" in lab else f"{lab} (not yet)", v, col, ok) for lab, v, col, ok in opts]
     ps.open_popup(Popup(title, opts, _anchor(ps, who), lines=lines, width=width), handler)
 
 
@@ -554,9 +556,14 @@ def _armourer(ps, who):
     own = gun and p.nation in (w.t.get("nations") or ()) or (gun and any(src in (w.t.get("nations") or ())
                                                                          for src in _sources(g)))
     lines = [(f"{_name(who)}, armourer. Oil, rags, a vice, and a crate of parts from things that got hit.", UI_TEXT)]
-    opts = [(f"Strip, clean and check your {w.t.name}" if gun else "Strip and clean your weapon", "clean", None, gun),
-            ("Draw ammunition for it", "ammo", None, bool(gun and own and _ready(g, "ammo", HOUR * 6))),
-            ("Swap your captured weapon for an issue one", "swap", None, bool(gun and not own))]
+    ammo_ok = bool(gun and own and _ready(g, "ammo", HOUR * 6))
+    ammo_why = "" if ammo_ok else " (you've no gun)" if not gun else " (he's nothing for a captured gun)" if not own \
+        else " (you drew some not long ago)"
+    opts = [(f"Strip, clean and check your {w.t.name}" if gun else "Strip and clean your weapon (you've no gun)",
+             "clean", None, gun),
+            ("Draw ammunition for it" + ammo_why, "ammo", None, ammo_ok),
+            ("Swap your captured weapon for an issue one" + ("" if (gun and not own) else " (yours is issue)"),
+             "swap", None, bool(gun and not own))]
     _menu(ps, who, "Armourer", lines, opts, lambda v: _armourer_choice(ps, who, v))
 
 
