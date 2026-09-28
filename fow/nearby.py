@@ -142,6 +142,8 @@ def draw(con, ps):
     x0 = SCREEN_W - PANEL_W
     w = PANEL_W
     con.draw_rect(x0, 0, w, SCREEN_H, ord(" "), bg=UI_BG)
+    from . import icons
+    icons.erase(x0, 0, w, SCREEN_H)               # (the panel's pictures: the list is over them)
     tab = TABS[st["tab"]]
     entries = st["lists"][tab]
     head = "  ".join(f"[{t}]" if t == tab else t for t in TABS)

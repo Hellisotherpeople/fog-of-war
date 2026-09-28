@@ -546,7 +546,37 @@ class PlayState:
                 lines.append((f"{yards(d)} - {'in reach' if d <= rng else 'too far, it will fall short'}",
                               (180, 220, 150) if d <= rng else (240, 140, 80)))
         if lines and self.cam.on_screen(cx, cy):
-            draw_tooltip(con, self.cam.to_text(cx, cy), lines, title)
+            box = draw_tooltip(con, self.cam.to_text(cx, cy), lines, title)
+            if self.mode == "target":
+                self._sight_picture(con, cx, cy, box)
+
+    def _sight_picture(self, con, cx, cy, box):
+        """Through your sights, beside the words: the man, what shows of him over his cover, and the spread of
+        your rounds - the circle the chance of a hit comes to (in its band, as the words have it, unless the
+        numbers are on)."""
+        from . import icons
+        from .combat import estimate_hit
+        g = self.game
+        p = g.player
+        w = p.weapon
+        e = g.soldier_at.get((cx, cy))
+        if not icons.on() or e is None or e is p or w is None or w.t.kind != "gun" or not g.map.visible[cx, cy]:
+            return
+        pr = estimate_hit(g, p, w, e)
+        if not self.app.show_numbers:
+            pr = next(v for lo, v in ((0.75, 0.85), (0.5, 0.62), (0.3, 0.4), (0.15, 0.22), (0.05, 0.1), (-1, 0.03))
+                      if pr > lo)
+        m = g.map
+        cov = int(max(m.cover_toward(e.x, e.y, p.x, p.y), m.pos_cover[e.x, e.y]))
+        from .senses import daylight
+        scope = w.t.cat == "sniper" or bool(w.t.get("scope"))
+        x, y, bw, bh = box
+        sw, sh = 14, 8
+        sx = x + bw - sw
+        sy = y + bh if y + bh + sh <= VIEW_H else max(0, y - sh)
+        con.draw_frame(sx, sy, sw, sh, clear=True, fg=(110, 100, 70), bg=(16, 15, 12))
+        icons.pic(sx + 1, sy + 1, sw - 2, sh - 2, f"sight|{2 if e.downed else e.stance}|{cov // 10 * 10}|"
+                  f"{int(pr * 100)}|{1 if scope else 0}|{round(daylight(g), 1)}", "over")
 
     HOVER_DWELL = 0.3
 

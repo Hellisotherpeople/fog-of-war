@@ -716,16 +716,28 @@ def draw_panel(con, game):
     y += 2
     # body doll
     b = p.body
-    for row, (text, parts) in enumerate(DOLL):
-        for i, ch in enumerate(text):
-            part = parts.get(i)
-            col = UI_DIM
-            if part:
-                _, col = b.part_status(part)
-                bl = b.part_bleeding(part)
-                if bl and bl not in ("bandaged", "tourniquet") and (game.turn % 2 == 0):
-                    col = (255, 30, 30)
-            con.print(x + i, y + row, ch, fg=col, bg=UI_BG)
+    from . import icons
+    pics = icons.on()
+    if pics:
+        bits = []
+        for part in ("head", "torso", "l_arm", "r_arm", "l_leg", "r_leg"):
+            _, col = b.part_status(part)
+            bl = b.part_bleeding(part)
+            code = {"bleeding": "b1", "bleeding badly": "b2", "gushing blood": "b3", "bandaged": "B",
+                    "tourniquet": "T"}.get(bl, "")
+            bits.append(f"{part}:{icons.hexcol(col)}:{code}")
+        icons.pic(x, y, 5, 6, "doll|" + ",".join(bits))
+    else:
+        for row, (text, parts) in enumerate(DOLL):
+            for i, ch in enumerate(text):
+                part = parts.get(i)
+                col = UI_DIM
+                if part:
+                    _, col = b.part_status(part)
+                    bl = b.part_bleeding(part)
+                    if bl and bl not in ("bandaged", "tourniquet") and (game.turn % 2 == 0):
+                        col = (255, 30, 30)
+                con.print(x + i, y + row, ch, fg=col, bg=UI_BG)
     # part list
     ly = y
     for part, label in (("head", "Head"), ("torso", "Torso"), ("l_arm", "L.arm"), ("r_arm", "R.arm"),
@@ -765,13 +777,33 @@ def draw_panel(con, game):
         real = effective(p, p.pace, game.turn)
         st += {"run": ", running", "sprint": ", sprinting", "sneak": ", creeping"}.get(real, "") \
             if real != "walk" else f" ({p.pace}: can't)"
-    con.print(x, y, st[:wdt], fg=UI_TEXT, bg=UI_BG)
+    sx = x
+    if pics:
+        # you, the way you're lying, and what's between you and the nearest trouble
+        m = game.map
+        if p.vehicle is not None:
+            pose = "veh"
+        elif m.water[p.x, p.y] >= 2:
+            pose = "swim"
+        else:
+            pose = str(p.stance)
+        cov = 0
+        if p.vehicle is None:
+            cov = int(m.pos_cover[p.x, p.y])
+            ec = game.brains[p.side].enemy_center if game.brains.get(p.side) is not None else None
+            if ec is not None:
+                cov = max(cov, int(m.cover_toward(p.x, p.y, int(ec[0]), int(ec[1]))))
+        icons.pic(x, y, 5, 2, f"stance|{pose}|{cov // 10 * 10}")
+        sx = x + 6
+    con.print(sx, y, st[:wdt - (sx - x)], fg=UI_TEXT, bg=UI_BG)
     y += 1
     if p.vehicle is None and game.map.in_bounds(p.x, p.y):
         # how hidden you are - as you'd judge it yourself (stealth.py)
         from .stealth import exposure_word
         ew, ecol = exposure_word(game, p)
-        con.print(x, y, ew[:wdt], fg=ecol, bg=UI_BG)
+        con.print(sx, y, ew[:wdt - (sx - x)], fg=ecol, bg=UI_BG)
+        y += 1
+    elif pics:
         y += 1
     sup = p.suppression
     if sup > 70:
@@ -820,6 +852,16 @@ def draw_panel(con, game):
         v = p.vehicle
         con.print(x, y, v.vt.name[:wdt], fg=UI_HI, bg=UI_BG)
         y += 1
+        if pics:
+            # the vehicle from above, and its crew at their seats
+            from . import crew as C
+            from .sprites import vehicle_camo, vehicle_class
+            seat = C.player_seat(v)
+            man = C.manned(v)
+            seats = ",".join(f"{st}:{'you' if st == seat else 'on' if st in man else 'off'}" for st in C.stations(v.vt))
+            icons.pic(x, y, 12, 3, f"vehicle|{vehicle_class(v.vt)}|{vehicle_camo(v.nation, game.year, game.map.climate)}"
+                                   f"|{seats}")
+            y += 3
         from .vdamage import damage_list, hatch_user
         dmg = damage_list(v)
         if v.burning:
@@ -869,7 +911,14 @@ def draw_panel(con, game):
             con.print(x, y, "Empty-handed", fg=UI_DIM, bg=UI_BG)
             y += 1
         else:
-            con.print(x, y, w.t.name[:wdt], fg=UI_HI, bg=UI_BG)
+            wx0 = x
+            key = icons.item_key(w) if pics else None
+            if key is not None:
+                icons.pic(x, y, 7, 2, icons.oriented(key, 7, 2))
+                wx0 = x + 8
+            nm = w.t.name
+            room = wdt - (wx0 - x)
+            con.print(wx0, y, nm if len(nm) <= room else nm[: room - 1] + "…", fg=UI_HI, bg=UI_BG)
             y += 1
             if w.t.kind == "gun":
                 est = w.ammo_estimate()
@@ -878,8 +927,12 @@ def draw_panel(con, game):
                 line = f"{est}" + (f"  [{mode}]" if len(w.t.modes) > 1 else "")
                 if w.heat > 70:
                     line += " HOT"
-                con.print(x, y, line[:wdt], fg=col, bg=UI_BG)
+                con.print(wx0, y, line[:room], fg=col, bg=UI_BG)
                 y += 1
+                if pics and w.t.mag > 1 and w.t.cat not in ("mortar", "at_launcher", "at_disposable", "flamer") \
+                        and not (w.t.get("magtype") and w.mag_item is None):
+                    icons.pic(x, y, wdt, 1, icons.rounds_key(w))      # the rounds, as you know them
+                    y += 1
                 from .familiar import word
                 fw = word(p, w.t)
                 if fw:
@@ -891,10 +944,20 @@ def draw_panel(con, game):
                     for line in textwrap.wrap(s, wdt)[:2]:
                         con.print(x, y, line, fg=UI_DIM, bg=UI_BG)
                         y += 1
+            elif key is not None:
+                y += 1
         gr = p.grenades()
         if gr:
             n = sum(g.count for g in gr)
             con.print(x, y, f"Grenades: {n}", fg=UI_DIM, bg=UI_BG)
+            if pics:
+                gx = x + 12
+                for g in gr:
+                    for _ in range(g.count):
+                        if gx + 2 > x + wdt:
+                            break
+                        icons.pic(gx, y, 2, 1, icons.grenade_key(g.t))
+                        gx += 2
             y += 1
         y += 1
     # time & weather (a watch tells the time, otherwise the sky)
@@ -904,8 +967,22 @@ def draw_panel(con, game):
         tstr = game.time_feel()
     wx = {"clear": "clear", "overcast": "overcast", "rain": "raining", "snow": "snowing", "fog": "foggy",
           "sandstorm": "sandstorm"}.get(game.weather, game.weather)
-    con.print(x, y, f"{tstr}, {wx}"[:wdt], fg=UI_TEXT, bg=UI_BG)
-    y += 2
+    if pics:
+        from .senses import daylight
+        n = game.now()
+        hrs = n.hour + n.minute / 60
+        sun = max(0.0, min(1.0, (hrs - 5.0) / 15.0)) if 5 <= hrs <= 20 else (0.3 if hrs > 20 else 0.7)
+        icons.pic(x, y, 5, 2, f"sky|{round(daylight(game), 1)}|{game.weather}|{round(sun, 1)}")
+        tx = x + 6
+        if p.has_tool("watch"):
+            icons.pic(tx, y, 4, 2, f"watch|{n.strftime('%H:%M')}")
+            tx += 5
+        con.print(tx, y, tstr[:wdt - (tx - x)], fg=UI_TEXT, bg=UI_BG)
+        con.print(tx, y + 1, wx[:wdt - (tx - x)], fg=UI_DIM, bg=UI_BG)
+        y += 3
+    else:
+        con.print(x, y, f"{tstr}, {wx}"[:wdt], fg=UI_TEXT, bg=UI_BG)
+        y += 2
     # orders: the one you're on, and the others you hold (T: the orders book)
     book = _book(game)
     con.print(x, y, "Orders" + (f" ({len(book)})  T: all" if len(book) > 1 else ""), fg=UI_FRAME, bg=UI_BG)
@@ -937,8 +1014,15 @@ def draw_panel(con, game):
         yd = int(round(math.hypot(dxo, dyo) * 2.2 / 50.0) * 50) or 50
         known = p.has_tool("map") or p.has_tool("compass")
         way = f"{direction_word(dxo, dyo)}, {yd} yards" if known else "your leader pointed"
-        con.print(x, y, f"{arrow_for(dxo, dyo)} {way}"[:wdt], fg=(245, 215, 110), bg=UI_BG)
-        y += 1
+        if pics:
+            ang = math.degrees(math.atan2(dxo, -dyo)) % 360
+            icons.pic(x, y, 3, 2, f"pointer|{int(ang)}|{'compass' if p.has_tool('compass') else 'hand'}")
+            for k, line in enumerate(textwrap.wrap(way, wdt - 4)[:2]):
+                con.print(x + 4, y + k, line, fg=(245, 215, 110), bg=UI_BG)
+            y += 2
+        else:
+            con.print(x, y, f"{arrow_for(dxo, dyo)} {way}"[:wdt], fg=(245, 215, 110), bg=UI_BG)
+            y += 1
     y += 1
     # command
     cmd = getattr(game, "command", None)
@@ -980,7 +1064,11 @@ def draw_panel(con, game):
                 if mbr.suppression > 60:
                     st = "pinned"
             nm = f"{mbr.last_name}"[:wdt - 8]
-            con.print(x, y, f"{nm}", fg=SQUAD_COLOR, bg=UI_BG)
+            if pics:
+                icons.pic(x, y, 1, 1, "man|" + {"down!": "down"}.get(st, st))
+                con.print(x + 2, y, f"{nm}"[: wdt - 10], fg=SQUAD_COLOR, bg=UI_BG)
+            else:
+                con.print(x, y, f"{nm}", fg=SQUAD_COLOR, bg=UI_BG)
             con.print(x0 + PANEL_W - 1 - len(st), y, st, fg=col, bg=UI_BG)
             y += 1
     # sector
@@ -997,6 +1085,9 @@ def draw_log(con, game, scroll=0):
     con.draw_rect(0, y0, VIEW_W, LOG_H, ord(" "), bg=(8, 8, 7))
     con.print(0, y0, "─" * VIEW_W, fg=(60, 55, 40), bg=(8, 8, 7))
     msgs = list(game.messages)
+    from . import icons
+    pics = icons.on()
+    lx = 4 if pics else 1                       # (a sign for what kind of news each line is, at its left)
     lines = []
     for mm in msgs[-40:]:
         txt = mm.text + (f" (x{mm.count})" if mm.count > 1 else "")
@@ -1004,12 +1095,14 @@ def draw_log(con, game, scroll=0):
         age = game.turn - mm.turn
         fade = 1.0 if age < 2 else 0.8 if age < 10 else 0.6
         col = tuple(int(c * fade) for c in col)
-        for i, line in enumerate(textwrap.wrap(txt, VIEW_W - 2) or [""]):
-            lines.append((line if i == 0 else "  " + line, col))
+        for i, line in enumerate(textwrap.wrap(txt, VIEW_W - 1 - lx) or [""]):
+            lines.append((line if i == 0 else "  " + line, col, mm.cat if i == 0 else None))
     scroll = max(0, min(scroll, max(0, len(lines) - (LOG_H - 1))))
     show = lines[max(0, len(lines) - (LOG_H - 1) - scroll): len(lines) - scroll if scroll else None]
-    for i, (line, col) in enumerate(show[-(LOG_H - 1):]):
-        con.print(1, y0 + 1 + i, line, fg=col, bg=(8, 8, 7))
+    for i, (line, col, cat) in enumerate(show[-(LOG_H - 1):]):
+        con.print(lx, y0 + 1 + i, line, fg=col, bg=(8, 8, 7))
+        if pics and cat is not None and cat not in ("info", "system"):
+            icons.pic(1, y0 + 1 + i, 2, 1, f"log:x|{cat}")
 
 
 # ====================================================================== popups
@@ -1154,6 +1247,8 @@ def draw_popup(con, pop: Popup):
         row += 1
     if pop.footer:
         con.print(x + 1, y + h - 2, pop.footer[:w - 2], fg=UI_DIM, bg=UI_BG)
+    from . import icons
+    icons.erase(x, y, w, h)                       # (nothing painted earlier shows through the box)
 
 
 def draw_tooltip(con, anchor, lines, title=None):
@@ -1170,10 +1265,13 @@ def draw_tooltip(con, anchor, lines, title=None):
     lx = x if x > ax else x + w - 1
     con.print(ax + (1 if lx > ax else -1), ay, "·", fg=UI_FRAME)
     con.draw_frame(x, y, w, h, clear=True, fg=(110, 100, 70), bg=(16, 15, 12))
+    from . import icons
+    icons.erase(x, y, w, h)
     if title:
         con.print(x + 1, y, f" {title[:w - 4]} ", fg=UI_HI, bg=(16, 15, 12))
     for i, (t, col) in enumerate(lines):
         con.print(x + 1, y + 1 + i, t[:w - 2], fg=col or UI_TEXT, bg=(16, 15, 12))
+    return x, y, w, h
 
 
 def draw_line(con, game, cam, x0, y0, x1, y1, color_fn=None):
@@ -1215,6 +1313,8 @@ def draw_center_box(con, title, lines, width=None, footer=None, top=None):
     x = (SCREEN_W - w) // 2
     y = top if top is not None else (SCREEN_H - h) // 2
     con.draw_frame(x, y, w, h, clear=True, fg=UI_FRAME, bg=UI_BG)
+    from . import icons
+    icons.erase(x, y, w, h)
     con.print(x + 2, y, f" {title} ", fg=UI_HI, bg=UI_BG)
     for i, (t, col) in enumerate(lines[: h - 4]):
         con.print(x + 2, y + 2 + i, t[: w - 4], fg=col or UI_TEXT, bg=UI_BG)

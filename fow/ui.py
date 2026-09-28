@@ -453,12 +453,24 @@ class CreatorState:
         dw = SCREEN_W - dx - 3
         con.draw_frame(dx - 1, 5, dw + 2, SCREEN_H - 9, clear=False, fg=(70, 65, 45))
         yy = 6
+        from . import icons
+        bottom = SCREEN_H - 5 - (15 if icons.on() else 0)
         for para in (desc or "").split("\n"):
             for line in textwrap.wrap(para, dw - 1) or [""]:
-                if yy >= SCREEN_H - 5:
+                if yy >= bottom:
                     break
                 con.print(dx, yy, line, fg=UI_TEXT)
                 yy += 1
+        if icons.on():
+            # the man you're making, as far as he's been chosen: his army's cloth and helmet, his job's weapon
+            nat = self._nation() or ""
+            role = self.v["role"] if self.v["role"] not in ("default", "random") else "rifleman"
+            icons.pic(dx + 2, SCREEN_H - 20, 9, 15, f"recruit|{nat}|{role}")
+            if nat:
+                icons.pic(dx + 12, SCREEN_H - 19, 5, 3, f"emblem|{nat}")
+                con.print(dx + 12, SCREEN_H - 15, NATIONS[nat]["army"][: dw - 13], fg=UI_DIM)
+            con.print(dx + 12, SCREEN_H - 14, (ROLES.get(role, {}).get("name", "") if role else "")[: dw - 13],
+                      fg=UI_TEXT)
         con.print(x0, SCREEN_H - 2, "↑↓ choose a line  ←→ cycle  Enter pick  Esc back", fg=UI_DIM)
 
     # -------------------------------------------------------- input
@@ -743,6 +755,11 @@ class OrdersState:
         wdt = W - x - 4
         y = 5
         con.draw_rect(self.LEFT, 5, 1, H - 8, ord("│"), fg=self.FAINT, bg=self.PAPER)
+        from . import icons
+        if icons.on():
+            # how it reached you, and whose army it comes from (a picture at the top right of the page)
+            icons.pic(W - 14, 5, 7, 3, f"how:x|{o['how']}")
+            icons.pic(W - 6, 5, 3, 2, f"emblem|{g.player.nation}")
 
         def put(label, text, col=None):
             nonlocal y
@@ -753,6 +770,7 @@ class OrdersState:
                 con.print(x + 12, y, line, fg=col or self.INK, bg=self.PAPER)
                 y += 1
             y += 1
+        wdt = wdt - (15 if icons.on() else 0)
         put("From", o["who"])
         put("How", o["how"])
         put("Given", _clock(g, o["issued"]) if o.get("issued") is not None and o["issued"] <= g.turn else "")
@@ -1058,12 +1076,23 @@ class LogState(TextState):
     def __init__(self, app, game):
         from .constants import MSG_COLORS
         lines = []
+        self.cats = []                              # (the kind of news on each line's first row, for its sign)
         for m in list(game.messages):
             t = m.text + (f" (x{m.count})" if m.count > 1 else "")
-            for w in textwrap.wrap(t, SCREEN_W - 12):
-                lines.append((w, MSG_COLORS.get(m.cat, UI_TEXT)))
+            for k, w in enumerate(textwrap.wrap(t, SCREEN_W - 15)):
+                lines.append(("   " + w, MSG_COLORS.get(m.cat, UI_TEXT)))
+                self.cats.append(m.cat if k == 0 else None)
         super().__init__(app, "What happened", lines)
         self.scroll = max(0, len(lines) - (SCREEN_H - 6))
+
+    def render(self, con):
+        super().render(con)
+        from . import icons
+        if not icons.on():
+            return
+        for i, cat in enumerate(self.cats[self.scroll:self.scroll + SCREEN_H - 6]):
+            if cat is not None and cat not in ("info", "system"):
+                icons.pic(5, 3 + i, 2, 1, f"log:x|{cat}")
 
 
 def chain_text(game, a):
@@ -1145,13 +1174,24 @@ class StatusState:
                 con.print(50, y, bleed, fg=(255, 80, 80) if "bleed" in bleed or "gush" in bleed else (200, 190, 150))
             y += 1
         # the doll, coloured
-        keymap = {"H": "head", "T": "torso", "L": "l_arm", "R": "r_arm", "l": "l_leg", "r": "r_leg"}
-        for i, row in enumerate(self.DOLL):
-            for j, ch in enumerate(row):
-                if ch in keymap:
-                    con.print(66 + j, 4 + i, "█", fg=partcol[keymap[ch]])
-                elif ch != " ":
-                    con.print(66 + j, 4 + i, ch, fg=(120, 120, 110))
+        from . import icons
+        if icons.on():
+            bits = []
+            for part in PARTS:
+                bl = b.part_bleeding(part)
+                code = {"bleeding": "b1", "bleeding badly": "b2", "gushing blood": "b3", "bandaged": "B",
+                        "tourniquet": "T"}.get(bl, "")
+                nw = sum(1 for wd in b.wounds if wd.part == part)
+                bits.append(f"{part}:{icons.hexcol(partcol[part])}:{code}:{nw}")
+            icons.pic(64, 3, 14, 20, "doll|" + ",".join(bits))
+        else:
+            keymap = {"H": "head", "T": "torso", "L": "l_arm", "R": "r_arm", "l": "l_leg", "r": "r_leg"}
+            for i, row in enumerate(self.DOLL):
+                for j, ch in enumerate(row):
+                    if ch in keymap:
+                        con.print(66 + j, 4 + i, "█", fg=partcol[keymap[ch]])
+                    elif ch != " ":
+                        con.print(66 + j, 4 + i, ch, fg=(120, 120, 110))
         y += 1
         wounds = [w for w in b.wounds]
         con.print(2, y, f"Wounds ({len(wounds)})" if wounds else "No open wounds.", fg=UI_HI if wounds else UI_DIM)
@@ -1199,10 +1239,12 @@ class StatusState:
         # right column: heat, breath, load, nerves
         x = 84
         yy = 4
-        con.print(x, yy, "Heat and cold", fg=UI_HI)
-        yy += 1
         from . import thermal
         tw, tc = thermal.words(p)
+        icons.pic(x - 3, yy, 2, 1, "sense:x|" + ("cold" if "old" in tw or "reez" in tw or "hiver" in tw else
+                                                  "hot" if "ot" in tw or "eat" in tw else "mild"))
+        con.print(x, yy, "Heat and cold", fg=UI_HI)
+        yy += 1
         con.print(x + 2, yy, tw + (f" ({getattr(b, 'temp', 37.0):.1f}°C core)" if nums else ""), fg=tc)
         yy += 1
         air = thermal.ambient(g)
@@ -1225,6 +1267,7 @@ class StatusState:
                       fg=(170, 190, 255))
             yy += 1
         yy += 1
+        icons.pic(x - 3, yy, 2, 1, "sense:x|breath")
         con.print(x, yy, "Breath and legs", fg=UI_HI)
         yy += 1
         st = getattr(p, "stamina", 100.0)
@@ -1240,12 +1283,14 @@ class StatusState:
                 con.print(x + 4, yy, f"- {label}: x{v:.2f}", fg=UI_DIM)
                 yy += 1
         yy += 1
+        icons.pic(x - 3, yy, 2, 1, "sense:x|load")
         con.print(x, yy, "Load", fg=UI_HI)
         yy += 1
         wkg = p.carried_weight()
         con.print(x + 2, yy, f"{wkg:.1f} kg carried" + ("  - too much" if wkg > 26 else ""),
                   fg=(240, 170, 90) if wkg > 26 else UI_TEXT)
         yy += 2
+        icons.pic(x - 3, yy, 2, 1, "sense:x|nerves")
         con.print(x, yy, "Nerves", fg=UI_HI)
         yy += 1
         mw = "steady" if p.morale > 70 else "holding" if p.morale > 45 else "shaken" if p.morale > 25 else "at breaking point"
@@ -1454,6 +1499,8 @@ class OptionsState:
              "scrolls it.", None),
             ("Minimap open at the start", "minimap", "toggle", "F5 shows or hides it in play.", None),
             ("Hit chances as numbers", "show_numbers", "toggle", "Percentages instead of words when aiming.", None),
+            ("Pictures in the interface", "pictures", "toggle", "Your kit, your body, your watch and the sky, the "
+             "map sheet: drawn as well as named. Off: words only, as in a terminal.", None),
             ("PLAY", None, "head", "", None),
             ("Key hints", "hints", "toggle", "A line under your orders with the keys for what's beside you: a "
              "vehicle, a door, a wounded man, someone to talk to, your seat in a tank. F1 or ? for all the keys.",
@@ -1918,6 +1965,8 @@ class OvermapState:
                     y = oy + (vy - self.vy0) * self.CH
                     con.draw_rect(x, y, self.CW - 1, self.CH - 1, ord(" "), bg=(16, 16, 16))
                     con.print(x + self.CW // 2 - 1, y + 1, "?", fg=(55, 55, 55), bg=(16, 16, 16))
+                    from . import icons
+                    icons.under(con, x, y, self.CW, self.CH, "terrain|x|unknown|0")
                     if (vx, vy) == (self.cx, self.cy):
                         con.draw_frame(x - 1, y - 1, self.CW + 1, self.CH + 1, clear=False, fg=UI_HI)
                     continue
@@ -1942,10 +1991,11 @@ class OvermapState:
                 bg = tuple(min(255, c + 22) for c in bg)
             con.draw_rect(x, y, self.CW - 1, self.CH - 1, ord(" "), bg=bg)
             from .strategic import BIOME_GLYPH, power
+            from . import icons
             if known or s.biome == "sea":
                 gl = BIOME_GLYPH.get(s.biome, "?")
                 for i in range(self.CW - 1):
-                    if (i + s.y) % 3 == 0:
+                    if (i + s.y) % 3 == 0 and not icons.on():     # (with pictures, the ground is drawn)
                         con.print(x + i, y + self.CH - 2, gl, fg=(110, 110, 100), bg=bg)
                 nm = s.name[: self.CW - 2]
                 con.print(x + 1, y, nm, fg=(220, 210, 180), bg=bg)
@@ -1977,6 +2027,13 @@ class OvermapState:
             if in_reach:
                 con.print(x, y + self.CH - 2, "·", fg=(240, 220, 130), bg=bg)
                 con.print(x + self.CW - 2, y + self.CH - 2, "·", fg=(240, 220, 130), bg=bg)
+            from . import icons
+            if icons.on():
+                # the sector as it is on the sheet (or, without a map, as you'd sketch it from memory)
+                ctl = "unknown" if not (known or s.biome == "sea") else \
+                    "ours" if s.control == p.side else "theirs" if s.control == other_side(p.side) else "none"
+                icons.under(con, x, y, self.CW, self.CH,
+                            f"terrain|{s.biome}|{ctl}|{0 if self.has_map else 1}|{s.x},{s.y}")
             if (s.x, s.y) == (self.cx, self.cy):
                 con.draw_frame(x - 1, y - 1, self.CW + 1, self.CH + 1, clear=False,
                                fg=(250, 150, 110) if self.mode == "attack" else (140, 190, 250) if self.mode == "move"
