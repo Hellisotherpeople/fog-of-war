@@ -851,7 +851,7 @@ class PlayState:
             return
         if g.__dict__.get("autopilot") and not g.game_over:
             from .succession import set_autopilot
-            if p.state != "ok" or not p.alive:
+            if p.state != "ok" or not p.alive or g.__dict__.get("domain", "land") != "land":
                 set_autopilot(g, False)
             else:
                 # your soldier acts on his own, as every other man does - second by second; with nobody in
@@ -4941,6 +4941,10 @@ class PlayState:
         from .succession import autopilot_on, set_autopilot
         g = self.game
         if g.player.state != "ok" or g.game_over:
+            return
+        if not autopilot_on(g) and g.__dict__.get("domain", "land") != "land":
+            g.msg("Aboard, your job is your station and your orders: Enter gets on with them, Z lets the watch go "
+                  "by. (There's no autopilot at sea or in the air.)", "info")
             return
         self.stop_auto()
         set_autopilot(g, not autopilot_on(g))
