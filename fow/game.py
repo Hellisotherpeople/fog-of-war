@@ -2494,9 +2494,12 @@ class Game:
                     shifted = np.roll(np.roll(src, wx, axis=0), wy, axis=1)
                     nb += shifted * 1.5
                 p = nb * (T.FLAM[m.t] / 100.0) * (0.04 if not rain else 0.01)
-                ign = (rng.random() < p) if False else (np.random.random(p.shape) < p)
+                nrng = self.__dict__.get("np_rng")
+                if nrng is None:                   # (seeded: the same battle burns the same way every time)
+                    nrng = self.np_rng = np.random.default_rng((getattr(self, "seed", 0) or 0) * 7919 + 11)
+                ign = nrng.random(p.shape) < p
                 ign &= (f == 0) & (T.FLAM[m.t] > 0)
-                f[ign] = np.random.randint(15, 45, size=int(ign.sum())).astype(np.int16)
+                f[ign] = nrng.integers(15, 45, size=int(ign.sum())).astype(np.int16)
             m.smoke[f > 0] += 0.35
             # burning soldiers
             for a in list(self.actors):
@@ -2949,6 +2952,8 @@ class Game:
         for a in acts:
             if not a.alive:
                 continue
+            if not 0 <= a.morale <= 100:
+                a.morale = min(100.0, max(0.0, a.morale))      # (brave or broken, but within the scale)
             a.moves += a.speed(self.turn) if a is not p else a.speed()
             if a is p and not self.__dict__.get("autopilot"):
                 continue                          # (on autopilot, you're one of them: succession.py)

@@ -42,7 +42,12 @@ PRAISE = {"usa": "he'll remember it", "uk": "he'll remember it", "germany": "he'
           "ussr": "a word to the company commander", "japan": "it reflects well on you"}
 
 
-def sanction(nation, level) -> str:
+def sanction(nation, level, rank=None) -> str:
+    """What the army does to a man at this level of trouble (a private can't be reduced: filthy jobs and the
+    point, instead; a Soviet private goes to the penal company)."""
+    if level >= 2 and rank is not None and rank <= 0:
+        return ("the penal company" if nation == "ussr" else
+                "every filthy job going, and the point on every patrol for the rest of the war")
     return SANCTION.get(nation, SANCTION["uk"])[max(0, min(2, level))]
 
 
@@ -111,7 +116,7 @@ def book(game) -> list:
                         how=how, text=TASK_TEXT[t["kind"]], issued=t["issued"], due=t["deadline"],
                         reward=("his trust" if r < 3 else "his trust, and a line in your record") +
                         f" ({PRAISE.get(nat, 'he will remember it')})",
-                        penalty=f"a strike against you: {sanction(t.get('by_nation', nat), next_level)}",
+                        penalty=f"a strike against you: {sanction(t.get('by_nation', nat), next_level, p.rank)}",
                         urgent=t["kind"] in ("down", "help", "fire", "come"), point=duty.task_point(game, t)))
     # a fire mission for your gun or tube
     if game.support is not None and game.map is not None:
@@ -142,7 +147,7 @@ def book(game) -> list:
                         how="written orders" if bo["kind"] != "guard" else "detailed at the guardroom",
                         text=BASE.order_line(game), issued=bo.get("issued"), due=bo.get("deadline"),
                         reward=", ".join(bits) or "the adjutant's good opinion",
-                        penalty=f"a strike against you: {sanction(nat, next_level)}", urgent=False, point=None))
+                        penalty=f"a strike against you: {sanction(nat, next_level, p.rank)}", urgent=False, point=None))
     # a sailor ashore
     if game.__dict__.get("ship_ashore"):
         ctx = game.ship_ashore

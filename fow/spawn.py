@@ -5,6 +5,9 @@ import math
 import random
 from collections import Counter
 
+import numpy as np
+import tcod
+
 from . import tiles as T
 from .ai import Order, Squad, assign_positions
 from .constants import ALLIES, AXIS, SIDES, other_side
@@ -225,10 +228,36 @@ def apply_kit(a: Actor, kit: dict, year: float = 1943.0):
 
 # ====================================================================== placement
 
+def reachable(game):
+    """Where a man can walk to from an edge of the map (through doors): a place outside it is a sealed pocket - a
+    room with no door, the gap between two bunkers - and nobody should be put there.  None where it doesn't
+    apply (aboard, or no way in from any edge)."""
+    m = game.map
+    if game.__dict__.get("domain", "land") != "land":
+        return None
+    key = (id(m), m.__dict__.get("walk_version", m.version))
+    c = m.__dict__.get("_reach")
+    if c is not None and c[0] == key:
+        return c[1]
+    walk = m.walk
+    cost = np.where(walk, 1, 0).astype(np.int32)
+    dist = tcod.path.maxarray(walk.shape, dtype=np.int32)
+    edge = np.zeros(walk.shape, bool)
+    edge[0, :] = edge[-1, :] = edge[:, 0] = edge[:, -1] = True
+    dist[edge & walk] = 0
+    tcod.path.dijkstra2d(dist, cost, 2, 3, out=dist)
+    mask = dist < np.iinfo(np.int32).max
+    if mask.sum() < walk.sum() * 0.3:
+        mask = None                                # (an island, a sealed map: don't second-guess it)
+    m._reach = (key, mask)
+    return mask
+
+
 def free_tile_near(game, x, y, radius=6, avoid_water=True, rng=None):
     m = game.map
     rng = rng or game.rng
     best = None
+    reach = reachable(game)
     for r in range(0, radius + 1):
         cands = []
         for dx in range(-r, r + 1):
@@ -245,6 +274,8 @@ def free_tile_near(game, x, y, radius=6, avoid_water=True, rng=None):
                 if avoid_water and m.water[xx, yy] >= 2:
                     continue
                 if (xx, yy) in m.mines:
+                    continue
+                if reach is not None and not reach[xx, yy]:
                     continue
                 cands.append((xx, yy))
         if cands:
@@ -999,8 +1030,20 @@ def ensure_aid_posts(game):
         if edge is None:
             continue
         x, y = edge_band_point(game, edge, game.rng, depth=(5, 11))
+        # coming in from the sea: the aid post is on the first dry ground, not in the surf
+        ix, iy = {"N": (0, 1), "S": (0, -1), "W": (1, 0), "E": (-1, 0)}[edge]
+        dry = 0
+        for _ in range(max(m.w, m.h)):
+            if not m.in_bounds(x, y):
+                break
+            dry = dry + 1 if (m.water[x, y] == 0 and m.walk[x, y] and
+                              T.DEFS[int(m.t[x, y])].key not in ("pier", "bridge")) else 0
+            if dry >= 5:
+                break
+            x, y = x + ix, y + iy
+        x, y = max(1, min(m.w - 2, x)), max(1, min(m.h - 2, y))
         pt = free_tile_near(game, x, y, 10)
-        if pt is None:
+        if pt is None or m.water[pt[0], pt[1]] or T.DEFS[int(m.t[pt])].key in ("pier", "bridge"):
             continue
         x, y = pt
         rect = (max(1, x - 4), max(1, y - 3), 9, 7)
@@ -1011,7 +1054,7 @@ def ensure_aid_posts(game):
                 m.t[xx, yy] = T.ID["redcross"]
         for k in range(-2, 3, 2):
             xx, yy = x + k, y - 1
-            if m.in_bounds(xx, yy) and m.walk[xx, yy] and (xx, yy) not in game.soldier_at:
+            if m.in_bounds(xx, yy) and m.walk[xx, yy] and (xx, yy) not in game.soldier_at and not m.water[xx, yy]:
                 m.t[xx, yy] = T.ID["bed"]
         m.refresh()
         rec = dict(kind="aid", side=side, x=x, y=y, rect=rect, name="the battalion aid post",

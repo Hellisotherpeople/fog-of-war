@@ -1419,9 +1419,6 @@ class PlayState:
             return
         if not g.player.body.conscious or g.map is None:
             return                               # (out cold: no walking, firing or menus by mouse either)
-        if g.__dict__.get("autopilot") and not self.popups and self.inv_screen is None:
-            g.msg("Your soldier's on autopilot. (A to take over)", "info")
-            return
         if self.inv_screen is not None:
             return self.inv_screen.on_click(tx, ty, button)
         if self.travel_path or self.running or self.auto_wait or self.__dict__.get("digging") or \
@@ -1433,6 +1430,9 @@ class PlayState:
             self.stop_auto()
             return
         if not self.popups and button == 1 and self._minimap_click(tx, ty):
+            return
+        if g.__dict__.get("autopilot") and not self.popups and self.inv_screen is None:
+            g.msg("Your soldier's on autopilot. (A to take over)", "info")       # (looking and the minimap still work)
             return
         if self.popups:
             pop = self.popups[-1]

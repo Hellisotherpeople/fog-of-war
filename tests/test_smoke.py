@@ -1108,6 +1108,20 @@ def test_orders_book_autopilot_and_succession():
     ps = PlayState(fa, g)
     fa.states = [ps]
     p = g.player
+    # a quiet field: nobody of theirs left, their guns and aircraft silent (all real, and they'd find him)
+    for a in list(g.actors):                         # (a copy: g.kill takes the dead off the list)
+        if a.side != p.side and a.alive:
+            a.body.dead = True
+            g.kill(a, None)
+    for b in g.support.fires.batteries:
+        if b.side != p.side:
+            b.ammo = 0
+    g.support.next_sortie = {k: 10 ** 9 for k in g.support.next_sortie}
+    g.waves = []
+    g.shells = []
+    for v in list(g.vehicles):
+        if v.side != p.side:
+            v.dead = True
     sup = p.squad.leader
     g.duty.give(g, "dig", sup)
     g.duty.give(g, "scout", sup, (p.x + 10, p.y), leg="out")
@@ -1127,19 +1141,6 @@ def test_orders_book_autopilot_and_succession():
     g.duty._check_task(g, t)
     assert BASE._state(g).get("fatigues", 0) > 0             # a chewing-out, and extra duty at the next base
     # the autopilot: he goes on without you
-    for a in g.actors:
-        if a.side != p.side and a.alive:
-            a.body.dead = True
-            g.kill(a, None)
-    for b in g.support.fires.batteries:              # (their guns and aircraft are real, and would find him)
-        if b.side != p.side:
-            b.ammo = 0
-    g.support.next_sortie = {k: 10 ** 9 for k in g.support.next_sortie}
-    g.waves = []
-    g.shells = []
-    for v in list(g.vehicles):                       # (and their tanks: the crews are counted, not all actors)
-        if v.side != p.side:
-            g.remove_vehicle(v) if hasattr(g, "remove_vehicle") else setattr(v, "dead", True)
     ps.on_key(Key(char="A"))
     assert g.autopilot
     t0 = g.turn
@@ -1148,7 +1149,8 @@ def test_orders_book_autopilot_and_succession():
         ps.tick()
     assert g.turn > t0 + 30, (g.turn - t0, p.state, g.autopilot, [m.text for m in list(g.messages)[-8:]])
     ps.on_key(Key(char="A"))
-    assert not g.autopilot
+    assert not g.autopilot, (p.body.conscious, p.state, [m.text for m in list(g.messages)[-10:]],
+                             {k: round(v) for k, v in p.body.hp.items()}, round(p.body.blood), p.body.pain)
     # succession: the war goes on
     ps.on_key(Key(char="A"))
     hit_actor(g, p, 999, "gunshot", None, "a test", part="head")

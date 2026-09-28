@@ -137,8 +137,9 @@ class Duty:
             f = f.parent
         for a in game.actors:
             if a.side == p.side and a.active and a.rank >= 8 and a.rank > p.rank and a not in out and \
-                    max(abs(a.x - p.x), abs(a.y - p.y)) <= 14:
-                out.append(a)
+                    max(abs(a.x - p.x), abs(a.y - p.y)) <= 14 and a.role not in ("surgeon", "chaplain", "medic") and \
+                    (a.squad is None or a.squad.kind not in ("aid", "rear", "staff", "supply")):
+                out.append(a)                        # (the surgeon and the rear echelon don't police the line)
         return out
 
     def watching(self, game, sup) -> bool:
@@ -450,10 +451,16 @@ class Duty:
         brain = game.brains[p.side]
         if brain.home is None or sq.leader is None or not sq.leader.active:
             return
-        # heading for the rear, far from your squad, with your squad still fighting
+        # heading for the rear - actually going, not just left behind - far from your squad, which is still fighting
         far = max(abs(sq.leader.x - p.x), abs(sq.leader.y - p.y)) > 18
-        rearward = int(brain.home[p.x, p.y]) < int(brain.home[sq.leader.x, sq.leader.y]) - 10 * 4
-        if not (far and rearward) or p.downed or game.medic_bound(p):
+        here = int(brain.home[p.x, p.y])
+        rearward = here < int(brain.home[sq.leader.x, sq.leader.y]) - 10 * 4
+        hist = self.__dict__.setdefault("home_hist", [])
+        hist.append((game.turn, here))
+        while hist and game.turn - hist[0][0] > 30:
+            hist.pop(0)
+        going = hist and hist[0][1] - here >= 4 * 4           # (four tiles nearer home in the last half minute)
+        if not (far and rearward and going) or p.downed or game.medic_bound(p):
             return
         sup = self.watcher(game)
         if sup is None or game.turn - self.last_desert < 20:

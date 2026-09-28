@@ -130,9 +130,21 @@ def tick(game):
         if t - sq.last_contact < 12:
             if (t // 2) % 2 == sq.id % 2:
                 _fight_talk(game, sq)
-        elif t - sq.last_contact > 120 and (t // 2) % 5 == sq.id % 5 and rng.random() < 0.3:
+        elif (t // 2) % 5 == sq.id % 5 and rng.random() < 0.3 and quiet(game, sq):
             _quiet_life(game, sq)
     return p
+
+
+def quiet(game, sq) -> bool:
+    """A quiet hour for this section: no contact for two minutes, no shells close in that time, nobody keeping
+    his head down (shellfire counts, not just rifles)."""
+    t = game.turn
+    if t - sq.last_contact <= 120 or t < 60:
+        return False
+    for m in sq.members:
+        if m.alive and (m.suppression > 20 or t - m.ai.get("near_shell", -9999) < 120):
+            return False
+    return True
 
 
 def _cry(game, a):
@@ -424,7 +436,7 @@ def errand_act(game, a) -> int | None:
         return None
     kind, x, y, until = er
     sq = a.squad
-    if game.turn > until or (sq is not None and game.turn - sq.last_contact < 60) or a.visible:
+    if game.turn > until or (sq is not None and not quiet(game, sq)) or a.visible or a.suppression > 20:
         a.ai.pop("errand", None)
         return None
     from . import actions as A
