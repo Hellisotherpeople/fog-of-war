@@ -1131,6 +1131,12 @@ def test_orders_book_autopilot_and_succession():
         if a.side != p.side and a.alive:
             a.body.dead = True
             g.kill(a, None)
+    for b in g.support.fires.batteries:              # (their guns and aircraft are real, and would find him)
+        if b.side != p.side:
+            b.ammo = 0
+    g.support.next_sortie = {k: 10 ** 9 for k in g.support.next_sortie}
+    g.waves = []
+    g.shells = []
     ps.on_key(Key(char="A"))
     assert g.autopilot
     t0 = g.turn
@@ -1389,6 +1395,9 @@ def test_use_things_where_they_lie():
     for b in g.support.fires.batteries:
         b.ammo = 0
     p = g.player
+    if p.vehicle is not None:                        # (riding a tank's hull: down first)
+        ps._vehicle_choice(p.vehicle, ("exit", None))
+    assert p.vehicle is None
     for i in list(p.inv):
         if i.t.kind == "medical":
             p.remove_item(i)
@@ -1559,6 +1568,58 @@ def test_waiting_goes_quickly():
     fa2.states = [ps2]
     ps2.on_key(Key(char="Z"))
     assert ps2.__dict__.get("ff_until") or ps2.popups
+
+
+def test_parked_aircraft_are_full_size():
+    """Aircraft on the ground are as big as they were (a B-17 sixteen tiles across), each tile the part it is;
+    they're named when you look, kept with the sector when you leave it - and so are the hills and the floors."""
+    import random
+    import numpy as np
+    from fow import parked as PK, tiles as T
+    from fow import shipyard as SY
+    from fow.skysea import Ship
+    from fow.skysea_exit import to_land
+    assert PK.box("bf109", 0) == (5, 5) and PK.box("b17", 0)[0] >= 15 and PK.box("f6f", 1, True) == (5, 3)
+    S, L, g = PK.grid("he111")
+    flat = [c for row in g for c in row]
+    assert flat.count("ac_engine") >= 4 and flat.count("ac_body") >= L - 1 and flat.count("ac_wing") >= 6
+    # an airfield behind our lines
+    g = Game("bocage44", "usa", role="rifleman", seed=3, setup={"battlefield": "standard"})
+    p = g.player
+    s0 = next(s for s in g.strategic.sectors() if s.control == p.side and s.installs(p.side, "motor_pool"))
+    s0.installations = [["airfield", p.side, True]]
+    s0.saved = None
+    g.map = None
+    to_land(g, s0)
+    m = g.map
+    recs = m.__dict__.get("parked") or []
+    assert len(recs) >= 3
+    rec = recs[0]
+    assert rec["w"] * rec["h"] >= 20 and rec["model"] not in PK.CARRIER_OK      # (no carrier types ashore in France)
+    parts = PK.cells(rec["model"], rec["x"], rec["y"], rec["facing"], rec["folded"])
+    assert all(T.DEFS[int(m.t[x, y])].key == k for x, y, k in parts)
+    bx, by = next((x, y) for x, y, k in parts if k == "ac_body")
+    assert "parked" in PK.describe(m, bx, by) and not T.WALK[m.t[bx, by]]
+    wx, wy = next(((x, y) for x, y, k in parts if k == "ac_wing"), (None, None))
+    if wx is not None:
+        assert T.WALK[m.t[wx, wy]] and T.COST[m.t[wx, wy]] > 150
+    # it burns: a fuselage destroyed goes up and leaves a wreck
+    from fow.combat import damage_tile
+    damage_tile(g, bx, by, 10000)
+    assert T.DEFS[int(m.t[bx, by])].key == "ac_wreck" and g.pending_explosions
+    # leave the sector and come back: the aircraft, the hills and the floors are all still there
+    elev = m.elev.copy()
+    storeys = dict(m.__dict__.get("storeys") or {})
+    g._save_map()
+    m2 = g._load_map(s0)
+    assert len(m2.__dict__.get("parked") or []) == len(recs)
+    assert np.allclose(m2.elev, elev) and dict(m2.__dict__.get("storeys") or {}) == storeys
+    # a carrier's flight deck: the air group spotted aft, wings folded
+    ship = Ship("essex", "allies", "usa", 0, 0, 0, rng=random.Random(1))
+    decks, _order, _fr = SY.build(ship, random.Random(2))
+    fl = decks["flight"].map.__dict__.get("parked") or []
+    assert len(fl) >= 12 and all(r["folded"] or r["model"] == "sbd" for r in fl)
+    assert any(r["model"] in ("sbd", "sb2c") for r in fl) and any(r["model"] == "tbf" for r in fl)
 
 
 if __name__ == "__main__":

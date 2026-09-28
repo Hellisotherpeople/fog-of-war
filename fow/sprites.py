@@ -1031,6 +1031,17 @@ def paint_place(c: Canvas, key: str, tid: int, r) -> bool:
         for x in (16, 26, 38, 48):
             c.ellipse((x - 2, 27, x + 2, 33), fill=(220, 225, 230, 255))
         c.ellipse((27, 25, 37, 35), fill=(125, 95, 60, 255), outline=(70, 52, 32, 255))
+    elif key == "ac_wreck":
+        c.texture((48, 44, 40), 0.18)
+        c.speckle((25, 22, 20), 30, (1, 3))
+        for _ in range(7):
+            x, y = r.uniform(6, 58), r.uniform(6, 58)
+            a = r.uniform(0, math.pi)
+            L = r.uniform(8, 20)
+            col = mix((150, 150, 148), (90, 88, 84), r.random())
+            c.poly([(x, y), (x + math.cos(a) * L, y + math.sin(a) * L),
+                    (x + math.cos(a + 0.4) * L * 0.6, y + math.sin(a + 0.4) * L * 0.6)], fill=col + (255,))
+        c.speckle((200, 90, 30), 3, (0.6, 1.2))
     elif key == "tobruk":
         c.rect((8, 8, 56, 56), fill=(160, 160, 152, 255), outline=(110, 110, 104, 255), width=3)
         c.ellipse((18, 18, 46, 46), fill=(30, 30, 30, 255), outline=(190, 190, 184, 255), width=3)
@@ -1058,7 +1069,7 @@ def is_object(key: str) -> bool:
                "chart_table", "periscope", "lookout_post", "station", "hatch_exit", "fire_curtain", "railing",
                "bollard", "poplar", "wall_white", "sail", "sail2", "boxcar", "locomotive", "water_tower",
                "chimney", "silo", "calvary", "memorial", "fountain", "vault", "timber", "sangar", "torii", "stupa",
-               "oil_tank", "radar", "pole", "tobruk"):
+               "oil_tank", "radar", "pole", "tobruk", "ac_wreck"):
         return True
     if key.startswith("wall") or key.startswith("tree") or key in ("pine", "olive", "palm", "dead_tree",
                                                                     "bush", "bush_snow", "jungle", "bamboo",
@@ -1068,7 +1079,8 @@ def is_object(key: str) -> bool:
 
 
 # newer tiles drawn by the painter of the tile they're most like (in their own colours)
-SPRITE_ALIAS = {"birch": "tree", "cypress": "pine", "fir": "pine", "apple_tree": "tree", "mangrove": "tree",
+SPRITE_ALIAS = {"ac_body": "dirt", "ac_engine": "dirt", "ac_wing": "dirt", "ac_tail": "dirt",
+                "birch": "tree", "cypress": "pine", "fir": "pine", "apple_tree": "tree", "mangrove": "tree",
                 "vineyard": "corn", "sugarcane": "corn", "drystone": "low_wall", "camelthorn": "scrub",
                 "reeds": "tall_grass", "scree": "rock_ground", "outcrop": "boulder", "dune": "sand", "wadi": "sand",
                 "tomb": "wall_stone", "stairs": "floor_wood", "trapdoor": "floor_wood"}
@@ -1456,6 +1468,177 @@ def paint_aircraft(nation: str, direction: int, shadow=False) -> np.ndarray:
     return c.array()
 
 
+# parked aircraft (parked.py): paint scheme -> (upper surfaces, disruptive second colour or None)
+AIR_CAMO = {
+    "germany": ((70, 82, 60), (52, 60, 46)), "winter_germany": ((215, 218, 222), (80, 90, 70)),
+    "desert_germany": ((190, 165, 115), (120, 110, 80)), "italy": ((175, 158, 110), (95, 105, 70)),
+    "desert_italy": ((190, 170, 120), (110, 115, 80)), "japan": ((95, 105, 70), (70, 80, 55)),
+    "naval_japan": ((160, 165, 150), None), "ussr": ((85, 105, 60), (45, 50, 40)),
+    "winter_ussr": ((215, 218, 222), None), "usa": ((95, 100, 62), None), "metal": ((185, 188, 190), None),
+    "naval_usa": ((72, 88, 115), None), "desert_usa": ((175, 150, 115), None), "uk": ((100, 95, 60), (70, 85, 55)),
+    "desert_uk": ((175, 145, 100), (120, 90, 60)), "naval_uk": ((110, 115, 115), (80, 90, 90)),
+    "desert_australia": ((175, 145, 100), (120, 90, 60)), "desert_india": ((175, 145, 100), (120, 90, 60)),
+    "france": ((110, 105, 80), (80, 90, 70)), "poland": ((105, 105, 70), None), "finland": ((85, 95, 65), (45, 50, 40)),
+    "winter_finland": ((215, 218, 222), (80, 90, 70)), "hungary": ((75, 85, 60), None), "romania": ((95, 95, 65), None),
+    "china": ((150, 150, 140), None), "canada": ((100, 95, 60), (70, 85, 55)), "australia": ((100, 95, 60), (70, 85, 55)),
+    "newzealand": ((80, 90, 110), None), "india": ((100, 95, 60), (70, 85, 55)),
+}
+
+
+def _insignia(d, cx, cy, r, nation):
+    """The national marking on a wing, seen from above."""
+    def disc(rr, col):
+        d.ellipse((cx - rr, cy - rr, cx + rr, cy + rr), fill=col + (255,))
+    if nation in ("uk", "canada", "australia", "newzealand", "india"):
+        disc(r, (40, 55, 130))
+        disc(r * 0.45, (170, 40, 40))
+    elif nation == "france":
+        disc(r, (40, 55, 130)); disc(r * 0.66, (235, 235, 235)); disc(r * 0.33, (190, 40, 40))
+    elif nation == "usa":
+        disc(r, (40, 55, 110))
+        pts = []
+        for k in range(10):
+            a = -math.pi / 2 + k * math.pi / 5
+            rr = r * (0.9 if k % 2 == 0 else 0.38)
+            pts.append((cx + math.cos(a) * rr, cy + math.sin(a) * rr))
+        d.polygon(pts, fill=(235, 235, 235, 255))
+    elif nation == "japan":
+        disc(r, (235, 235, 235)); disc(r * 0.8, (190, 30, 30))
+    elif nation in ("ussr", "china"):
+        col = (200, 35, 35) if nation == "ussr" else (40, 60, 150)
+        if nation == "china":
+            disc(r, col); disc(r * 0.5, (235, 235, 235))
+            return
+        pts = []
+        for k in range(10):
+            a = -math.pi / 2 + k * math.pi / 5
+            rr = r * (1.0 if k % 2 == 0 else 0.42)
+            pts.append((cx + math.cos(a) * rr, cy + math.sin(a) * rr))
+        d.polygon(pts, fill=col + (255,))
+    elif nation in ("germany", "hungary", "romania", "finland"):
+        w = r * 0.42
+        edge = (235, 235, 235) if nation != "romania" else (230, 200, 50)
+        d.rectangle((cx - r, cy - w - 3, cx + r, cy + w + 3), fill=edge + (255,))
+        d.rectangle((cx - w - 3, cy - r, cx + w + 3, cy + r), fill=edge + (255,))
+        core = (25, 25, 25) if nation != "finland" else (40, 70, 150)
+        d.rectangle((cx - r + 3, cy - w, cx + r - 3, cy + w), fill=core + (255,))
+        d.rectangle((cx - w, cy - r + 3, cx + w, cy + r - 3), fill=core + (255,))
+    elif nation == "italy":
+        disc(r, (235, 235, 235)); disc(r * 0.8, (35, 35, 35))
+    elif nation == "poland":
+        h = r * 0.7
+        for i in range(2):
+            for j in range(2):
+                col = (200, 35, 35) if (i + j) % 2 == 0 else (235, 235, 235)
+                d.rectangle((cx - h + i * h, cy - h + j * h, cx + i * h, cy + j * h), fill=col + (255,))
+
+
+def paint_parked(model: str, scheme: str, nation: str, facing: int, folded: bool) -> dict:
+    """A parked aircraft drawn whole from its planform (parked.py), then cut into its tiles: {(dx, dy): 64x64}."""
+    from . import parked as PK
+    parts, (shown, length) = PK.planform(model, folded)
+    S, L, _g = PK.grid(model, folded)
+    span, _ln, engines, _f, layout = PK.DIMS.get(model, PK.DIMS["bf109"])
+    W, H = S * M, L * M
+    sc = M / PK.TILE_M
+    top, second = AIR_CAMO.get(scheme, AIR_CAMO.get(nation, ((110, 112, 100), None)))
+
+    def P(poly):
+        return [(W / 2 + x * sc, y * sc) for x, y in poly]
+    rng = random.Random(hash((model, scheme)) & 0xFFFF)
+    img = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    # the shadow on the ground
+    sh = Image.new("L", (W, H), 0)
+    sd = ImageDraw.Draw(sh)
+    for part, poly in parts:
+        sd.polygon([(x + 10, y + 12) for x, y in P(poly)], fill=120)
+    sh = sh.filter(ImageFilter.GaussianBlur(4))
+    shadow = Image.new("RGBA", (W, H), (0, 0, 0, 255))
+    shadow.putalpha(sh)
+    img = Image.alpha_composite(img, shadow)
+    body = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    d = ImageDraw.Draw(body)
+    order = {"ac_wing": 0, "ac_tail": 1, "ac_engine": 3, "ac_body": 2}
+    for part, poly in sorted(parts, key=lambda pp: order[pp[0]]):
+        col = {"ac_wing": top, "ac_tail": top, "ac_body": shade(top, 0.92), "ac_engine": shade(top, 0.7)}[part]
+        d.polygon(P(poly), fill=col + (255,), outline=shade(top, 0.55) + (255,))
+    # disruptive camouflage over the upper surfaces
+    if second is not None:
+        mask = Image.new("L", (W, H), 0)
+        md = ImageDraw.Draw(mask)
+        for _ in range(int(S * L * 1.2)):
+            x, y = rng.uniform(0, W), rng.uniform(0, H)
+            rr = rng.uniform(0.5, 1.4) * M * 0.5
+            md.polygon([(x + math.cos(a) * rr * rng.uniform(0.6, 1.2), y + math.sin(a) * rr * rng.uniform(0.6, 1.2))
+                        for a in np.linspace(0, math.tau, 6, endpoint=False)], fill=255)
+        alpha = np.minimum(np.asarray(mask), np.asarray(body)[..., 3])
+        blot = Image.new("RGBA", (W, H), second + (255,))
+        blot.putalpha(Image.fromarray(alpha.astype(np.uint8), "L"))
+        body = Image.alpha_composite(body, blot)
+        d = ImageDraw.Draw(body)
+    fw = max(1.1, min(3.0, span * 0.085)) * sc
+    from .data.vehicles import AIRCRAFT
+    role = AIRCRAFT[model].role if model in AIRCRAFT else "fighter"
+    n0 = PK.NOSE * sc
+    # canopy / glazed nose, spine highlight
+    if layout in ("twin", "four") and role in ("bomber", "heavybomber", "divebomber"):
+        d.ellipse((W / 2 - fw * 0.45, n0, W / 2 + fw * 0.45, n0 + length * sc * 0.13), fill=(150, 185, 205, 255))
+        d.ellipse((W / 2 - fw * 0.35, length * sc * 0.16, W / 2 + fw * 0.35, length * sc * 0.26),
+                  fill=(120, 160, 185, 255))
+    elif engines >= 2 and layout not in ("jet", "twinboom"):
+        d.ellipse((W / 2 - fw * 0.4, length * sc * 0.08, W / 2 + fw * 0.4, length * sc * 0.15),
+                  fill=(120, 160, 185, 255))
+    else:
+        cy0 = length * sc * (0.3 if layout != "twinboom" else 0.2)
+        d.ellipse((W / 2 - fw * 0.3, cy0, W / 2 + fw * 0.3, cy0 + length * sc * 0.16), fill=(125, 165, 190, 255))
+    d.line([(W / 2, length * sc * 0.5), (W / 2, length * sc * 0.95)], fill=lighten(top, 0.25) + (160,), width=2)
+    # propellers: a grey blur of a disc and the blades, at every engine that has one
+    if layout != "jet":
+        for part, poly in parts:
+            if part != "ac_engine":
+                continue
+            xs = [x for x, _ in poly]
+            ys = [y for _, y in poly]
+            cx, cy = W / 2 + (min(xs) + max(xs)) / 2 * sc, min(ys) * sc
+            pr = (1.5 if engines == 1 else 1.7) * sc
+            d.ellipse((cx - pr, cy - pr * 0.18, cx + pr, cy + pr * 0.18), fill=(40, 40, 40, 110))
+            for k in range(3):
+                a = rng.uniform(0, math.pi) + k * math.pi / 1.5
+                d.line([(cx, cy), (cx + math.cos(a) * pr, cy + math.sin(a) * pr * 0.2)], fill=(30, 30, 30, 255),
+                       width=3)
+            d.ellipse((cx - 5, cy - 5, cx + 5, cy + 5), fill=(60, 60, 60, 255))
+    # the markings on the wings
+    if not folded:
+        wy = None
+        for part, poly in parts:
+            if part == "ac_wing":
+                wy = sum(y for _, y in poly) / len(poly)
+                break
+        if wy is not None:
+            r = min(0.9, span * 0.045) * sc
+            for s_ in (-1, 1):
+                _insignia(d, W / 2 + s_ * span * 0.33 * sc, wy * sc, r, nation)
+    # a dark rim round it all: you can't walk through it (the wings you can duck under)
+    a = np.asarray(body)[..., 3]
+    solid = Image.fromarray(np.where(a > 180, 255, 0).astype(np.uint8), "L")
+    ring = solid.filter(ImageFilter.MaxFilter(5)).point(lambda v: int(v * 0.8))
+    edge = Image.new("RGBA", (W, H), (12, 14, 10, 255))
+    edge.putalpha(ring)
+    img = Image.alpha_composite(Image.alpha_composite(img, edge), body)
+    if facing == 1:
+        img = img.transpose(Image.ROTATE_270)
+    elif facing == 2:
+        img = img.transpose(Image.ROTATE_180)
+    elif facing == 3:
+        img = img.transpose(Image.ROTATE_90)
+    out = {}
+    arr = np.asarray(img, np.uint8)
+    for dy in range(arr.shape[0] // M):
+        for dx in range(arr.shape[1] // M):
+            out[(dx, dy)] = arr[dy * M:(dy + 1) * M, dx * M:(dx + 1) * M].copy()
+    return out
+
+
 def paint_item(kind: str, side_color=None) -> np.ndarray:
     c = Canvas(seed=hash(kind) & 0xFFFF)
     gun = (40, 38, 36)
@@ -1666,6 +1849,17 @@ class SpriteBank:
             for (dx, dy), arr in sorted(pieces.items()):
                 cp = self._get(key + (dx, dy), lambda a=arr: a)
                 got.append((dx, dy, cp))
+            self.keys[key] = got
+        return got
+
+    def parked_pieces(self, model, scheme, nation, facing, folded):
+        """[(dx, dy, codepoint)] for a parked aircraft, drawn whole across its tiles."""
+        key = ("parked", model, scheme, nation, facing % 4, bool(folded))
+        got = self.keys.get(key)
+        if got is None:
+            got = []
+            for (dx, dy), arr in sorted(paint_parked(model, scheme, nation, facing % 4, folded).items()):
+                got.append((dx, dy, self._get(key + (dx, dy), lambda a=arr: a)))
             self.keys[key] = got
         return got
 

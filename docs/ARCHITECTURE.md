@@ -39,6 +39,7 @@ bigger battlefields; `oob.py` builds the formations over them).
                 landmarks.py        windmills, stations, châteaux, forts, shrines...: the named places
                 gamemap.py tiles.py the map arrays (terrain, cover, sight, cost, items, mines, fire)
                 going.py            the going in words (the look) and as a tint (X)
+                parked.py           aircraft on the ground at their real size: planform, part tiles, records
                 spawn.py            soldiers, squads, vehicles, the player; filling a battlefield
    │
  the fight      game.py             the Game object and its turn loop
@@ -324,6 +325,15 @@ nearest road (`track`, around buildings and water), protects its ground and adds
 rise or in a hole register `gen.rises`, which `relief.make` adds to the heightmap. `dress()` adds the
 calvaries, memorials, named buildings, poplars and telegraph poles; `fortify()` runs after the
 defences (Tobruk pits, sangars).
+
+Parked aircraft (`parked.py`) are terrain plus a record. `planform(model)` gives the wings, fuselage,
+nacelles and tailplane in metres from the real span and length (`DIMS`). `grid()` rasterises it, so each
+tile is the part that covers most of it (`ac_body`, `ac_engine`, `ac_wing`, `ac_tail`, each with its own
+walk, sight, cover and fuel). `place()` stamps those tiles and appends a record to `m.parked` (model,
+nation, box, facing, folded, the ground under it, the paint scheme); the record is saved with the sector.
+`sprites.paint_parked` draws the same planform whole, rotates it and cuts it into tiles, which
+`render_sprites` lays over the ground the aircraft stands on. `_save_map`/`_load_map` also keep the
+heightmap and the storeys now (before, a revisited sector came back flat, with every building one storey).
 
 The interface's pictures (`icons.py`) are painted by code too. Any screen asks for a picture over a
 rectangle of text cells with `icons.pic(x, y, w, h, key)`: a key such as `gun:rifle`,

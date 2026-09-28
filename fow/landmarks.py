@@ -814,11 +814,15 @@ def radar_station(gen):
 
 
 def airstrip(gen):
+    """A landing strip: the strip itself, and on one side the dispersal - aircraft at their real size, most of
+    them burnt out where they stood (a contested strip changes hands), a tent, drums, the wireless mast."""
+    from . import parked as PK
     r = gen.rng
     horiz = gen.w >= gen.h
     L = int(min(110, (gen.w if horiz else gen.h) * 0.55))
     W = 5
-    w, h = (L, W + 8) if horiz else (W + 8, L)
+    D = 8                                   # the dispersal's depth: room for a fighter or a Stuka
+    w, h = (L, W + D + 5) if horiz else (W + D + 5, L)
     at = spot(gen, w, h, dense_ok=0.8, depth=(0.3, 0.95), tries=120, roads_ok=True)
     if at is None:
         return False
@@ -829,31 +833,51 @@ def airstrip(gen):
     before = gen.m.t[x0:x0 + w, y0:y0 + h].copy()
     clear(gen, x0, y0, w, h, ground(gen))
     if horiz:
-        clear(gen, x0, y0 + 4, L, W, surf)
+        clear(gen, x0, y0 + D, L, W, surf)
     else:
-        clear(gen, x0 + 4, y0, W, L, surf)
+        clear(gen, x0 + D, y0, W, L, surf)
     sub = gen.m.t[x0:x0 + w, y0:y0 + h]
     sub[keep & (sub == _t(ground(gen)))] = before[keep & (sub == _t(ground(gen)))]     # the road still crosses
-    # dispersal: revetments with wrecks and the odd aircraft still in them, drums, a tent, the control hut
-    for k in range(r.randint(3, 6)):
-        f = r.uniform(0.1, 0.9)
-        px, py = (x0 + int(f * L), y0 + 1) if horiz else (x0 + 1, y0 + int(f * L))
-        put(gen, px, py, "plane_parked" if r.random() < 0.25 else "wreck")
-        for ox, oy in ((-1, 0), (1, 0), (-1, -1), (0, -1), (1, -1)) if horiz else ((0, -1), (0, 1), (-1, -1),
-                                                                                    (-1, 0), (-1, 1)):
-            if gen.m.t[px + ox, py + oy] == _t(ground(gen)):
-                put(gen, px + ox, py + oy, "sandbags")
+    # the dispersal: whose aircraft? the side holding the ground now, or the side that did
+    side = gen.spec.get("defender_side") or ("axis" if r.random() < 0.5 else "allies")
+    if r.random() < 0.35:
+        side = "allies" if side == "axis" else "axis"
+    nat, year = gen.side_nation(side)
+    sch = PK.scheme(nat, year, gen.m.climate)
+    pos = 3
+    n = 0
+    while pos < L - 12 and n < r.randint(2, 5):
+        model = PK.pick(nat, year, ("fighter", "fighterbomber", "divebomber", "attacker"), r,
+                        pacific=gen.m.climate == "tropical" or gen.spec.get("lang") in ("ja", "mel"))
+        if model is None:
+            break
+        facing = 2 if horiz else 1                 # nose to the strip
+        bw, bh = PK.box(model, facing)
+        if (bh if horiz else bw) > D - 1:
+            pos += 4
+            continue
+        ax, ay = (x0 + pos, y0 + D - 1 - bh) if horiz else (x0 + D - 1 - bw, y0 + pos)
+        if PK.fits(gen.m, model, ax, ay, facing):
+            rec = PK.place(gen.m, model, ax, ay, facing, nat, scheme=sch)
+            n += 1
+            if r.random() < 0.7:                   # burnt where it stood
+                for cx, cy, _p in PK.cells(model, ax, ay, facing):
+                    gen.m.t[cx, cy] = _t("ac_wreck")
+                rec["burnt"] = True
+            pos += (bw if horiz else bh) + r.randint(3, 8)
+        else:
+            pos += 4
     for _ in range(r.randint(2, 4)):
         f = r.uniform(0.05, 0.95)
         px, py = (x0 + int(f * L), y0 + h - 2) if horiz else (x0 + w - 2, y0 + int(f * L))
         put(gen, px, py, "fuel_drums")
     # the strip's edges marked out with painted drums, every hundred yards or so
     for k in range(0, L, 14):
-        for e in (3, 4 + W):
+        for e in (D - 1, D + W):
             px, py = (x0 + k, y0 + e) if horiz else (x0 + e, y0 + k)
             if gen.m.t[px, py] == _t(ground(gen)):
                 put(gen, px, py, "fuel_drums")
-    hx, hy = (x0 + 2, y0 + h - 3) if horiz else (x0 + w - 3, y0 + 2)
+    hx, hy = (x0 + 2, y0 + h - 4) if horiz else (x0 + w - 4, y0 + 2)
     gen.m.t[hx:hx + 4, hy:hy + 3] = _t("canvas")
     gen.m.t[hx + 1:hx + 3, hy + 1] = _t("dirt")
     put(gen, (x0 + L - 3) if horiz else x0 + w - 2, (y0 + h - 2) if horiz else y0 + L - 3, "antenna")

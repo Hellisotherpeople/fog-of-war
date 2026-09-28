@@ -1016,7 +1016,9 @@ class Game:
         s.saved = dict(t=pk(m.t), hp=pk(m.hp), blood=pk(m.blood), scorch=pk(m.scorch),
                        items=m.items, mines=m.mines, objectives=m.objectives, explored=pk(m.explored),
                        name=m.name, biome=m.biome, climate=m.climate, buildings=m.buildings, var=m.var,
-                       positions=recs)
+                       positions=recs, parked=list(m.__dict__.get("parked") or []),
+                       storeys=dict(m.__dict__.get("storeys") or {}),
+                       elev=pk(m.elev) if m.__dict__.get("elev") is not None else None)
 
     def _load_map(self, sector):
         from .gamemap import GameMap
@@ -1038,6 +1040,14 @@ class Game:
         # the bases are still there: their records come back (populate() puts the people and vehicles back -
         # neither is saved with the map - but not the crates and dressings, which are)
         m.gen_positions = list(sv.get("positions", []))
+        # the aircraft on the ground, the lie of the land and the floors of the buildings (saved since 2026-09-28;
+        # a sector saved before then comes back flat, as it did)
+        if sv.get("parked"):
+            m.parked = list(sv["parked"])
+        if sv.get("storeys"):
+            m.storeys = dict(sv["storeys"])
+        if sv.get("elev") is not None:
+            m.elev = up(sv["elev"])
         m.loaded = True
         m.refresh()
         return m

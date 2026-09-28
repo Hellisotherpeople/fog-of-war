@@ -742,6 +742,9 @@ class PlayState:
         else:
             title = None
             desc = m.describe(x, y) if vis else m.tile(x, y).name + " (remembered)"
+            if m.tile(x, y).key.startswith("ac_"):
+                from .parked import describe as ac_describe
+                desc = ac_describe(m, x, y) or desc
             lines.append((desc[0].upper() + desc[1:], UI_TEXT if vis else UI_DIM))
             from .going import words as going_words
             gw = going_words(g, x, y, self.app.show_numbers)
@@ -3691,13 +3694,12 @@ class PlayState:
     def _parked_plane_near(self):
         g = self.game
         p = g.player
-        pid = T.ID.get("plane_parked")
-        if pid is None:
-            return False
+        from .parked import ids as ac_ids
+        planes = ac_ids() | {T.ID["plane_parked"]}
         for dx in (-1, 0, 1):
             for dy in (-1, 0, 1):
                 x, y = p.x + dx, p.y + dy
-                if g.map.in_bounds(x, y) and g.map.t[x, y] == pid:
+                if g.map.in_bounds(x, y) and int(g.map.t[x, y]) in planes:
                     return g.sector.control == p.side
         return False
 
