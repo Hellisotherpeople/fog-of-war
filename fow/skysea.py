@@ -171,6 +171,7 @@ class Ship:
         self.name = name or f"{CLASS_NAME.get(self.cls, 'ship').title()} {self.id}"
         self.target = None
         self.turret_out = 0
+        self.fuel = 100.0         # per cent of her bunkers (three days' steaming at 20 knots)
 
     @property
     def alive(self):
@@ -431,7 +432,7 @@ class SkySea:
                     p.ai.pop("leader", None)
             if wp is not None:
                 tx, ty = wp
-                want_hdg = bearing(p.x, p.y, tx, ty)
+                want_hdg = (bearing(p.x, p.y, tx, ty) + p.ai.get("bomb_trim", 0)) % 360   # (the bomb aimer's trim)
                 d = math.hypot(tx - p.x, ty - p.y)
                 want_alt = p.ai.get("alt", 4000)
                 if role == "dive":
@@ -756,7 +757,16 @@ class SkySea:
 
     # ------------------------------------------------------------ bombs, torpedoes, strafing
     def drop(self, p):
-        """Bombs away (or the torpedo)."""
+        """Bombs away (or the torpedo) - and then, as for any bomber that's let go, the turn for home."""
+        self._drop(p)
+        if not p.bombs and not p.torpedo and p.ai.get("role") in ("bomber", "dive", "torpedo", "attack", "strike"):
+            p.ai["drop"] = True                   # (the formation keys its own release off the leader's)
+            p.ai.pop("bomb_trim", None)
+            if p.ai.get("home_pt") or p.home:
+                p.ai["wp"] = p.ai.get("home_pt") or p.home
+                p.ai["role"] = "home"
+
+    def _drop(self, p):
         rng = self.rng()
         if p.torpedo:
             p.torpedo = False
@@ -879,6 +889,12 @@ class SkySea:
         s.hdg = (s.hdg + max(-rate, min(rate, dh))) % 360
         top = s.st["speed"] if not (s.cls == "ss" and s.depth > 0) else s.st["subspeed"]
         top *= max(0.3, 1 - s.flood / 120)
+        # fuel: burnt roughly with the square of the speed; dry bunkers leave her creeping
+        fuel = s.__dict__.get("fuel", 100.0)
+        if s.cls not in ("ss",) or s.depth == 0:
+            s.fuel = max(0.0, fuel - 0.000386 * (s.kn / 20.0) ** 2)
+        if s.fuel <= 0:
+            top = min(top, 5.0)
         want = min(s.order_kn, top)
         s.kn += max(-0.6, min(0.4, want - s.kn))
         dx, dy = s.dirv()
@@ -907,6 +923,25 @@ class SkySea:
             self._sink(s)
             return
         self._ship_guns(s)
+
+    def shore_salvo(self, ship, m):
+        """A salvo at the shore target of a bombardment mission.  (ok, what the spotters say)."""
+        gun = ship.st["main"] or ship.st["sec"]
+        if gun is None or self.t < ship.main_ready:
+            return True, ("Reloading." if gun else "No guns.")
+        sx, sy, name, sec = m["shore"]
+        d = math.hypot(sx - ship.x, sy - ship.y)
+        if d > gun[2]:
+            return False, f"The shore target is out of range ({d / 10:.1f} km). Close the coast."
+        ship.main_ready = self.t + gun[3]
+        m["shots"] = m.get("shots", 0) + 1
+        st = self.game.strategic
+        c = st.at(*sec)
+        if c is not None and c.control in c.units:
+            st._attrit(c.units[c.control], gun[1] * gun[0] / 600.0, c.control)
+            c.fort = max(0, c.fort - (1 if self.rng().random() < 0.1 else 0))
+        self.add_effect("blast", sx, sy, 2)
+        return True, f"A salvo roars off toward {name}. Spotters report the fall of shot."
 
     def _clear_heading(self, s, want):
         """The nearest heading to the one wanted that doesn't put her on the rocks (the navigator's job).
@@ -1002,6 +1037,28 @@ class SkySea:
         m = self.mission or {}
         k = m.get("kind")
         top = s.st["speed"]
+        if k == "rtb":
+            # making for the base; once there, she anchors
+            px, py = m["port_pt"]
+            d = math.hypot(px - s.x, py - s.y)
+            if m.get("stage") in ("arrived", "port"):
+                s.order_kn = 0.0
+                return
+            s.order_hdg = bearing(s.x, s.y, px, py)
+            s.order_kn = top * (0.6 if d > 12 else 0.3)
+            return
+        if k == "cover" and m.get("stage") not in ("done", "failed"):
+            cx, cy = m["cover_pt"]
+            d = math.hypot(cx - s.x, cy - s.y)
+            s.order_hdg = bearing(s.x, s.y, cx, cy) if d > 6 else (s.hdg + 4) % 360      # on station: circling
+            s.order_kn = top * (0.7 if d > 6 else 0.45)
+            return
+        if k == "rescue" and m.get("stage") not in ("done", "failed"):
+            rx, ry = m["rescue_pt"]
+            d = math.hypot(rx - s.x, ry - s.y)
+            s.order_hdg = bearing(s.x, s.y, rx, ry)
+            s.order_kn = top if d > 8 else max(4.0, top * 0.2)
+            return
         if m.get("stage") in ("done", "failed") or k is None:
             hx, hy = m.get("home", (s.x, s.y))
             if math.hypot(hx - s.x, hy - s.y) > 5:
@@ -1018,6 +1075,8 @@ class SkySea:
             rng_ = (s.st["main"][2] if s.st.get("main") else 60) * 0.7
             s.order_hdg = bearing(s.x, s.y, tx, ty) if d > rng_ else (bearing(s.x, s.y, tx, ty) + 90) % 360
             s.order_kn = top * (0.7 if d > rng_ else 0.4)
+            if d <= rng_ / 0.7 and self.t >= s.main_ready:
+                self.shore_salvo(s, m)            # the captain works the target over himself
             return
         if not known:
             s.order_kn = top * 0.5
@@ -1041,6 +1100,15 @@ class SkySea:
                 s.order_hdg, s.order_kn = (brg + 180) % 360, top
             else:
                 s.order_hdg, s.order_kn = (brg + 90) % 360, top * 0.6
+            return
+        if tgt.cls == "ss":
+            # a submarine: run in over where the sonar says he is, and drop a pattern
+            s.order_hdg = brg
+            s.order_kn = top * (0.6 if d > 3 else 0.5)
+            if d < 1.0 and s.dc > 0 and s.ai.get("dc_t", -99) < self.t - 30 and \
+                    (-tgt.id in self.contacts or tgt in enemies):
+                self.depth_charges(s, tgt)
+                s.ai["dc_t"] = self.t
             return
         gun = (s.st["main"][2] if s.st.get("main") else 60) * 0.8
         if s.cls in ("dd", "de", "pt") and s.torps:
@@ -1296,7 +1364,8 @@ class SkySea:
         f, d, t = s.air
         types = CARRIER_AIR.get(s.nation, CARRIER_AIR["usa"])
         yr = self.game.year
-        nf, nd, nt = int(f * 0.4), int(d * share), int(t * share)
+        # (a deck load: at most a dozen of each type go in one strike - the rest stay aboard)
+        nf, nd, nt = min(12, int(f * 0.4)), min(12, int(d * share)), min(12, int(t * share))
         if nd + nt == 0:
             return "Nothing left on deck to send."
         s.air = [f - nf, d - nd, t - nt]

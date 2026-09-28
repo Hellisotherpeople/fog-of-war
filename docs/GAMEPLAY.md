@@ -70,6 +70,18 @@ AT guns attached, and commanders at every level. Ranks run on one 19-grade scale
 five-star, with each nation's own titles (Gefreiter, Starshina, Heichō, Maresciallo d'Italia,
 General of the Army, Marshal of the Soviet Union...).
 
+**Orders that need a place** (advance, assault, flank, suppress, defend, ambush at) offer a short
+list first: the next objective, the enemy positions your side knows of, the other objectives. Enter
+takes the first; you can still pick any spot on the map, and Tab steps the cursor through the list.
+
+**Tasks.** Between the fighting a leader sends his men round the dead and the dumps: for
+ammunition that fits their weapons, for dressings and morphine, for grenades and weapons, or for
+the enemy's papers and maps, which come to you (for the intelligence officer). He has the wounded
+carried back to the aid post, the men who've surrendered searched and marched to the rear (your
+order, your credit), and the tank crews given a hand. Everything taken is really taken out of the
+dead men's webbing. The men work when no enemy is close and fight when one is, never send more
+than half the squad to carry, and the leader reports what they found.
+
 **Who you can order.** Anyone in your own chain of command, and any other friendly unit whose
 leader you outrank. Below general rank, only men of your own army: a British lieutenant can't
 order Americans about. Giving orders to a unit outside your chain takes it under your command.
@@ -110,6 +122,38 @@ reach (one for a colonel, the whole theatre for a five-star) can be ordered to a
 neighbour, dig in, send half their forces to another sector, or get artillery or air priority.
 Orders go out at the next strategic tick (about ten minutes). Senior officers also get more guns,
 faster, when they call fire missions.
+
+## Behind the line: bases
+
+Headquarters, depots, aid stations, motor pools, airfields and naval bases are staffed by real
+men at real posts. They carry what rear-echelon men carried, go back to their posts when nothing's
+happening, can be killed, and are only there while the base is (and still there when you come
+back). Walk into one to talk, or right-click him.
+
+| who | where | what he does for you |
+|---|---|---|
+| adjutant | headquarters | orders; report in when you've lost your unit; the situation; a pass to the rear |
+| clerk | headquarters, naval base | your pay; mail from home; your service record (and the promotion the CO signs); a letter home |
+| military police | headquarters, naval base | where to find everyone - or your arrest, if you're wanted |
+| quartermaster | depot, ammunition point | trade what you carry; draw kit |
+| armourer | depot | strip and clean your weapon (it jams less); ammunition; swap a captured weapon for an issue one |
+| cook | depot, airfield, naval base | a hot meal, a mug of whatever your army drinks, rations for the road |
+| chaplain (the Red Army: political officer) | aid station | a talk; the tags of the dead; a letter to a family |
+| surgeon | aid station | treatment |
+| motor sergeant | motor pool | a vehicle; repairs |
+| air operations officer | airfield | flying orders for aircrew |
+| port director | naval base | a ship; the liberty boat back to yours |
+
+**The adjutant's orders** are real jobs in the real war, and they show in your orders like any
+other, with the arrow and Enter to get on with them, across sectors if need be:
+- carry dispatches to another headquarters and hand them to an officer there;
+- go up and rejoin a company in the line (you're put in a squad when you arrive);
+- patrol into enemy ground, see what's there, and come back and report;
+- stand a guard at the base;
+- report to the naval base for a ship, or to the airfield for flying duties.
+
+Each has a deadline. Carry it out and report back for credit, merit and your reputation; let it
+lapse and the adjutant will have words.
 
 ## Kinds of war
 
@@ -171,6 +215,19 @@ company, and she's under way in the same war as every other ship and aircraft in
   hull and hear about it. Flooding spreads compartment by compartment; if she goes down, she goes
   down under you: "Abandon ship!", over the rail, and a ship at twenty knots doesn't stop for a man
   in the water.
+- **Between battles.** When the job's done the signal comes from the task force commander. If
+  she's short of fuel, has fired off her torpedoes or depth charges, lost half her air group or
+  taken damage, she goes back to base. Otherwise there's more work: another enemy force reported,
+  a coast to bombard, a convoy to take through, a submarine to hunt, men in the water to pick up,
+  or a landing to cover against wave after wave of air attack. Fuel burns with speed (a status
+  line shows it).
+- **In port.** She anchors off a naval base (a real one where the theatre had one: Kerama Retto,
+  Espiritu Santo, Alexandria, Portsmouth...). The oiler, the ammunition lighters and the repair
+  gangs take as long as they take; `Z` lets the hours go. Off watch you can take the liberty boat
+  ashore (`e` at the rail) to the base, with its quay and piers, port director, clerk, cook and
+  MPs. Be back by 0500. When the refit's done her sailing orders come, and at 0600 she sails,
+  with you or without you. Miss her and you're absent without leave: turn yourself in, or wait
+  for the MPs.
 - **The lookouts report by bearing from the bow.** From an open deck, aircraft and ships show at the
   edge of the view ("✈ D3A 'Val' 0.9 km"); below decks you only know what the loudspeaker says.
 - **Bombers too:** the fuselage of a B-17 or a Do 17, from the nose to the tail turret, with the sky
@@ -341,9 +398,79 @@ anything new. `!` (or Esc > Options) turns safe mode off.
 - **Crews.** Every vehicle has seats: driver, gunner, loader, bow gunner, commander. You do your
   own seat's job and nothing else. The men in the other seats fire their own weapons at their
   own targets. From the commander's seat you steer the driver and give the gunners targets.
+- **Getting in, getting on, getting out.** `e` beside a vehicle gets you in: a seat if it has
+  seats (a half-track, a truck), a crew position if you're a tanker or it's empty or abandoned,
+  otherwise a handhold on a tank's engine deck with up to five others. Riders are fast and
+  exposed: anything that hits the tank, and any burst of fire across its hull, can hit them.
+  `e` again gets you down. Right-click a vehicle for the rest.
+- **Vehicles are made of parts.** A hit that gets inside breaks particular things, and each takes its
+  own work away. A broken track or a smashed transmission: it can't move, but it can still shoot. A
+  dead engine: no moving, and the turret is cranked round by hand. A jammed turret ring: the hull has
+  to swing to aim. Smashed sights: open sights, and a crew that's half blind buttoned up. A damaged
+  gun fires wild; a knocked-out one doesn't fire. A dead radio: no calls. Holed fuel tanks make the next
+  hit likelier to start a fire, and a round in the ammunition racks can blow it apart. A crewman hit
+  leaves his seat empty until the others pull him clear and one climbs across. After a penetration
+  about a third of tanks brew up, a third are abandoned, and a third fight on with what still works.
+  Hover over a vehicle to see its state: ours, everything the crew would tell you; the enemy's, only
+  what shows from outside (a track lying off, holes, smoke, a head out of the hatch).
+- **Seeing from a tank.** The commander with his head out of the hatch sees furthest, and can be
+  shot. Buttoned up, it's periscopes, and worse if they're cracked. The gunner sees only down his
+  sight; the driver through his visor. AI commanders ride head-out when it's quiet (and, depending on
+  their army's habits, in a fight at a distance), and duck down when they're shelled, hit, or there are
+  infantry close. Up in a vehicle, or riding on one, you see over maize, sunflowers, undergrowth,
+  garden hedges and hay; so does everyone looking at a vehicle.
+- **The sun and the moon.** Each battle has its place and its clock, so the sun rises when it really
+  rose and a dawn attack starts in the half-light it started in. Twilight widens the view by degrees.
+  At night the moon matters: the D-Day drop and El Alamein's barrage went in under a full moon, and
+  cloud hides it.
+- **Fire support that exists.** Every shell that falls and every aircraft that comes over belongs to
+  a unit that is somewhere:
+  - batteries of guns (with names, like *C Battery, 12th Field Artillery Battalion* or
+    *3./Artillerie-Regiment 13*) at the artillery positions on the war map, with their guns, crews
+    and rounds;
+  - a mortar platoon with each battalion in the line;
+  - named warships off a landing beach (USS Texas off Omaha);
+  - squadrons at their airfields, with so many aircraft serviceable.
+
+  A call for fire (`R`, or an AI officer's) goes to a battery that can reach and isn't firing, and it
+  fires what it has. With none free, the answer is no. On your map the guns and tubes are there to
+  see, and to silence: overrun an enemy gun line and its fire stops. Off your map you hear them
+  from their direction before the rounds come in. Batteries fire at the fighting in their reach all
+  day, are resupplied from the depots, and are lost when their ground is taken. Guns that fire give
+  themselves away to the enemy's sound-rangers and flash-spotters: counter-battery fire follows, from
+  the enemy's guns (that was the artillery's business; mortars rarely had the range for gun lines).
+  Mortars are harder to locate, until the counter-mortar organisations and radars of 1944; when they
+  are found, counter-mortar fire comes from guns and mortars both. Aircraft come from their
+  airfield's direction, are shot down by flak, and need an hour on the ground between sorties.
+- **The gun line.** As an artilleryman you're the layer on a field gun of a real battery. The fire
+  missions come down the wire with the charge, azimuth and elevation worked out from where your gun
+  is and where the target is. You lay and fire (Enter), the observer calls corrections from where the
+  rounds really fell, and at the end he reports what the mission did, taken off the enemy on the war
+  map. As a mortarman in the battalion's mortar platoon, you get your tube's share of its missions,
+  and the ammunition bearers bring bombs up from the platoon's carts.
+- **Keeping the tanks going.** A thrown track is half an hour's work for four men with a
+  sledgehammer and track tools; a dead engine or a damaged gun needs fitters (the motor pool's,
+  or the two who ride up with an ammunition truck). Crews only climb out to work when nobody's
+  shooting at them and they haven't been hit for a minute. Idle infantry close by walk over and lend
+  a hand (three at a time), and so can you (right-click: *Help fix*); leading a squad, `O` has
+  *Give the crew a hand*. Racks run dry: when it's quiet, each side
+  sends an ammunition truck up from the rear to where its vehicles are short, and they drive to it
+  and pass the rounds up, one every eight seconds at best (about 18 minutes for a full load). With
+  a radio you can ask for one (`R`). Your sergeant may send you to help with the track or to
+  carry a crate of shells up from the truck (right-click the truck: *Take a crate*; right-click the
+  tank: *Hand up the shells*); Enter does it. Behind the line the motor sergeant (or the adjutant)
+  has **supply runs**: a loaded truck of your own to drive to the tanks in another sector, where
+  they've been fighting and are nearly out. It's done when they're loaded.
 - **Medicine.** Anyone can pack a wound. Medics and corpsmen do more. Surgeons at aid posts
   operate, and men heal slowly in the line and faster behind it. Allies patch you up and share
   ammunition, and they expect the same of you.
+- **Medical evacuation.** Badly hit, out of the enemy's sight and fire, with a radio (yours, your
+  tank's, or the radioman beside you), you can call for stretcher-bearers. Four men come on foot from
+  the aid post on your ground, or up from the rear, and they can be shot on the way. They get you
+  onto the stretcher and carry you back. Then it's your army's evacuation chain (aid post, clearing
+  station, field hospital, general hospital) and one to three months in a ward while the war goes
+  on. You come back whole, through the replacement system, to a squad at the front. Lose a limb,
+  and you're invalided home.
 - **Duty.** Superiors hand out tasks, notice neglect and reward help. Shoot your own men, murder
   prisoners, or desert under their eyes, and the consequences escalate: reprimand, demotion,
   arrest, and finally your own side turning on you. Take prisoners and bring them in for credit.
@@ -439,11 +566,27 @@ Your kit works like Escape from Tarkov's:
 - Bodies keep their kit, and searching them opens a second pane beside yours.
 - Everything costs time, and digging into your pack takes longer than reaching a pouch.
 
+**Everyone is armed the way his army armed him.** A rifleman has his rifle and bayonet, an officer
+his pistol, a tank crewman a pistol or a sub-machine gun, aircrew the pistol they flew with, a
+sailor aboard his rigging knife (the small arms are in the ship's armoury), a cook or a clerk a
+carbine. Belt knives come with the army: Ka-Bars for Marines in the Pacific, boot knives for
+Germans, the puukko for every Finn, the clasp knife issued to every Commonwealth soldier.
+
+**Medics and the red cross.** In Europe and Africa, American and Commonwealth medics went
+unarmed and wore the Red Cross armband (a few carried a pistol anyway), and German Sanitäter
+could carry a pistol to defend their wounded. Most armies held their fire on an unarmed medic
+wearing the armband, and so does the AI here: a marksman won't pick him out, though bullets and
+shells don't read armbands. The Japanese didn't respect it, and on the Eastern Front neither
+side did, so medics there went armed, and American medics and Navy corpsmen in the Pacific took
+off the red cross and carried carbines. Pick up a rifle and you're a rifleman again, armband or
+not. Chaplains were non-combatants too, and go unarmed.
+
 Open it with `i`. In the kit screen:
 - Arrows move, and Enter picks up or puts down (drag and drop with the mouse works too).
 - `r` rotates, `e` uses or equips, `l` loads, `u` unloads, `c` counts rounds, `d` drops, `q`
-  quick-moves, `x` looks.
-- Tab switches between your kit and the body you're searching. `[` and `]` switch between piles.
+  quick-moves, `x` looks. Right-click an item for everything you can do with it.
+- Tab switches between your kit and the other side: the ground, or a body you're searching.
+  `[` and `]` switch between piles and bodies within reach. `i` or Esc closes.
 
 ## Diegetic interface
 
@@ -463,50 +606,32 @@ What you know is what your soldier knows.
   front; you follow your squad leader, who points: "there, NE, 250 yards".
 - **Ammo is estimated** ("about half") unless you count it.
 - **Hit chances are words** ("a long shot"). You can switch them to numbers in Options.
+- **Everything around you** (`V`, as in Cataclysm): a list of the men and vehicles you can see,
+  the sounds you've just heard (placed where you think they came from), and whatever's lying on
+  the ground in sight, nearest first. Choosing one puts the look cursor on it. `f` or Enter
+  fires at an enemy, Enter walks you to a friend or a pile of kit, `x` looks, and `b` raises
+  your binoculars, which tell you an MG gunner from a rifleman at a distance.
 
 ## Controls
 
+**Every key and click, screen by screen, is in [CONTROLS.md](CONTROLS.md).** In the game, F1 or
+`?` shows the same list, opened at the part for where you are, and a line under your orders gives
+the keys for whatever's beside you. The ones you'll use most:
+
 | key | action |
 |---|---|
-| arrows / numpad / `hjklyubn` | move (into an enemy: melee) |
-| Shift+direction | keep going until something happens (`HJKLUN` too; `Y` and `B` are shout and bandage) |
-| `W` | pace: creep / walk / run / sprint |
-| Enter | carry out your current order (walk there and do it) |
-| `e` aboard | ladders and hatches, the helm or plot, a crew station, the escape hatch |
-| `<` `>` aboard | up / down a ladder |
-| `Z` aboard | let the hours go by (any key stops); `e` on a bunk to turn in |
-| F1 | help |
-| `!` / `'` | safe mode on/off / ignore the dangers you can see now |
-| left-click | walk there |
-| right-click | context menu (fire, throw, call artillery, order squad...) |
-| `.`, numpad 5, `s` / `z` | wait a second / wait until something happens |
+| arrows / numpad / `hjklyubn` | move (Shift or `HJKLUN`: run); left-click walks there |
+| Enter | carry out your current order |
 | `c` / `p` | crouch / prone |
 | `f` or Tab | aim & fire (`Tab` next target, `a` aim longer, `A` aim fully and fire) |
-| `F` | fire mode (or AP/HE in a tank) |
-| `r` | reload / clear jam |
-| `t` | throw (`c` to cook) |
-| `i` `g` `d` `w` `a` | kit (PgUp/PgDn for more; tabs for each pile and body within reach), pick up, drop, wield, use |
-| `B` | patch up yourself, or a wounded comrade beside you (or right-click him) |
-| `q` | lean out of cover: round a corner, over a wall, out of a window (`q` again or move to pull back) |
-| `S` | resupply at a depot or ammo crate |
-| `D` | dig in |
-| `V` | binoculars |
-| `e` | enter a vehicle or man a gun; inside: change seats, crew orders, climb out |
-| `v` | vehicle MG (your seat's), or from the commander's seat, point the MGs at a target |
-| `o` | close a door |
-| `O` | orders for the squad you lead |
-| `C` | command: your chain of command and anyone you outrank |
-| `R` | radio (fire mission, smoke, air) |
-| `Y` | shout (medic!, grenade!, surrender) |
-| `G` | general staff (colonels and up): divisions, corps, reserve, go and see (`v`), wait at HQ |
-| `F5` | minimap (click it to look there) |
-| Ctrl+arrows | pan the view (Home: back to you) |
-| `x` / `;` | look (or just rest the mouse on something) |
-| `m` | the war map: scrolls forever, `z` wide view; orders from colonel up |
-| `P` | message log |
-| `@` | yourself: health in detail (Tab: service record and chain of command) |
-| `?` | help |
-| Esc | menu / save |
+| `r` / `t` / `F` | reload / throw / fire mode |
+| `B` / `Y` | patch up / shout (medic!) |
+| `i` `g` `d` `w` `a` | kit, pick up, drop, take up a weapon, use something |
+| `e` | get into a vehicle beside you (or onto a tank's hull), and out again |
+| right-click | everything you can do with that tile, man or vehicle |
+| `x` / `V` | look / everything around you in a list |
+| `O` / `C` / `R` | squad orders / command / radio |
+| `m` / `@` / `P` | war map / yourself / message log |
+| `.` / `z` | wait a second / wait until something happens |
+| Esc | the menu (save and quit, options) |
 | F2 / F3 / F4 | sprites / sound / font |
-| wheel, `+` / `-` | zoom toward the mouse or the look cursor |
-| middle-drag / Home | pan the view / back to you |

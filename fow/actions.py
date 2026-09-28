@@ -300,9 +300,11 @@ def throw(game, a, item, tx, ty, cook: int = 0) -> int | None:
             m.refresh()
             game.emit_sound(x, y, 35, "glass", "breaking glass", a.side, a)
         if not d.walk and not d.window:
-            # bounce back one tile
-            if d.tall and rng.random() < (0.9 if not d.see else 0.4):
+            # a solid wall stops it dead (it drops back where it last was); a hedge or a tree mostly does;
+            # a low wall or a sandbag parapet it sails over - but it never comes to rest on top of one
+            if (not d.see and d.cover >= 90) or (d.tall and rng.random() < 0.4):
                 break
+            continue
         land = (x, y)
     # take it out of inventory
     access = a.access_cost(item)
@@ -735,7 +737,16 @@ def enter_vehicle(game, a, v) -> int | None:
         if v.abandoned or v.crew < v.vt.crew:
             v.crew += 1
             v.abandoned = False
+            if v.side != a.side or (v.squad is not None and v.squad.side != a.side):
+                # changing hands: it leaves the old owners' squad (and their strength, and their orders)
+                if v.squad is not None and v in v.squad.vehicles:
+                    v.squad.vehicles.remove(v)
+                v.squad = a.squad if a.squad is not None and a.squad.side == a.side else None
+                if v.squad is not None and v not in v.squad.vehicles:
+                    v.squad.vehicles.append(v)
             v.side = a.side
+            if getattr(a, "peek", None):
+                unpeek(game, a)
             game.remove_from_map(a)
             a.vehicle = v
             a.x, a.y = v.x, v.y
@@ -755,12 +766,18 @@ def enter_vehicle(game, a, v) -> int | None:
                 v.player_crewed = True
                 v.player_station = default_seat(v, a.role)
             return 200
+    from .maintenance import riders_capacity
+    cap = riders_capacity(v)                     # (a tank with no seats inside has room on the hull)
     if len(v.passengers) >= cap:
         return None
+    if getattr(a, "peek", None):
+        unpeek(game, a)
     game.remove_from_map(a)
     a.vehicle = v
     a.x, a.y = v.x, v.y
     v.passengers.append(a)
+    if not v.vt.seats:
+        a.ai["rider"] = True                     # on the outside: fast, and exposed to everything that hits it
     return 150
 
 
@@ -768,11 +785,14 @@ def exit_vehicle(game, a) -> int | None:
     v = a.vehicle
     if v is None:
         return None
+    if getattr(a, "peek", None):
+        unpeek(game, a)
     spot = game.free_around(v, prefer_away_from=game.brain_enemy_center(a.side))
     if spot is None:
         return None
     if a in v.passengers:
         v.passengers.remove(a)
+        a.ai.pop("rider", None)
     if a in v.crew_actors:
         v.crew_actors.remove(a)
         v.crew = max(0, v.crew - 1)

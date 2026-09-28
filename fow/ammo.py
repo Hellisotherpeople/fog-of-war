@@ -292,6 +292,11 @@ def hand_over(game, giver, receiver, gun, max_items=2) -> int:
     return n
 
 
+def give_loads(actor, gun, loads: int):
+    """`loads` magazines' (or clips', or belts') worth of ammunition for a gun."""
+    return give_ammo(actor, gun, int(loads) * max(1, gun.t.mag or 1))
+
+
 def give_ammo(actor, gun, rounds: int):
     """Issue ammunition for a gun as it would be carried: magazines, clips, or loose."""
     from .entities import Item

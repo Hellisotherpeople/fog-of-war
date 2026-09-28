@@ -464,8 +464,10 @@ def _aa_mounts(d, fr, ship, rng, cells, cy, top, bot, deck_ids=None):
             ly = y + inward
             if m.t[x - 1, ly] in deck:
                 m.t[x - 1, ly] = T.ID["ready_locker"]
-            d.slot(x + 1, ly, "gun", gq=True, watch=(placed % 3 == 0))
-            d.slot(x, ly, "gun", gq=True, watch=False)
+            if m.t[x + 1, ly] in deck:              # (a man's station is on the deck, not in the bulkhead)
+                d.slot(x + 1, ly, "gun", gq=True, watch=(placed % 3 == 0))
+            if m.t[x, ly] in deck:
+                d.slot(x, ly, "gun", gq=True, watch=False)
             if gid in ("bofors_us", "pompom", "flak_c38", "61k"):
                 # a quad 40mm had a crew of eleven: the pointer, the trainer, loaders, passers
                 for dx in (-1, 2):
@@ -502,8 +504,11 @@ def deck_bridge(d, fr, ship, rng, below):
     d.stations["helm"] = (hx, hy)
     d.slot(hx, hy + (1 if hw > 1 else 0), "bridge", gq=True, watch=True)
     if ln >= 7:
-        m.t[hx - 2, hy] = T.ID["chart_table"]
-        d.stations["plot"] = (hx - 2, hy)
+        # a one-tile-wide pilot house (a destroyer's) puts the chart table against the bulkhead, not across
+        # the only passage to the ladder
+        py = hy if hw > 1 else hy - 1
+        m.t[hx - 2, py] = T.ID["chart_table"]
+        d.stations["plot"] = (hx - 2, py)
         d.slot(hx - 1, hy, "bridge", gq=True, watch=True)
     d.stations["bridge"] = (hx - 1, hy)
     d.room("pilot house", "bridge", xa + 1, cy - hw + 1, xb - 4, cy + hw - 1)

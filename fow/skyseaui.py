@@ -95,7 +95,7 @@ class SkySeaState:
             inst = [k for k, sd, ok in c.installations if ok]
             if inst:
                 ch = {"airfield": "═", "depot": "■", "aa": "ᴬ", "hq": "H", "artillery": "Ⓐ", "aid": "+",
-                      "motor_pool": "M", "fortress": "#"}.get(inst[0], "■")
+                      "motor_pool": "M", "fortress": "#", "naval_base": "N"}.get(inst[0], "■")
                 fg = (230, 220, 160)
         t = self._terrain[key] = (ch, fg, bg)
         if len(self._terrain) > 60000:
@@ -191,8 +191,11 @@ class SkySeaState:
             if 0 <= i < VIEW_W and 0 <= j < VIEW_H:
                 con.print(i, j, "X", fg=(245, 215, 110))
         self._hud(con)
-        from .render import draw_log
+        from .render import draw_log, draw_popup
         draw_log(con, g)
+        # menus opened from here (the admiral's signals) live on the play state: draw them over the chart
+        for pop in getattr(self.play, "popups", []) or []:
+            draw_popup(con, pop)
         hint = self._hint()
         con.print(0, 0, f" {hint} "[:VIEW_W], fg=(20, 20, 20), bg=(200, 190, 140))
 
@@ -341,6 +344,10 @@ class SkySeaState:
             before = (set(self.ss.contacts), self._hurt_level())
             self.auto -= 1
             self._advance()
+            if self.ss is None or self.game.__dict__.get("skysea") is None or \
+                    (self.app.states and self.app.states[-1] is not self):
+                self.auto = 0                    # the flight ended under us
+                return
             if set(self.ss.contacts) - before[0] or self._hurt_level() < before[1] or self.ss.over:
                 self.auto = 0
                 self.note = "Something's happening."
@@ -364,7 +371,8 @@ class SkySeaState:
                 self.game.msg(n, "radio")
             ss.news = []
             if ss.over or self.game.game_over:
-                self.app.pop()
+                if self.app.states and self.app.states[-1] is self:
+                    self.app.pop()               # (not if the game-over screen has already replaced us)
                 self.play._skysea_pushed = False
             return
         ss.step(1 if (ss.player_plane is not None or ss.chute is not None) else 10)
@@ -396,6 +404,8 @@ class SkySeaState:
         ss = self.ss
         if ss is None:
             return self.app.pop()
+        if getattr(self.play, "popups", None):
+            return self.play.popup_key(key)
         self.note = ""
         self.auto = 0
         c = key.char
@@ -417,7 +427,8 @@ class SkySeaState:
             return
         if c == "?":
             from .ui import TextState
-            return self.app.push(TextState(self.app, "In the air and at sea", HELP_TEXT))
+            from .ui import HelpState
+            return self.app.push(HelpState(self.app, "chart"))
         if c == "m":
             from .ui import OvermapState
             return self.app.push(OvermapState(self.app, self.game))
@@ -507,8 +518,10 @@ class SkySeaState:
             if key.sym in (E.KeySym.SPACE,) or c == ".":
                 return True
             if mv:
-                me.ai["wp"] = None
-                me.hdg = (me.hdg + (-3 if mv == "left" else 3)) % 360   # 'left, left... steady'
+                # 'left, left... steady': a correction on the run, not a new course
+                off = me.ai.get("bomb_trim", 0) + (-3 if mv == "left" else 3)
+                me.ai["bomb_trim"] = max(-30, min(30, off))
+                me.hdg = (me.hdg + (-3 if mv == "left" else 3)) % 360
                 return True
             return False
         # a gunner
@@ -525,6 +538,13 @@ class SkySeaState:
         c = key.char
         rank = self.game.player.rank
         bridge = ss.station in ("bridge", "captain")
+        if ss.station == "plot":
+            # a seaman at the plot: he can look, zoom and let time pass - the orders aren't his to give
+            if key.sym == E.KeySym.TAB or (c and c in "tfbhrgoaAc") or key.sym in (
+                    E.KeySym.LEFT, E.KeySym.RIGHT, E.KeySym.UP, E.KeySym.DOWN):
+                self.note = "Not your ship to command. (Esc to step back)"
+                return False
+            return key.sym in (E.KeySym.SPACE, E.KeySym.KP_5) or c == "."     # watching the plot: time goes by
         if key.sym == E.KeySym.TAB:
             opts = ["bridge", "main battery", "aa gun", "damage control"]
             i = (opts.index(ss.station) + 1) % len(opts) if ss.station in opts else 0
@@ -628,26 +648,9 @@ class SkySeaState:
         return False
 
     def _bombard(self, ship, m):
-        ss = self.ss
-        gun = ship.st["main"] or ship.st["sec"]
-        if gun is None or ss.t < ship.main_ready:
-            self.note = "Reloading." if gun else "No guns."
-            return True
-        sx, sy, name, sec = m["shore"]
-        d = math.hypot(sx - ship.x, sy - ship.y)
-        if d > gun[2]:
-            self.note = f"The shore target is out of range ({d / 10:.1f} km). Close the coast."
-            return False
-        ship.main_ready = ss.t + gun[3]
-        m["shots"] = m.get("shots", 0) + 1
-        st = self.game.strategic
-        c = st.at(*sec)
-        if c is not None:
-            st._attrit(c.units[c.control], gun[1] * gun[0] / 600.0, c.control)
-            c.fort = max(0, c.fort - (1 if ss.rng().random() < 0.1 else 0))
-        ss.add_effect("blast", sx, sy, 2)
-        self.note = f"A salvo roars off toward {name}. Spotters report the fall of shot."
-        return True
+        ok, note = self.ss.shore_salvo(ship, m)
+        self.note = note
+        return ok
 
     def _fleet_order(self, ship):
         ss = self.ss
@@ -693,7 +696,8 @@ HELP_TEXT = [
     ("  fuselage - the ship's life goes on around you either way. From a bomber you bail out at the hatch.", None),
     ("", None),
     ("IN THE AIR (each key is a second)", UI_HI),
-    ("  ← →  turn (shift: hard turn - it bleeds speed)     ↑ climb   ↓ dive   space fly straight", None),
+    ("  ← → or a d  turn (shift+arrow: hard turn - it bleeds speed)     ↑ or w climb   ↓ or s dive", None),
+    ("  space or .  fly straight (bombardier and gunners: wait)     bombardier: ← → correct the aim, b release", None),
     ("  [ ]  throttle     f fire the guns along your nose     b bombs away / drop the torpedo", None),
     ("  t    pick a target     Tab  change station (bombers: pilot, bombardier, the gunners)", None),
     ("  h    turn for home     e  bail out (above 120 m)     z  fly on until something happens", None),
@@ -706,5 +710,9 @@ HELP_TEXT = [
     ("  f    fire the main battery (salvos walk onto the target)     g  torpedoes     c  depth charges", None),
     ("  d    dive / periscope / surface (submarines)     l  launch an air strike (carriers)", None),
     ("  o    signal your force (captains and admirals)     Tab  bridge, main battery, AA gun, damage control", None),
-    ("  z    steam on until something happens     +/-  zoom     m  war map", None),
+    ("  z    steam on until something happens     +/-  zoom     m  war map     space or .  wait ten seconds", None),
+    ("  At the plot (not an officer): you watch; t, zoom, space and z work, the orders aren't yours.", None),
+    ("  Damage control: f or space to fight the fire or the flooding.", None),
+    ("", None),
+    ("  ? this help     Esc the menu (or back onto the deck)     F2 sprites/ASCII   F3 sound   F4 font", None),
 ]

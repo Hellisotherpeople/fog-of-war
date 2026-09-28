@@ -124,7 +124,10 @@ class OperationsState:
                               "commit": "Send the reserve to which sector?",
                               "visit": "Go forward to where?"}[kind] + "  (↑↓, Enter, Esc)",
                       fg=(250, 200, 140))
-            for j, c in enumerate(cands[:6]):
+            top = max(0, min(self.pick_sel - 2, len(cands) - 6))      # (the list scrolls with the choice)
+            if top > 0 or len(cands) > 6:
+                con.print(60, yy, f"{self.pick_sel + 1} of {len(cands)}", fg=UI_DIM)
+            for j, c in enumerate(cands[top:top + 6], start=top):
                 sel = j == self.pick_sel
                 own = c.control == p.side
                 from .strategic import power
@@ -134,7 +137,7 @@ class OperationsState:
                 if kind == "visit":
                     at = st.attack_on(c.x, c.y)
                     est = ("  - the fighting" if at is not None else "") + ("  (enemy ground)" if not own else "")
-                con.print(4, yy + 1 + j, f"{c.name} - {c.biome}{est}", fg=UI_HI if sel else UI_TEXT,
+                con.print(4, yy + 1 + (j - top), f"{c.name} - {c.biome}{est}", fg=UI_HI if sel else UI_TEXT,
                           bg=UI_SEL_BG if sel else None)
         else:
             keys = ["a  attack", "h  hold / dig in", "m  move", "r  into reserve", "c  commit reserve here",
@@ -229,6 +232,9 @@ class OperationsState:
             self.app.pop()
         elif divs and c in ("a", "m", "c", "v"):
             kind = {"a": "attack", "m": "move", "c": "commit", "v": "visit"}[c]
+            if kind == "visit" and g.__dict__.get("domain", "land") != "land":
+                self.note = "Not from here: you're at sea (or in the air)."
+                return
             cands = self._cands(kind, divs[self.sel][0])
             if not cands:
                 self.note = {"attack": "No enemy ground next to that division.",

@@ -23,6 +23,7 @@ import math
 import numpy as np
 import tcod
 
+from . import fastpath
 from . import tiles as T
 from .constants import BIG, OCTANT_VEC, other_side
 
@@ -76,13 +77,13 @@ def dijkstra(goals: np.ndarray, cost: np.ndarray, goal_values=None) -> np.ndarra
         dist[goals] = 0
     else:
         dist[goals] = goal_values[goals]
-    tcod.path.dijkstra2d(dist, cost, 2, 3, out=dist)
+    fastpath.dijkstra2d(dist, cost.astype(np.int32, copy=False), 2, 3)
     return dist
 
 
 def rescan(values: np.ndarray, cost: np.ndarray) -> np.ndarray:
     out = values.astype(np.int32).copy()
-    tcod.path.dijkstra2d(out, cost, 2, 3, out=out)
+    fastpath.dijkstra2d(out, cost.astype(np.int32, copy=False), 2, 3)
     return out
 
 
@@ -90,6 +91,7 @@ class SideBrain:
     EVERY = 8           # turns between routine refreshes of the maps (sooner when a new enemy shows up)
     URGENT = 4          # ... but never more often than this
     MAP_TTL = 16        # objective and home maps last this long (the ground doesn't move)
+    REDRAW = 10         # after the ground changes, redraw the maps no more often than this
 
     def __init__(self, game, side: str):
         self.game = game
@@ -162,12 +164,17 @@ class SideBrain:
     # ------------------------------------------------------------ maps
     def base_cost(self) -> np.ndarray:
         m = self.game.map
+        known = [(x, y) for (x, y), mn in m.mines.items() if self.side in mn.known]
+        key = (id(m), m.version, len(known))
+        cached = self.__dict__.get("_cost_cache")
+        if cached is not None and cached[0] == key:
+            return cached[1]
         c = np.maximum(1, T.COST[m.t] // 50).astype(np.int32)
         c[~m.walk] = 0
         c[m.water >= 2] = 14          # swimming is a last resort
-        for (x, y), mn in m.mines.items():
-            if self.side in mn.known:
-                c[x, y] = 40
+        for x, y in known:
+            c[x, y] = 40
+        self._cost_cache = (key, c)
         return c
 
     def due(self, turn) -> bool:
@@ -178,11 +185,24 @@ class SideBrain:
     def update(self, force=False):
         g = self.game
         m = g.map
-        if not force and g.turn - self.last_update < self.URGENT and self.version == m.version:
+        wv = (id(m), m.__dict__.get("walk_version", m.version))
+        if not force and g.turn - self.last_update < self.URGENT and self.version == wv:
             return
-        moved = self.version != m.version
+        # only a change to where men can walk redraws the ground (a shell hole in a field doesn't) - and in a
+        # battle walls fall and trees come down every few seconds, so the maps are redrawn at most every
+        # REDRAW turns: a stale map for a moment costs a man a slightly worse route, not a wrong one
+        changed = self.version != wv
+        if changed:
+            self.__dict__.setdefault("_walk_changed", g.turn)
+        moved = False
+        if self.__dict__.get("_walk_changed") is not None and (
+                g.turn - self.__dict__.get("_last_redraw", -999) >= self.REDRAW or
+                self.version is None or not isinstance(self.version, tuple) or self.version[0] != wv[0]):
+            moved = True
+            self._walk_changed = None
+            self._last_redraw = g.turn
         self.last_update = g.turn
-        self.version = m.version
+        self.version = wv
         self.urgent = False
         self.forget()
         self.cost = self.base_cost()
@@ -218,12 +238,14 @@ class SideBrain:
         if moved:
             self.obj_maps = {}
         else:
+            # the plain way to an objective only changes with the ground; the covered way (which keeps out of
+            # the enemy's sight) goes stale as the enemy moves
             self.obj_maps = {k: v for k, v in self.obj_maps.items()
-                             if isinstance(v, tuple) and g.turn - v[0] <= self.MAP_TTL}
+                             if isinstance(v, tuple) and (not k[1] or g.turn - v[0] <= self.MAP_TTL * 2)}
         self.flank_cache = {k: v for k, v in self.flank_cache.items() if v[0] > g.turn}
-        if g.map.version != getattr(self, "_veh_version", -1):
+        if moved or wv[0] != getattr(self, "_veh_version", (None,))[0]:
             self.veh_maps = {}
-            self._veh_version = g.map.version
+            self._veh_version = wv
         self.local_cache = {}
         if self.arty_cooldown > 0:
             self.arty_cooldown -= 4

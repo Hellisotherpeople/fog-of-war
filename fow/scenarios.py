@@ -39,6 +39,10 @@ SCENARIOS = {
                       desc="Cut off. The enemy's on three sides and closing. Break out to your own lines."),
     "rearguard": dict(name="Rearguard", role=None, w=3,
                       desc="The army is pulling back. Someone has to hold here long enough for it to get away."),
+    "gunline": dict(name="The gun line", role="artilleryman", w=3,
+                    desc="A battery of guns behind the front. The fire missions come down the wire and you lay "
+                         "and fire at targets you'll never see - until the enemy's sound-rangers find you, or "
+                         "the front comes to you."),
     "sniper": dict(name="Sniper's hunt", role="sniper", w=3,
                    desc="You and a spotter. Their officers, their machine gunners - and their sniper, who is "
                         "hunting you."),
@@ -109,6 +113,27 @@ def _deep(game, side, depth):
     return best
 
 
+def _gun_line(game, side):
+    """Our artillery position nearest the fighting (there's always one: if the map hasn't one, the division's
+    guns are just behind the front)."""
+    st = game.strategic
+    arty = [s for s in st.sectors() if s.playable and s.control == side and s.installs(side, "artillery")]
+    if not arty:
+        ours, _theirs = _front_pair(game, side)
+        if ours is None:
+            return None
+        back = [n for n in st.neighbors(ours) if n.control == side and n.playable and not st.is_front(n, side)] or [ours]
+        s = game.rng.choice(back)
+        s.installations.append(["artillery", side, True])
+        arty = [s]
+    s = min(arty, key=lambda c: st._front_distance(c, side))
+    for sd in SIDES:
+        if sd != side:
+            s.units[sd] = Counter()                      # nobody's shooting at the guns - yet
+    s.units[side]["inf"] = max(1, s.units[side].get("inf", 0))
+    return s
+
+
 def choose_start(game, sid, side):
     """The sector the battle is fought in, and adjustments to the forces there. None: the default logic."""
     st = game.strategic
@@ -116,6 +141,8 @@ def choose_start(game, sid, side):
     enemy = other_side(side)
     if sid in ("front", "pow") or sid.startswith(("air:", "sea:")):
         return None
+    if sid == "gunline":
+        return _gun_line(game, side)
     ours, theirs = _front_pair(game, side)
     if ours is None:
         return None
@@ -199,7 +226,16 @@ def setup_player(game, sid, notes):
         return _launch_service(game, sid, notes)
 
     def strip_friends(keep):
-        """Everyone of ours not in `keep` leaves the map."""
+        """Everyone of ours not in `keep` leaves the map - and stays off it (no reinforcements are coming:
+        you're behind their lines)."""
+        pv = p.vehicle
+        if pv is not None:
+            # out of whatever the start put him in (a landing craft far out to sea, say)
+            if p in pv.passengers:
+                pv.passengers.remove(p)
+            if p in pv.crew_actors:
+                pv.crew_actors.remove(p)
+            p.vehicle = None
         for sq in list(game.squads):
             if sq.side != side or sq in keep:
                 continue
@@ -214,6 +250,8 @@ def setup_player(game, sid, notes):
             sq.vehicles = []
             sq.gone = True
         game.vehicles = [v for v in game.vehicles if not (v.dead and v.x == -99)]
+        game.waves = [w for w in game.waves if w["side"] != side]
+        game.sector.units[side] = Counter()
 
     def small_team(kind, n_extra, x, y, name):
         sq = p.squad
@@ -358,6 +396,7 @@ def setup_player(game, sid, notes):
     if game.mission:
         game.mission["sid"] = sid
         game.mission["start"] = game.turn
+        game.mission["_start_sector"] = game.sector
 
 
 def _set_night(game):
@@ -452,9 +491,10 @@ def update(game):
             game.command._award(game, 1 if merit < 10 else 2, f"for the {SCENARIOS[ms['sid']]['name'].lower()}")
         game.update_orders(force=True)
 
-    friendly_ground = game.sector.control == side and game.sector is not ms.get("_start_sector")
     if "_start_sector" not in ms:
         ms["_start_sector"] = game.sector
+    here = game.sector is ms["_start_sector"]          # objectives and targets are on the mission's own map
+    friendly_ground = game.sector.control == side and not here
     if k == "patrol":
         seen = len(game.brains[side].contacts) - ms["base"]
         if ms["stage"] == "observe" and seen >= ms["need"]:
@@ -466,7 +506,7 @@ def update(game):
             done("You make it back through the wire and report what you saw. The intelligence officer writes "
                  "everything down.", 8)
     elif k == "raid":
-        if ms["stage"] == "destroy":
+        if ms["stage"] == "destroy" and here:
             rec = ms.get("rec")
             left = _explosive_count(game.map, rec)
             guns = [v for v in game.vehicles if rec and not v.dead and v.side != side and v.vt.static
@@ -532,11 +572,11 @@ def update(game):
                  8)
     elif k == "hold":
         objs = game.map.objectives
-        if game.turn >= ms["until"] and objs and all(o.owner == side for o in objs):
+        if here and game.turn >= ms["until"] and objs and all(o.owner == side for o in objs):
             done("Relief arrives. You held.", 10)
     elif k == "take":
         objs = game.map.objectives
-        if objs and all(o.owner == side for o in objs):
+        if here and objs and all(o.owner == side for o in objs):
             done("The field is ours.", 8)
 
 

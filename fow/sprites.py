@@ -284,7 +284,7 @@ def paint_ground(c: Canvas, key: str, tid: int):
             for _ in range(10):
                 x, y = c.rng.uniform(10, 54), c.rng.uniform(10, 54)
                 c.line([(32, 32), (x, y)], fill=(120, 110, 100, 255), width=2)
-    elif key in ("deck_wood",):
+    elif key in ("deck_wood", "pier"):
         c.texture((168, 146, 108), 0.05, cells=6)
         for yy in range(0, M, 8):
             c.line([(0, yy), (M, yy)], fill=(96, 80, 58, 255), width=1)
@@ -781,6 +781,9 @@ def paint_object(c: Canvas, key: str, tid: int):
         if key == "engine_nacelle":
             c.ellipse((8, 8, 56, 56), fill=(70, 70, 72, 255))
             c.ellipse((20, 20, 44, 44), fill=(170, 170, 175, 90))
+    elif key == "bollard":
+        c.texture((120, 120, 116), 0.05)
+        c.ellipse((16, 16, 48, 48), fill=(40, 40, 44, 255), outline=(90, 90, 96, 255), width=3)
     elif key == "hatch_exit":
         c.texture((110, 110, 104), 0.05)
         c.ellipse((10, 10, 54, 54), fill=(40, 40, 40, 255), outline=(230, 180, 90, 255), width=4)
@@ -808,7 +811,8 @@ def is_object(key: str) -> bool:
                "gun_mount", "torpedo_tubes", "depth_charges", "bunk", "locker", "boiler", "turbine", "ammo_rack",
                "avgas", "ready_locker", "repair_locker", "life_ring", "life_raft", "radar_scope", "radio_set",
                "torpedo_rack", "steering_gear", "fuselage", "fuselage_holed", "wing", "engine_nacelle", "helm",
-               "chart_table", "periscope", "lookout_post", "station", "hatch_exit", "fire_curtain", "railing"):
+               "chart_table", "periscope", "lookout_post", "station", "hatch_exit", "fire_curtain", "railing",
+               "bollard"):
         return True
     if key.startswith("wall") or key.startswith("tree") or key in ("pine", "olive", "palm", "dead_tree",
                                                                     "bush", "bush_snow", "jungle", "bamboo",

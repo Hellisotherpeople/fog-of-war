@@ -365,6 +365,134 @@ def put_to_sea(game, kind, sid=None, station="bridge"):
     return ss
 
 
+# the jobs a ship is given after her first (fow/naval.py): not offered at the start of a game
+EXTRA_SEA = {
+    "rtb": "Return to base.",
+    "cover": "Cover the landings: stay on station and keep their aircraft off the beaches.",
+    "asw": "A submarine has been reported in the area. Hunt it down.",
+    "rescue": "Men in the water - survivors of a sinking. Get there and pick them up.",
+}
+
+
+def _open_water(ss, x, y, dmin, dmax, rng):
+    for tries in range(80):
+        d = rng.uniform(dmin, dmax)
+        ang = rng.uniform(0, 2 * math.pi)
+        cx2, cy2 = x + math.cos(ang) * d, y + math.sin(ang) * d
+        if all(ss.is_sea(cx2 + ox, cy2 + oy) for ox, oy in ((0, 0), (6, 0), (-6, 0), (0, 6), (0, -6))):
+            return cx2, cy2
+    return None
+
+
+def new_orders(ss, game, kind, sorties=0, home=None) -> bool:
+    """The next job for the force you're already in: the same ships (what's left of them), a new enemy."""
+    rng = game.rng
+    me = ss.player_ship
+    if me is None or not me.alive:
+        return False
+    side = me.side
+    enemy = other_side(side)
+    # the last fight is over: the dead are gone, their survivors have withdrawn
+    ss.ships = [sh for sh in ss.ships if sh.alive and sh.side == side]
+    ss.planes = [pl for pl in ss.planes if pl.alive and pl.side == side]
+    ss.torps = []
+    x, y = me.x, me.y
+    m = dict(kind=kind, stage="search", start=ss.t, home=home or (x, y), enemies=[], sorties=sorties,
+             text=EXTRA_SEA.get(kind) or SEA_MISSIONS.get(kind, "New orders."))
+    if kind in ("surface", "carrier", "sub", "convoy", "asw", "bombard"):
+        spot = _open_water(ss, x, y, 150 if kind != "asw" else 60, 240 if kind != "asw" else 120, rng)
+        if spot is None:
+            return False
+        ekind = {"surface": "task", "carrier": "carrier", "sub": "convoy", "convoy": "subs", "asw": "subs",
+                 "bombard": "task"}[kind]
+        if kind != "bombard" or rng.random() < 0.4:
+            made = _enemy_fleet(ss, game, enemy, spot[0], spot[1], ekind)
+            if kind == "asw":
+                for sh in made[1:]:
+                    ss.ships.remove(sh)            # one boat reported, not a wolfpack
+                made = made[:1]
+            m["enemies"] = [sh.id for sh in made]
+    if kind == "carrier" and not m["enemies"]:
+        return False
+    if kind == "bombard":
+        cx, cy = int(x // SEC), int(y // SEC)
+        land = None
+        st = game.strategic
+        for r in range(0, 8):
+            for dx in range(-r, r + 1):
+                for dy in range(-r, r + 1):
+                    c = st.at(cx + dx, cy + dy, create=True)
+                    if land is None and c is not None and c.control == enemy and c.playable and any(
+                            n.biome == "sea" for n in st.neighbors(c, create=True)):
+                        land = ((c.x + 0.5) * SEC, (c.y + 0.5) * SEC, c.name, (c.x, c.y))
+            if land:
+                break
+        if land is None:
+            return False
+        m["shore"] = land
+        m["text"] += f" Target: {land[2]}."
+    if kind == "convoy":
+        opts = available(me.nation, game.year, ("ap",)) or available("usa" if side == "allies" else "japan",
+                                                                   game.year, ("ap",))
+        conv = []
+        for i in range(4 if opts else 0):
+            st_ = rng.choices(opts, [o["freq"] for o in opts])[0]
+            off = ((i % 2) * 8 - 4, 10 + (i // 2) * 8)
+            sh = Ship(st_["id"], side, me.nation, x + off[0], y + off[1], me.hdg, rng=rng)
+            sh.name = _ship_name(game, me.nation, sh, ss)
+            sh.ai = dict(role="line", leader=me.id, offset=off)
+            ss.ships.append(sh)
+            conv.append(sh.id)
+        m["convoy"] = conv
+        m["until"] = ss.t + 1800
+    if kind == "cover":
+        spot = _open_water(ss, x, y, 30, 80, rng) or (x, y)
+        m["cover_pt"] = spot
+        m["until"] = ss.t + 4 * 3600
+        m["next_raid"] = ss.t + rng.randint(900, 2400)
+    if kind == "rescue":
+        spot = _open_water(ss, x, y, 40, 90, rng)
+        if spot is None:
+            return False
+        m["rescue_pt"] = spot
+        m["survivors"] = rng.randint(6, 140)
+        m["until"] = ss.t + 8 * 3600
+    ss.mission = m
+    return True
+
+
+def air_raid(ss, game, target):
+    """An enemy strike coming in at the force: dive bombers, torpedo planes, a few fighters - and, late in the
+    Pacific war, men who won't pull out."""
+    from .skysea import Plane
+    rng = ss.rng()
+    side = other_side(target.side)
+    nat = game.side_nation(side)
+    yr = game.year
+    roles = [("divebomber", "dive"), ("divebomber", "dive"), ("torpedo", "torpedo"), ("fighter", "strafe"),
+             ("divebomber", "dive"), ("torpedo", "torpedo")]
+    if nat == "japan" and yr >= 1944.8:
+        roles += [("fighter", "kamikaze"), ("fighterbomber", "kamikaze")]
+    ang = rng.uniform(0, 2 * math.pi)
+    n = rng.randint(3, 6)
+    made = 0
+    for i in range(n):
+        role, how = roles[i % len(roles)]
+        types = _planes_of(nat, yr, (role,)) or _planes_of(nat, yr, ("fighter",))
+        if not types:
+            continue
+        at = rng.choices(types, [t.freq if getattr(t, "freq", 0) else 1 for t in types])[0]
+        a = ang + rng.uniform(-0.3, 0.3)
+        pl = Plane(at.id, side, nat, target.x + math.cos(a) * 45, target.y + math.sin(a) * 45, 0,
+                   2500 if how == "dive" else 400 if how == "torpedo" else 1500, rng=rng)
+        pl.ai = dict(role=how if how != "strafe" else "attack", target=-target.id, wp=(target.x, target.y))
+        if how == "kamikaze":
+            pl.bombs = [[250, 3, 1]]
+        ss.planes.append(pl)
+        made += 1
+    return made
+
+
 def _coast_target(ss, game, side):
     st = game.strategic
     for dx in range(-6, 7):
@@ -444,6 +572,7 @@ def check(ss: SkySea):
     k = m["kind"]
     me = ss.player_plane
     ship = ss.player_ship
+    rng = ss.rng()
 
     def done(text, merit=6):
         m["stage"] = "done"
@@ -518,9 +647,35 @@ def check(ss: SkySea):
             done(f"You bring the {me.name} down onto the field. Mission complete.", 8)
             ss.over = ("landed", m["base"])
     # the sea
-    if k in SEA_MISSIONS and ship is not None:
+    if (k in SEA_MISSIONS or k in EXTRA_SEA) and ship is not None:
         enemies = [ss.entity(-i) for i in m.get("enemies", [])]
         alive = [e for e in enemies if e is not None and e.alive]
+        if k == "rtb":
+            px, py = m["port_pt"]
+            if m.get("stage") == "rtb" and math.hypot(px - ship.x, py - ship.y) < 3:
+                m["stage"] = "arrived"                 # shipboard.py brings her to anchor
+            return
+        if k == "cover":
+            if ss.t >= m.get("next_raid", 1e18) and ss.t < m["until"] - 600:
+                n = air_raid(ss, g, ship)
+                m["next_raid"] = ss.t + rng.randint(2700, 5400)
+                if n and (ship.player or -ship.id in ss.contacts):
+                    g.msg("Radar: 'Bogeys, many bogeys, closing from the " +
+                          ("north" if rng.random() < 0.5 else "west") + "!'", "radio")
+            if ss.t >= m["until"]:
+                done("Relieved on station. The beachhead held, and their aircraft didn't get through to it.", 8)
+            return
+        if k == "rescue":
+            rx, ry = m["rescue_pt"]
+            if math.hypot(rx - ship.x, ry - ship.y) < 2.5:
+                done(f"Scrambling nets over the side: you pull {m['survivors']} men out of the oil and the water.", 7)
+            elif ss.t >= m["until"]:
+                fail("By the time she gets there, there's nobody left alive in the water.")
+            return
+        if k == "asw" and enemies and not alive:
+            done("An oil slick, wreckage, and then nothing. The submarine is gone.", 8)
+        elif k == "asw" and ss.t - m.get("start", 0) > 6 * 3600:
+            fail("The contact is lost. The hunt is called off.")
         if k in ("surface", "carrier", "sub") and enemies and not alive:
             done("The enemy force is gone - sunk or scattered. Well done.", 12)
         elif k in ("surface", "carrier", "sub", "bombard") and enemies and ss.t - m.get("start", 0) > 10 * 3600:
@@ -541,3 +696,8 @@ def check(ss: SkySea):
                     fail(f"The convoy is scattered: {lost} ships lost.")
         elif k == "bombard" and m.get("shore") and m.get("shots", 0) >= 6:
             done("Ashore, the troops are going forward behind your shells.", 8)
+        elif k == "bombard" and ss.t - m.get("start", 0) > 6 * 3600:
+            if m.get("shots", 0) >= 2:
+                done("The shoot is called off: the army has what it needs.", 5)
+            else:
+                fail("The bombardment is called off. The troops ashore went in without you.")

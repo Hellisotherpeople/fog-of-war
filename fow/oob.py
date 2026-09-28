@@ -280,6 +280,8 @@ class OOB:
             cap[b] = cap[a] * SIZE.get(b, 3)
 
         def lay(parent, idx, block):
+            if not block:
+                return                            # nothing on the ground for this formation to hold
             lvl = levels[idx]
             if lvl == "battalion":
                 for c in block:

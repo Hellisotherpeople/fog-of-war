@@ -61,6 +61,12 @@ class GameMap:
         self.buildings: list[tuple[int, int, int, int]] = []
         self.refresh()
 
+    def __getstate__(self):
+        d = dict(self.__dict__)
+        d.pop("_los", None)                  # the line-of-sight caches: rebuilt as men look about
+        d.pop("_los_hi", None)
+        return d
+
     # ------------------------------------------------------------ basics
     def in_bounds(self, x: int, y: int) -> bool:
         return 0 <= x < self.w and 0 <= y < self.h
@@ -87,9 +93,29 @@ class GameMap:
 
     # ------------------------------------------------------------ derived arrays
     def refresh(self):
+        """Bring the derived arrays up to date with the terrain.  Only the part that changed is recomputed:
+        the tiles are compared with the last refresh's, and a shell hole costs a few dozen cells, not the
+        whole battlefield.  `version` counts terrain changes, `walk_version` changes to where men can walk
+        (what the Dijkstra maps care about), `see_version` changes to what blocks sight."""
         t = self.t
+        prev = self.__dict__.get("_t_prev")
+        if prev is not None and prev.shape == t.shape and "walk" in self.__dict__:
+            diff = t != prev
+            if not diff.any():
+                self.update_see()
+                return
+            xs = np.nonzero(diff.any(axis=1))[0]
+            ys = np.nonzero(diff.any(axis=0))[0]
+            x0, x1, y0, y1 = int(xs[0]), int(xs[-1]) + 1, int(ys[0]), int(ys[-1]) + 1
+            if (x1 - x0) * (y1 - y0) < t.size // 4:
+                self._refresh_rect(x0, y0, x1, y1)
+                prev[x0:x1, y0:y1] = t[x0:x1, y0:y1]
+                self.version += 1
+                return
+        old_walk = self.__dict__.get("walk")
         self.walk = T.WALK[t]
         self.see_base = T.SEE[t]
+        self.see_high_base = T.SEE_HIGH[t]
         self.cover = T.COVER[t]
         self.tall = T.TALL[t]
         self.pos_cover = T.POS_COVER[t]
@@ -102,34 +128,100 @@ class GameMap:
         vcost = T.VCOST[t].copy()
         self.crush = T.CRUSH[t]
         self.vcost = vcost
-        self.update_see()
+        self.see_base_version = self.__dict__.get("see_base_version", 0) + 1
+        self.update_see(force=True)
         self._compute_cover_dir()
         self.version += 1
+        if old_walk is None or old_walk.shape != self.walk.shape or not np.array_equal(old_walk, self.walk):
+            self.walk_version = self.__dict__.get("walk_version", 0) + 1
+        self._t_prev = t.copy()
+
+    def _refresh_rect(self, x0, y0, x1, y1):
+        """The derived arrays for tiles [x0:x1, y0:y1] (the cover directions one tile beyond)."""
+        sl = (slice(x0, x1), slice(y0, y1))
+        t = self.t[sl]
+        walk = T.WALK[t]
+        if not np.array_equal(walk, self.walk[sl]):
+            self.walk_version = self.__dict__.get("walk_version", 0) + 1
+        self.walk[sl] = walk
+        see_base = T.SEE[t]
+        see_changed = not np.array_equal(see_base, self.see_base[sl])
+        self.see_base[sl] = see_base
+        hb = self.high_base()
+        high = T.SEE_HIGH[t]
+        see_changed = see_changed or not np.array_equal(high, hb[sl])
+        hb[sl] = high
+        self.cover[sl] = T.COVER[t]
+        self.tall[sl] = T.TALL[t]
+        self.pos_cover[sl] = T.POS_COVER[t]
+        self.conceal[sl] = T.CONCEAL[t]
+        self.water[sl] = T.WATER[t]
+        self.flam[sl] = T.FLAM[t]
+        cost = T.COST[t].copy()
+        cost[~walk] = 0
+        self.cost_foot[sl] = cost
+        self.vcost[sl] = T.VCOST[t]
+        self.crush[sl] = T.CRUSH[t]
+        self.see[sl] = see_base & (self.smoke[sl] < 1.5)
+        if "see_high" in self.__dict__:
+            self.see_high[sl] = high & (self.smoke[sl] < 1.5)
+        if see_changed:
+            self.see_version = self.__dict__.get("see_version", 0) + 1
+            self.see_base_version = self.__dict__.get("see_base_version", 0) + 1
+        # cover directions depend on the neighbours: redo a one-tile border
+        cx0, cy0, cx1, cy1 = max(0, x0 - 1), max(0, y0 - 1), min(self.w, x1 + 1), min(self.h, y1 + 1)
+        self.cover_dir[:, cx0:cx1, cy0:cy1] = self._cover_dir_window(cx0, cy0, cx1, cy1)
 
     def refresh_at(self, x: int, y: int):
-        # cheap enough to recompute everything; keeps derived state consistent
         self.refresh()
 
-    def update_see(self):
-        self.see = self.see_base & (self.smoke < 1.5)
+    def update_see(self, force=False):
+        """Smoke and terrain together block sight.  Counts a change only when something actually changed."""
+        thick = self.smoke >= 1.5
+        if thick.any():
+            xs = np.nonzero(thick.any(axis=1))[0]
+            ys = np.nonzero(thick.any(axis=0))[0]
+            self.smoke_box = (int(xs[0]), int(ys[0]), int(xs[-1]), int(ys[-1]))
+        else:
+            self.smoke_box = None
+        new = self.see_base & ~thick
+        old = self.__dict__.get("see")
+        if force or old is None or old.shape != new.shape or not np.array_equal(old, new):
+            self.see_version = self.__dict__.get("see_version", 0) + 1
+        self.see = new
+        self.see_high = self.high_base() & ~thick
+
+    def high_base(self):
+        """Sight for a man sitting high, before smoke (maps saved before there was one: worked out now)."""
+        hb = self.__dict__.get("see_high_base")
+        if hb is None or hb.shape != self.t.shape:
+            hb = self.see_high_base = T.SEE_HIGH[self.t]
+        return hb
+
+    def high(self):
+        sh = self.__dict__.get("see_high")
+        if sh is None or sh.shape != self.t.shape:
+            sh = self.see_high = self.high_base() & (self.smoke < 1.5)
+        return sh
 
     def _compute_cover_dir(self):
         """cover_dir[o, x, y] = protection at (x,y) from a threat in octant o."""
-        w, h = self.w, self.h
-        # obstacles: non-walkable non-see tiles are full cover; others use their cover value
-        cov = self.cover.astype(np.float32)
+        self.cover_dir = self._cover_dir_window(0, 0, self.w, self.h)
+
+    def _cover_dir_window(self, x0, y0, x1, y1):
+        """cover_dir for the tiles [x0:x1, y0:y1]: each tile's protection is the cover of its neighbour
+        toward the threat (or 0.6 of the neighbours either side of it)."""
+        w, h = x1 - x0, y1 - y0
+        # the window plus a one-tile border (zero beyond the map's edge)
         padded = np.zeros((w + 2, h + 2), np.float32)
-        padded[1:-1, 1:-1] = cov
-        out = np.zeros((8, w, h), np.float32)
-        neigh = []
-        for dx, dy in OCTANT_VEC:
-            neigh.append(padded[1 + dx:1 + dx + w, 1 + dy:1 + dy + h])
+        px0, py0 = max(0, x0 - 1), max(0, y0 - 1)
+        px1, py1 = min(self.w, x1 + 1), min(self.h, y1 + 1)
+        padded[px0 - (x0 - 1):px1 - (x0 - 1), py0 - (y0 - 1):py1 - (y0 - 1)] = self.cover[px0:px1, py0:py1]
+        out = np.empty((8, w, h), np.float32)
+        neigh = [padded[1 + dx:1 + dx + w, 1 + dy:1 + dy + h] for dx, dy in OCTANT_VEC]
         for o in range(8):
-            a = neigh[o]
-            b = neigh[(o + 1) % 8] * 0.6
-            c = neigh[(o - 1) % 8] * 0.6
-            out[o] = np.maximum(a, np.maximum(b, c))
-        self.cover_dir = out
+            out[o] = np.maximum(neigh[o], np.maximum(neigh[(o + 1) % 8], neigh[(o - 1) % 8]) * 0.6)
+        return out
 
     # ------------------------------------------------------------ queries
     def is_walkable(self, x: int, y: int) -> bool:

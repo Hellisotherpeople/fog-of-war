@@ -19,6 +19,23 @@ ROLES = {
     "surgeon": dict(name="Battalion surgeon", desc="An officer with a scalpel at the aid station. The line brings "
                     "you what's left of its men; you decide who lives."),
     "radioman": dict(name="Radio operator", desc="Carries the radio - and a target on his back."),
+    # behind the line: the people who run a base (fow/base.py)
+    "adjutant": dict(name="Adjutant", desc="The commander's staff officer: postings, orders, paperwork, and "
+                     "who goes where next."),
+    "clerk": dict(name="Company clerk", desc="Pay, mail, the morning report and your service record."),
+    "mp": dict(name="Military policeman", desc="Traffic, prisoners, stragglers and deserters. Nobody's friend."),
+    "armourer": dict(name="Armourer", desc="Keeps the battalion's weapons working."),
+    "cook": dict(name="Cook", desc="The field kitchen. Hot food a mile behind the line is worth a medal."),
+    "chaplain": dict(name="Chaplain", desc="Unarmed, in the line and at the aid station: the dying, the "
+                     "burials, the letters home."),
+    "politruk": dict(name="Political officer", desc="The Party's man in the unit: morale, reading, and a notebook of "
+                     "who said what."),
+    "motor_sergeant": dict(name="Motor sergeant", desc="The motor pool: trucks, jeeps, and the mechanics who "
+                           "keep them running."),
+    "ops_officer": dict(name="Air operations officer", desc="The airfield's briefings: who flies, where, and "
+                        "when."),
+    "port_officer": dict(name="Port director", desc="The naval base: berths, boats, and which ship a sailor "
+                         "belongs to."),
     "platoon_sergeant": dict(name="Platoon sergeant", desc="The lieutenant's right hand and the platoon's memory. "
                              "When he falls, the platoon is yours."),
     "first_sergeant": dict(name="Company first sergeant", desc="Top kick. The company's senior NCO: ammunition, "
@@ -29,6 +46,8 @@ ROLES = {
     "sniper": dict(name="Sniper", desc="Patient, hated, hunted by both sides."),
     "engineer": dict(name="Combat engineer", desc="Demolitions, wire, mines and bunkers."),
     "mortarman": dict(name="Mortarman", desc="Lobs bombs at things you can't see."),
+    "artilleryman": dict(name="Artilleryman", desc="Serves a field gun a mile behind the line. Fire missions come "
+                         "down the wire; you lay the gun and fire at men you will never see."),
     "hmg_gunner": dict(name="Heavy MG gunner", desc="Crews the tripod machine gun."),
     "hmg_assistant": dict(name="Heavy MG loader", desc="Carries belts and the tripod."),
     "flamethrower": dict(name="Flamethrower operator", desc="Burns out bunkers. Nobody takes you prisoner."),
@@ -84,10 +103,14 @@ ROLES = {
 ROLE_GRADES = {
     "rifleman": (0, 2), "smg_gunner": (0, 3), "lmg_gunner": (1, 3), "lmg_assistant": (0, 2), "at_soldier": (0, 3),
     "medic": (0, 5), "radioman": (0, 4), "sniper": (0, 5), "engineer": (0, 4), "mortarman": (0, 4),
+    "artilleryman": (0, 4),
     "hmg_gunner": (1, 4), "hmg_assistant": (0, 2), "flamethrower": (0, 3), "volkssturm": (0, 3),
     "tank_crew": (0, 12), "squad_leader": (2, 4), "platoon_sergeant": (4, 5), "first_sergeant": (6, 6),
     "sergeant_major": (7, 7), "officer": (8, 9), "quartermaster": (3, 10), "intel": (8, 12), "surgeon": (10, 12),
     "agent": (0, 12), "pilot": (3, 14), "partisan": (0, 10),
+    "adjutant": (9, 10), "clerk": (2, 3), "mp": (1, 3), "armourer": (3, 4), "cook": (2, 3), "chaplain": (9, 10),
+    "politruk": (8, 10),
+    "motor_sergeant": (4, 5), "ops_officer": (10, 11), "port_officer": (10, 11),
     "fighter_pilot": (3, 13), "bomber_pilot": (3, 13), "bombardier": (3, 11), "air_gunner": (2, 9),
     "sailor": (0, 2), "petty_officer": (3, 7), "deck_officer": (8, 10), "ship_captain": (11, 14),
     "sub_commander": (10, 12), "admiral": (14, 18),
@@ -115,7 +138,7 @@ COMMAND_ROLE_LIST = ["company_commander", "battalion_commander", "regiment_comma
 PLAYER_ROLE_WEIGHTS = {
     "rifleman": 34, "lmg_gunner": 7, "lmg_assistant": 5, "smg_gunner": 7, "squad_leader": 6,
     "officer": 3, "medic": 5, "radioman": 4, "at_soldier": 6, "sniper": 4, "engineer": 4,
-    "mortarman": 3, "hmg_gunner": 3, "flamethrower": 2, "tank_crew": 7,
+    "mortarman": 3, "hmg_gunner": 3, "flamethrower": 2, "tank_crew": 7, "artilleryman": 2,
 }
 
 SQUAD_SIZE = {"usa": 10, "uk": 8, "canada": 8, "australia": 8, "newzealand": 8, "india": 8,
@@ -182,9 +205,21 @@ def _mags(item_id: str, n: float) -> tuple[str, int] | None:
     return ammo_id(t.cal), int(per * n)
 
 
+COMMONWEALTH = ("uk", "canada", "australia", "newzealand", "india")
+# where the Japanese were the enemy, and the red cross protected nobody
+PACIFIC_THEATRES = {"guadalcanal42", "iwojima45", "okinawa45", "kohima44"}
+# the knife a man might carry besides whatever he was issued: (item, chance)
+BELT_KNIFE = {"germany": ("kampfmesser", 0.25), "ussr": ("nr40", 0.12), "finland": ("puukko", 0.8),
+              "india": ("kukri", 0.3), "uk": ("clasp_knife", 0.5), "canada": ("clasp_knife", 0.5),
+              "australia": ("clasp_knife", 0.5), "newzealand": ("clasp_knife", 0.5)}
+
+
 def build_kit(rng: random.Random, nation: str, year: float, role: str, *, para: bool = False,
-              winter: bool = False, player: bool = False) -> dict:
-    """Return {'wield': id, 'sling': id|None, 'items': [(id, count)], 'helmet': id}."""
+              winter: bool = False, player: bool = False, pacific: bool = False) -> dict:
+    """Return {'wield': id, 'sling': id|None, 'items': [(id, count)], 'helmet': id}.
+
+    Nobody goes to war with nothing: every man has at least what his army really gave a man in his
+    job - a rifle, a pistol, a knife - except where the job itself was to go unarmed (see medics)."""
     doc = NATIONS[nation]["doctrine"]
     items: list[tuple[str, int]] = []
     wield = None
@@ -314,11 +349,50 @@ def build_kit(rng: random.Random, nation: str, year: float, role: str, *, para: 
             add(mag)
         grenades = rng.randint(0, 2)
     elif role == "medic":
-        armed = nation not in ("usa", "uk", "canada", "germany", "australia", "newzealand") \
-            or rng.random() < 0.1
-        if armed:
-            wield = pick(rng, nation, year, ("pistol",)) if rng.random() < 0.5 else service_rifle()
-            add_ammo(wield, 2)
+        # Arms and the red cross.  In Europe and Africa, American and Commonwealth medics went unarmed
+        # and trusted the armband (a few carried a pistol anyway).  Against the Japanese, who didn't
+        # respect it, they took it off and carried carbines and pistols.  A German Sanitäter was allowed
+        # a pistol to defend himself and his wounded; Soviet medics mostly went armed like everyone else.
+        western = nation == "usa" or nation in COMMONWEALTH
+        pistol = pick(rng, nation, year, "pistol")
+        if western and not pacific:
+            add("brassard")
+            add("clasp_knife" if nation in COMMONWEALTH else None)     # issued to everyone, RAMC too
+            if pistol and rng.random() < (0.2 if nation == "usa" else 0.1):
+                add(pistol)                            # unofficially, in a pocket
+                add_ammo(pistol, 1)
+        elif western:
+            wield = pick(rng, nation, year, ("carbine", "rifle")) if rng.random() < 0.6 else pistol
+            add_ammo(wield, 3)
+            if nation == "usa" and year >= 1942.9:
+                add("kabar" if rng.random() < 0.5 else None)
+        elif nation == "germany":
+            add("brassard")
+            if pistol and rng.random() < 0.7:
+                add(pistol)
+                add_ammo(pistol, 1)
+        elif nation == "ussr":
+            r = rng.random()
+            if r < 0.5:
+                wield = service_rifle()
+                add_ammo(wield, 3)
+            elif pistol:
+                add(pistol)
+                add_ammo(pistol, 2)
+            add("brassard" if rng.random() < 0.5 else None)
+        elif nation == "japan":
+            add("brassard")
+            add("bayonet")                             # every Japanese soldier had one on his belt
+            if pistol and rng.random() < 0.3:
+                add(pistol)
+                add_ammo(pistol, 1)
+        else:
+            add("brassard")
+            if pistol and rng.random() < 0.6:
+                add(pistol)
+                add_ammo(pistol, 1)
+            else:
+                add("bayonet")
         add("medkit")
         add("bandage", rng.randint(4, 8))
         add("morphine", rng.randint(3, 6))
@@ -393,12 +467,20 @@ def build_kit(rng: random.Random, nation: str, year: float, role: str, *, para: 
         add("compass")
         add("watch")
     elif role in ("bombardier", "air_gunner"):
+        # aircrew flew with a pistol for when they came down: the Americans a .45, the Luftwaffe a
+        # Walther or a Sauer; RAF bomber crews often didn't bother
         wield = None
+        if nation not in COMMONWEALTH or rng.random() < 0.4:
+            p = pick(rng, nation, year, "pistol")
+            add(p)
+            add_ammo(p, 1)
         add("flight_jacket")
         add("silk_map" if rng.random() < 0.6 else None)
         add("ration")
     elif role in ("sailor", "petty_officer"):
+        # small arms live in the ship's armoury; a sailor carries a knife for the lines
         wield = None
+        add("rigging_knife")
         add("mae_west")
         add("cigarettes")
     elif role in ("deck_officer", "ship_captain", "sub_commander", "admiral"):
@@ -485,6 +567,33 @@ def build_kit(rng: random.Random, nation: str, year: float, role: str, *, para: 
             wield = service_rifle()
             add_ammo(wield, 5)
             add(pick_grenade(rng, nation, year, ("molotov",)), 3)
+    elif role == "chaplain":
+        # chaplains were non-combatants and went unarmed (the Geneva Conventions protected them too)
+        add("watch")
+    elif role in ("adjutant", "ops_officer", "port_officer", "politruk"):
+        p = pick(rng, nation, year, "pistol")
+        add(p)
+        add_ammo(p, 1)
+        add("watch")
+        add("map")
+    elif role == "artilleryman":
+        # a gunner's rifle stays in the gun pit: carbines for the Americans, rifles for everyone else
+        wield = pick(rng, nation, year, ("carbine", "rifle")) if nation in ("usa",) else service_rifle()
+        add_ammo(wield, 2)
+        add("watch" if rng.random() < 0.3 else None)
+    elif role in ("clerk", "cook", "armourer", "motor_sergeant"):
+        # rear-echelon men had a carbine or a rifle somewhere near them
+        wield = pick(rng, nation, year, ("carbine", "rifle")) if rng.random() < 0.6 else \
+            pick(rng, nation, year, ("smg", "rifle"))
+        add_ammo(wield, 2)
+        add("watch" if role in ("clerk", "motor_sergeant") else None)
+    elif role == "mp":
+        wield = pick(rng, nation, year, ("smg", "carbine", "rifle"))
+        add_ammo(wield, 3)
+        p = pick(rng, nation, year, "pistol")
+        add(p)
+        add_ammo(p, 1)
+        add("whistle")
     elif role == "tank_crew":
         if rng.random() < 0.5:
             wield = pick(rng, nation, year, ("smg", "pistol"))
@@ -494,6 +603,24 @@ def build_kit(rng: random.Random, nation: str, year: float, role: str, *, para: 
     else:
         wield = service_rifle()
         add_ammo(wield, 6)
+
+    # the belt knife: Marines' Ka-Bars in the Pacific, German boot knives, the Finns' puukko, the army
+    # clasp knife every Commonwealth soldier was issued
+    if role not in ("agent", "sailor", "petty_officer", "medic") and role not in COMMAND_ROLE_LIST[3:]:
+        kn = ("kabar", 0.5) if nation == "usa" and pacific and year >= 1942.9 else \
+            ("trench_knife", 0.15) if nation == "usa" and year >= 1943 else BELT_KNIFE.get(nation)
+        if kn and rng.random() < kn[1]:
+            add(kn[0])
+    # and nobody is left with nothing: a pistol for a man whose job gave him one, else a bayonet
+    armed = wield is not None or any(ITEMS[i].kind in ("gun", "melee") for i, _ in items if i in ITEMS)
+    if not armed and role not in ("medic", "chaplain"):
+        if role in ("tank_crew", "radioman", "mortarman", "flamethrower", "hmg_gunner") or \
+                role in COMMAND_ROLE_LIST or role.endswith(("pilot", "officer", "captain", "commander")):
+            p = pick(rng, nation, year, "pistol")
+            add(p)
+            add_ammo(p, 1)
+        else:
+            add("bayonet")
 
     # grenades
     if grenades:

@@ -414,6 +414,12 @@ class InventoryScreen:
         if c == "]" and self.sources:
             self.src_idx = (self.src_idx + 1) % len(self.sources)
             return
+        if c == "i":
+            self.play.inv_screen = None
+            return
+        if self.held is not None and c in ("e", "l", "u", "c", "d", "q"):
+            self.say("Put down what you're holding first (Enter), or Esc to put it back.")
+            return
         if it is None:
             return
         if c == "e":
@@ -431,8 +437,6 @@ class InventoryScreen:
             return
         if c == "q":
             return self.quick_move(it, cell)
-        if c == "i":
-            self.play.inv_screen = None
 
     def _jump_to_focus(self):
         want = self.own if self.focus == 0 else self.loot
@@ -505,7 +509,7 @@ class InventoryScreen:
             self.src_idx = cell["idx"]
             return
         if button == 3:
-            if cell.get("item") is not None:
+            if cell.get("item") is not None and self.held is None:
                 self.open_menu(cell["item"], cell)
             return
         if self.held is None and cell.get("item") is not None:
@@ -575,6 +579,13 @@ class InventoryScreen:
         game = self.game
         p = game.player
         it, origin, ocell = self.held
+        # it must still be where it was picked up (or the drop would make a second copy of it)
+        still = (it in game.map.items_at(*origin.ground)) if origin.ground is not None else \
+            (origin.inv is not None and origin.inv.contains(it))
+        if not still:
+            self.held = None
+            self.say("It isn't there any more.")
+            return
         if not self._can_drop(cell):
             self.say("It doesn't fit there.")
             return
@@ -637,7 +648,8 @@ class InventoryScreen:
             if dst.ground is not None:
                 game.map.add_item(dst.ground[0], dst.ground[1], it)
             elif dst.inv.add(it) is None:
-                p.add_item(it)
+                if p.add_item(it) is None:
+                    game.map.add_item(p.x, p.y, it)       # (never into thin air: at worst, at your feet)
                 self.say("No room on the other side.")
                 return
         else:
@@ -655,7 +667,8 @@ class InventoryScreen:
                 return self.spend(c)
             src.inv.remove(it)
             if p.add_item(it) is None:
-                src.inv.add(it)
+                if src.inv.add(it) is None:
+                    game.map.add_item(p.x, p.y, it)
                 self.say("No room for that.")
                 return
             cost = 120

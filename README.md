@@ -50,6 +50,28 @@ shouts and radio traffic are spoken through your system's speech engine if it ha
 macOS, and on Linux or Windows install [espeak-ng](https://github.com/espeak-ng/espeak-ng)
 (`sudo apt install espeak-ng`). Without it the game is the same, just quieter.
 
+**Natural voices (optional).** For voices that sound like people rather than a speech engine,
+install [Piper](https://github.com/rhasspy/piper), a small neural voice that runs on your own
+machine:
+
+```sh
+.venv/bin/pip install -r requirements-voices.txt      # Windows: .venv\Scripts\pip ...
+```
+
+The game fetches one voice per language the first time a battle needs it (60-80 MB each, into
+`~/.fogofwar/piper`). The American and British voices come with hundreds of speakers, so every
+soldier sounds like himself. The system voice speaks until a voice arrives, and always for
+Japanese and Chinese. Esc > Options > Voice engine switches back to the system voice.
+
+**Faster (optional).** The soldiers' route-finding runs several times quicker with
+[numba](https://numba.pydata.org/) installed; big battles feel it most:
+
+```sh
+.venv/bin/pip install -r requirements-fast.txt        # Windows: .venv\Scripts\pip ...
+```
+
+The game is the same either way, turn for turn; set `FOW_NO_NUMBA=1` to switch it off.
+
 Saves, settings and the memorial to the fallen live in `~/.fogofwar/`.
 
 ## Your first minutes
@@ -63,8 +85,15 @@ battle, nation, service, role, rank and kit. Then:
 - Move with the arrow keys, numpad or `hjklyubn`; left-click to walk somewhere. `c` crouch, `p`
   go prone. **Get down behind something that stops bullets.**
 - `f` to aim and fire (`a` aims longer), `r` reload, `t` throw, `B` bandage, `Y` shout for a medic.
-- `i` your kit, `g` pick up, `x` look (or just hover the mouse), `m` the map, `@` your health.
-- `?` or F1 for all the keys; Esc to save and quit. F2 switches sprites and ASCII, F3 sound.
+- `i` your kit, `g` pick up, `x` look (or just hover the mouse), `V` everything around you in a list,
+  `m` the map, `@` your health.
+- `e` gets you into a vehicle beside you (or up onto a tank's hull to ride), and out again.
+  Right-click anything for what you can do with it.
+- Behind the line, walk into the men at their posts to talk: the adjutant has orders for you.
+- A line under your orders gives the keys for whatever's beside you. `?` or F1 opens the help at
+  **Right now**: the keys for where you are, in bold, with every other key a section or a `/` search
+  away ([the full list](docs/CONTROLS.md)). Esc for the menu (save and quit). F2 switches sprites and
+  ASCII, F3 sound.
 
 You will die. The memorial remembers.
 
@@ -141,6 +170,27 @@ name, traits, weapon and kit. Leave any of it to chance.</td>
   until you learn them, breath and fatigue and load govern your speed.
 - **The same rules for everyone.** Pace, breath, cold, heat, stealth and wounds apply to every
   soldier on both sides. Snipers in ghillie suits, lying still in the right grass, may never be seen.
+- **Bases behind the line**, run by real people at real posts: the adjutant with your next orders
+  (dispatches, patrols, rejoining the line, guard duty), the clerk with your pay and your mail,
+  the armourer, the cook, the chaplain, the MPs, the port director with the boat back to your ship.
+- **The navy between battles**: win, and she's sent on to the next job, or back to base to refuel,
+  rearm and repair while you go ashore on liberty. Be back aboard by 0500.
+- **Fire support that exists.** Every shell and aircraft belongs to a real unit: named batteries at
+  the artillery positions, a mortar platoon with each battalion, warships off the beach, squadrons at
+  their airfields. Calls go to one that can reach and has rounds, or the answer is no. Find their
+  guns, silence them, or serve one yourself on the gun line.
+- **Tanks that need looking after**: thrown tracks the crew spend half an hour hammering back on,
+  engines and guns that need fitters, racks that run dry. Ammunition trucks come up from the rear
+  when it's quiet; infantry lend a hand, ride on the engine decks, and get sent to carry shells.
+  The motor sergeant will give you a truck and the tanks to take it to.
+- **Vehicles made of parts, not hit points**: a broken track stops a tank moving but not shooting, a
+  jammed turret means swinging the hull to aim, smashed sights mean open sights, a crewman hit leaves
+  his seat empty until another climbs across. Hover over one to see its state (the enemy's: only what
+  shows). What you see from a tank depends on your seat and whether your head's out of the hatch.
+- **The real sun and moon**: every battle has its place and its clock, so a dawn attack starts in the
+  half-light it really started in, and the D-Day drop goes in under a full moon.
+- **Everything around you in a list** (`V`, as in Cataclysm), and **everyone armed as their army
+  armed them**, down to the medic who goes unarmed and trusts the red cross.
 - **Diegetic.** Menus open from your soldier. Without a watch you don't know the time; without a
   map or compass, sounds are vague and objectives are wherever your sergeant points.
 - **Everything is generated**: the battlefields, the sprites (painted by code, soldiers drawn from
@@ -148,7 +198,8 @@ name, traits, weapon and kit. Leave any of it to chance.</td>
 
 ## Documentation
 
-- [**The manual**](docs/GAMEPLAY.md): everything the game does, and every key.
+- [**The manual**](docs/GAMEPLAY.md): everything the game does.
+- [**Controls**](docs/CONTROLS.md): every key and click, screen by screen.
 - [**How it's built**](docs/ARCHITECTURE.md): the simulation, the AI, the war at sea, the renderer.
 - [**Working on it**](docs/DEVELOPMENT.md): running headless, tests, the fuzzer, making these GIFs,
   adding weapons, ships and battles.

@@ -88,7 +88,16 @@ def _load(game, name):
 def change_deck(game, name, x, y):
     """Up or down a ladder: you come out at the same place on the next deck."""
     from .spawn import place
+    from . import shipboard as SB
     p = game.player
+    ab = game.aboard
+    arr = ab.get("arrivals")
+    if arr:
+        # the men still due on the deck you're leaving get there without you watching
+        ship = ship_of(game)
+        if ship is not None:
+            SB.place_arrivals(game, ship, deck(game, ab["deck"]), arr, arrive=False)
+        ab["arrivals"] = []
     _store(game)
     if p in game.actors:
         game.remove_actor(p)
@@ -568,6 +577,8 @@ def _aircraft_about(game, ship):
             ss._down(pl, "dived into the ship")
         elif ac.dead:
             ss._down(pl, "shot down by the ship's AA")
+        elif not getattr(ac, "attacked", False) and not getattr(ac, "dropped", False):
+            continue       # interrupted (you went below): the war at large finishes his attack, bombs and all
         else:
             pl.bombs, pl.torpedo = [], False
             pl.ai["role"] = "home"
@@ -671,7 +682,10 @@ def status_line(game):
     if ship is None:
         return None
     hull = max(0, int(100 * ship.hp / ship.st["hp"]))
-    bits = [f"{ship.name}: {ship.kn:.0f} kn, course {int(ship.hdg):03d}", f"hull {hull}%"]
+    anchored = (game.aboard or {}).get("condition") == "port" or \
+        ((game.aboard or {}).get("base_condition") == "port")
+    bits = [f"{ship.name}: at anchor" if anchored else f"{ship.name}: {ship.kn:.0f} kn, course {int(ship.hdg):03d}",
+            f"hull {hull}%", f"fuel {int(getattr(ship, 'fuel', 100))}%"]
     if ship.flood > 5:
         bits.append(f"flooding {int(ship.flood)}%")
     if ship.fires:
@@ -708,6 +722,19 @@ def use_here(ps):
             if m.in_bounds(p.x + dx, p.y + dy)}
     if key in ("helm", "chart_table", "periscope") or near & {"helm", "chart_table", "periscope"}:
         return take_the_conn(ps)
+    if ab.get("condition") == "port" and (key == "railing" or "railing" in near):
+        # the gangway: the liberty boat is alongside
+        from . import naval as NV
+        ok, why = NV.can_go_ashore(g)
+        if not ok:
+            g.msg(why, "info")
+            return True
+        from .render import Popup
+        port = (ab.get("port") or {}).get("name", "the base")
+        ps.open_popup(Popup("The gangway", [(f"Go ashore on liberty at {port} (back by 0500)", "go", (140, 190, 255),
+                                             True)], ps._screen_anchor()),
+                      lambda v: NV.go_ashore(ps) if v == "go" else None)
+        return True
     if key == "railing":
         g.msg("Over the side? Walk on - into the sea. (Only if she's going down: nobody will stop for you.)",
               "warn")
@@ -741,7 +768,7 @@ def take_the_conn(ps):
     p = g.player
     ss = g.skysea
     if p.role not in ("ship_captain", "sub_commander", "admiral", "deck_officer"):
-        ss.station = "bridge"
+        ss.station = "plot"                      # watching, not commanding: the captain still has her
         g.msg("You look over the helmsman's shoulder at the plot. (Only officers take the conn - but you can "
               "watch.)", "info")
     else:
@@ -1088,7 +1115,7 @@ def use_in_plane(ps):
                 return
         g.msg("You go out through the hatch into the slipstream. The chute cracks open above you.", "warn")
         _leave_plane(g, "air")
-        return ps.act(100)
+        return True                              # (no turn on the fuselage map: it's gone - the sky view has him)
     here = next((n for n, pos in meta["stations"].items() if pos == (p.x, p.y) and n != "hatch"), None)
     if here is None:
         return None
@@ -1111,3 +1138,10 @@ def _leave_plane(game, domain):
     game.domain = domain
     game.aboard = None
     game.map = None
+    p = game.player
+    # the crew and the fuselage belong to the aircraft's map, which has gone with it
+    game.actors = [p] if p is not None else []
+    game.vehicles = []
+    game.squads = [sq for sq in game.squads if p is not None and p in sq.members]
+    game.soldier_at = {}
+    game.vehicle_at = {}

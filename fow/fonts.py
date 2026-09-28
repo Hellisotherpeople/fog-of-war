@@ -25,6 +25,14 @@ BOX = {
 }
 BLOCKS = "█▀▄▌▐░▒▓"
 
+# bold letters live at a private codepoint above the ordinary ones: print bold("Tab") and it comes out in
+# DejaVu Sans Mono Bold (with the bitmap font, the ordinary glyphs stand in)
+BOLD_BASE = 0xF0000
+
+
+def bold(s: str) -> str:
+    return "".join(chr(BOLD_BASE + ord(c)) if 33 <= ord(c) < 127 else c for c in s)
+
 
 def codepoints() -> set[int]:
     cps = set(int(c) for c in tcod.tileset.CHARMAP_CP437)
@@ -151,6 +159,17 @@ def ttf_tileset(cw: int, ch: int, bold: bool = False) -> tcod.tileset.Tileset:
         tile = rgba.copy()
         tile[..., 3] = alpha
         ts.set_tile(cp, tile)
+    if os.path.exists(TTF_BOLD):
+        bfont = ImageFont.truetype(TTF_BOLD, fit_font_size(TTF_BOLD, cw, ch))
+        basc, bdesc = bfont.getmetrics()
+        bxoff = (cw - bfont.getlength("M")) / 2.0
+        byoff = (ch - (basc + bdesc)) / 2.0
+        for cp in range(33, 127):
+            img = Image.new("L", (cw, ch), 0)
+            ImageDraw.Draw(img).text((bxoff, byoff), chr(cp), font=bfont, fill=255)
+            tile = rgba.copy()
+            tile[..., 3] = np.asarray(img, np.uint8)
+            ts.set_tile(BOLD_BASE + cp, tile)
     return ts
 
 
@@ -166,6 +185,9 @@ def bitmap_tileset() -> tcod.tileset.Tileset:
         if base and ord(base) in index:
             i = index[ord(base)]
             ts.remap(cp, i % 16, i // 16)
+    for cp in range(33, 127):
+        if cp in index:
+            ts.remap(BOLD_BASE + cp, index[cp] % 16, index[cp] // 16)
     for cp, sub in ((0x25AE, "█"), (0x2014, "-"), (0x2013, "-"), (0x2018, "'"), (0x2019, "'"),
                     (0x201C, '"'), (0x201D, '"'), (0x2026, "."), (0x2605, "*"), (0x2196, "▲"), (0x2197, "▲"),
                     (0x2198, "▼"), (0x2199, "▼")):

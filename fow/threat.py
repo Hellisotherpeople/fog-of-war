@@ -55,7 +55,7 @@ def _friendly_spot(game, side):
 def _installation_spot(game, side):
     """A depot, battery, HQ or aid post of ours on this map, if any."""
     recs = [r for r in (getattr(game.map, "gen_positions", None) or []) if r.get("side") == side and r.get("kind")
-            in ("depot", "artillery", "hq", "aid", "motor_pool", "aa", "airfield")]
+            in ("depot", "artillery", "hq", "aid", "motor_pool", "aa", "airfield", "naval_base")]
     if recs:
         r = game.rng.choice(recs)
         return (r.get("x", game.map.w // 2), r.get("y", game.map.h // 2)), r.get("kind")

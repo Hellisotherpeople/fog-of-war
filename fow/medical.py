@@ -37,8 +37,14 @@ def skill_name(s: int) -> str:
     return ("buddy aid", "first aid", "corpsman", "surgeon")[s]
 
 
+def _parts(b):
+    """The body's parts, less any already amputated (a stump isn't a wound)."""
+    gone = getattr(b, "amputated", None)
+    return [p for p in PARTS if p not in gone] if gone else PARTS
+
+
 def missing_hp(b) -> int:
-    return sum(b.max[p] - b.hp[p] for p in PARTS)
+    return sum(b.max[p] - b.hp[p] for p in _parts(b))
 
 
 def needs_care(b) -> float:
@@ -49,9 +55,10 @@ def needs_care(b) -> float:
 
 def should_evacuate(b) -> bool:
     """Bad enough to leave the line for: a ruined limb, a chest or head wound, or half a limb gone."""
-    if any(b.hp[p] <= 0 for p in PARTS):
+    parts = _parts(b)
+    if any(b.hp[p] <= 0 for p in parts):
         return True
-    if any(b.hp[p] < b.max[p] * 0.45 for p in PARTS):
+    if any(b.hp[p] < b.max[p] * 0.45 for p in parts):
         return True
     return any(w.part in ("torso", "head") and (w.bleed > 0.2 or not w.bandaged) for w in b.wounds) and \
         b.hp["torso"] < b.max["torso"] * 0.7
@@ -59,7 +66,7 @@ def should_evacuate(b) -> bool:
 
 def needs_surgery(b) -> bool:
     """Wounds a dressing won't fix: chest and head wounds, ruined limbs, lost flesh."""
-    if any(b.hp[p] <= 0 for p in PARTS):
+    if any(b.hp[p] <= 0 for p in _parts(b)):
         return True
     if missing_hp(b) > 25:
         return True
@@ -99,6 +106,9 @@ def first_aid(game, medic, patient, item=None) -> int | None:
                 if kit.uses <= 0:
                     medic.remove_item(kit)
                     kit = None
+                    dressing = medic.medical("bandage")      # the kit's used up: on to loose dressings, if any
+                    if dressing is None:
+                        break
             else:
                 A._consume(medic, dressing)
                 dressing = medic.medical("bandage")
@@ -273,6 +283,7 @@ def finish_surgery(game, surgeon, patient):
     for w in b.wounds:
         w.bleed = 0.0
     patient.ai["amputated"] = sorted(set(patient.ai.get("amputated", [])) | set(lost))
+    b.amputated = set(patient.ai["amputated"])                   # (a stump is healed, not a wound to operate on)
     if b.blood < 4200:
         b.heal_blood(4200 - b.blood)                            # transfusion
     b.pain = min(b.pain, 60)

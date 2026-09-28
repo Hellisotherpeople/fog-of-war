@@ -1,0 +1,2 @@
+-r requirements.txt
+piper-tts>=1.2      # optional: natural voices (fow/neural_voice.py); voice models download on first use

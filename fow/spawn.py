@@ -99,7 +99,11 @@ def make_soldier(game, nation: str, role: str, rank: int | None = None, para=Fal
     if role == "sniper":
         a.skill = min(10, a.skill + 2)
         a.traits.add("camouflaged")
-    kit = build_kit(rng, nation, game.year, role, para=para, winter=game.map.climate == "winter")
+    from .data.roles import PACIFIC_THEATRES
+    pac = game.theatre.get("id") in PACIFIC_THEATRES or \
+        (game.map is not None and game.map.climate in ("tropical", "volcanic"))
+    kit = build_kit(rng, nation, game.year, role, para=para, winter=game.map is not None and game.map.climate == "winter",
+                    pacific=pac)
     apply_kit(a, kit, game.year)
     return a
 
@@ -316,8 +320,8 @@ def apply_special(game, a, sid, unit_text=None):
             a.add_item(w)
             a.wield(w)
             try:
-                from .ammo import give_ammo
-                give_ammo(a, w, 4)
+                from .ammo import give_loads
+                give_loads(a, w, 4)
             except Exception:
                 pass
     for tid, n in d.get("kit", {}).items():
@@ -547,10 +551,11 @@ def populate(game, sector, att_side, att_edge):
         spawn_units(game, side, wave_now, edge, is_att, positions, paradrop, landing)
         if later:
             game.schedule_wave(side, later, edge, delay=rng.randint(120, 300), landing=landing)
-    # installation assets
+    # installation assets (on a sector we've been to before: the people and vehicles, not the stores again)
+    fresh = not getattr(m, "loaded", False)
     for rec in positions:
         if rec.get("spots") is not None and rec.get("side"):
-            spawn_installation(game, rec)
+            spawn_installation(game, rec, things=fresh)
     ensure_aid_posts(game)
     # each side's company ammunition point, behind its own line
     if sector.biome != "sea":
@@ -568,7 +573,8 @@ def populate(game, sector, att_side, att_edge):
                 x, y = edge_band_point(game, edge, rng, depth=(3, 9))
                 pt = free_tile_near(game, x, y, 8)
                 if pt is not None:
-                    m.add_item(pt[0], pt[1], Item("ammo_crate"))
+                    if fresh:
+                        m.add_item(pt[0], pt[1], Item("ammo_crate"))    # (crates are saved with the map)
                     if k == 0:
                         rear_staff(game, side, pick_nation(game, side), pt[0], pt[1], "quartermaster",
                                    "company supply")
@@ -582,7 +588,7 @@ def populate(game, sector, att_side, att_edge):
                                          delay=rng.randint(5, 90))
 
 
-def spawn_units(game, side, units: Counter, edge, is_att, positions, paradrop=False, landing=False):
+def spawn_units(game, side, units: Counter, edge, is_att, positions, paradrop=False, landing=False, wave=False):
     rng = game.rng
     m = game.map
     objs = m.objectives
@@ -604,9 +610,16 @@ def spawn_units(game, side, units: Counter, edge, is_att, positions, paradrop=Fa
             elif landing:
                 sq = make_squad(game, side, nat, kind, 0, 0, place_members=False)
                 embark_landing(game, sq, edge)
-            elif is_att:
+            elif is_att or (wave and edge is not None):
+                # attackers - and reinforcements for either side - march in from their own edge
                 x, y = edge_band_point(game, edge, rng)
                 sq = make_squad(game, side, nat, kind, x, y)
+                if not is_att:
+                    objs = game.map.objectives
+                    if objs:
+                        oi = min(range(len(objs)), key=lambda i: (objs[i].x - x) ** 2 + (objs[i].y - y) ** 2)
+                        sq.order = Order("defend", obj=oi, radius=objs[oi].radius, issued=game.turn)
+                        sq.arrived = False
             else:
                 sq = make_squad(game, side, nat, kind, 0, 0, place_members=False)
                 defend_place(game, sq, positions)
@@ -634,6 +647,9 @@ def spawn_units(game, side, units: Counter, edge, is_att, positions, paradrop=Fa
                 x, y = edge_band_point(game, edge, rng) if is_att else near_objective_point(game, side)
                 sq = make_vehicle_squad(game, side, nat, "ht", x, y, 1, edge=edge)
                 if sq is None:
+                    # no half-tracks in this army this year: the infantry who'd have ridden in one walk
+                    inf = make_squad(game, side, nat, "rifle", x, y)
+                    squads.append(inf)
                     continue
                 inf = make_squad(game, side, nat, "rifle", x, y, place_members=False)
                 v = sq.vehicles[0]
@@ -656,6 +672,9 @@ def spawn_units(game, side, units: Counter, edge, is_att, positions, paradrop=Fa
                 continue       # armour lands with a later wave
             x, y = edge_band_point(game, edge, rng, depth=(3, 14)) if is_att else near_objective_point(game, side)
             sq = make_vehicle_squad(game, side, nat, unit, x, y, 1, edge=edge)
+            if sq is None and unit == "td":
+                # no tank destroyers in this army this year: what did the job was a tank
+                sq = make_vehicle_squad(game, side, nat, "tank", x, y, 1, edge=edge)
             if sq:
                 squads.append(sq)
     return squads
@@ -697,7 +716,8 @@ def defend_place(game, sq, positions):
         oi = min(range(len(objs)), key=lambda i: counts.get(i, 0) + rng.random() * 0.8)
         o = objs[oi]
         sq.order = Order("defend", obj=oi, radius=o.radius, issued=game.turn)
-        o.owner = sq.side
+        if o.owner is None:
+            o.owner = sq.side                 # (a ground someone else holds has to be taken, not walked onto)
         cx, cy = o.x, o.y
     else:
         cx, cy = m.w // 2, m.h // 2
@@ -830,13 +850,29 @@ def embark_landing(game, sq, edge):
     sq.order = Order("attack", obj=None, target=None)
 
 
-def spawn_installation(game, rec):
+def spawn_installation(game, rec, things=True):
+    """The guns, vehicles and people of an installation - and, the first time, its stores (`things`)."""
     rng = game.rng
     side = rec["side"]
+    if not things:
+        from .base import intact
+        if not intact(game, rec):
+            return                            # taken or destroyed since we were last here
     nat = pick_nation(game, side)
     m = game.map
+    guns_placed = False
+    if rec.get("kind") == "artillery" and game.support is not None:
+        # the batteries that are here on the war map, gun for gun (fires.py)
+        try:
+            guns_placed = bool(game.support.fires.place_guns(game, rec))
+        except Exception:
+            import os
+            if os.environ.get("FOW_DEBUG"):
+                raise
     for spot in rec.get("spots", []):
         kind, x, y = spot
+        if kind == "howitzer" and guns_placed:
+            continue
         if kind in ("howitzer", "aagun", "atgun"):
             cls = {"howitzer": "fieldgun", "aagun": "aagun", "atgun": "atgun"}[kind]
             vid = pick_vehicle(rng, nat, game.year, cls, include_zero=True)
@@ -870,9 +906,9 @@ def spawn_installation(game, rec):
             v.abandoned = v.crew == 0
             game.add_vehicle(v)
         elif kind == "crate":
-            it = Item("ammo_crate")
-            m.add_item(x, y, it)
-        elif kind == "medkit":
+            if things:
+                m.add_item(x, y, Item("ammo_crate"))
+        elif kind == "medkit" and things:
             m.add_item(x, y, Item("medkit"))
             m.add_item(x, y, Item("bandage", 6))
             m.add_item(x, y, Item("morphine", 3))
@@ -888,6 +924,8 @@ def spawn_installation(game, rec):
             rear_staff(game, side, nat, x, y, "quartermaster", "supply depot")
         elif kind == "intel":
             rear_staff(game, side, nat, x, y, "intel", "intelligence")
+    from .base import spawn_staff
+    spawn_staff(game, rec)
 
 
 def rear_staff(game, side, nat, x, y, role, name):
@@ -985,6 +1023,9 @@ def create_player(game, nation: str, role: str | None = None) -> tuple[Actor, li
                 any(v.vt.vtype in ("tank", "td", "ltank", "spg") and v.active for v in sq.vehicles)]
     if role == "tank_crew" and not my_tanks:
         role = "rifleman"
+    my_guns = [v for v in game.vehicles if v.side == side and v.ai.get("battery") and v.active and v.squad is not None]
+    if role == "artilleryman" and not my_guns:
+        role = "rifleman"
     special = game.theatre.get("special", set())
     para = f"paradrop_{side}" in special and game.first_battle
     p = make_soldier(game, nation, role, para=para)
@@ -1013,7 +1054,23 @@ def create_player(game, nation: str, role: str | None = None) -> tuple[Actor, li
             "sergeant_major": "hq"}.get(role, "hq" if role in COMMAND_ROLES else "rifle")
     mine = [sq for sq in game.squads if sq.side == side and sq.members]
     placed = False
-    if role == "tank_crew":
+    if role == "artilleryman":
+        # a number on a gun: the layer, who sets the sights and pulls the lanyard
+        v = rng.choice(my_guns)
+        sq = v.squad
+        p.vehicle = v
+        v.crew_actors.append(p)
+        v.player_crewed = True
+        v.player_station = "gunner"
+        game.actors.append(p)
+        p.squad = sq
+        sq.members.append(p)
+        p.x, p.y = v.x, v.y
+        placed = True
+        name = sq.name.split(", gun")[0]
+        notes.append(f"You're the layer on a {v.vt.name} of {name}. When a fire mission comes down, your orders say "
+                     f"where: Enter lays the gun and fires it. (e: seats and getting out)")
+    elif role == "tank_crew":
         sq = rng.choice(my_tanks)
         v = rng.choice([v for v in sq.vehicles if v.active])
         p.vehicle = v

@@ -5,6 +5,7 @@ from .constants import cap
 
 import datetime as dt
 import math
+import re
 import os
 import pickle
 import random
@@ -33,7 +34,8 @@ from .senses import (HEAR_THRESHOLD, ONOMATOPOEIA, base_view_range, compute_ligh
 from .strategic import OPP, Strategic, power
 from .support import Support
 
-SAVE_DIR = os.path.join(os.path.expanduser("~"), ".fogofwar")
+# saves, the memorial and the error log (FOW_HOME moves them: the tests and tools use a scratch folder)
+SAVE_DIR = os.environ.get("FOW_HOME") or os.path.join(os.path.expanduser("~"), ".fogofwar")
 _NATIVE = {}
 
 
@@ -198,6 +200,8 @@ class Game:
             sid = "front"
         if sid == "partisans" and SC.partisan_nation(self.theatre):
             self.player_nation = SC.partisan_nation(self.theatre)
+        if role == "artilleryman" and service == "army" and not sid.startswith(("air:", "sea:")):
+            sid = "gunline"                    # a gunner's place is at his gun
         self.scenario = sid
         if service != "army" and role is None:
             from .data.roles import SERVICE_ROLES
@@ -263,8 +267,10 @@ class Game:
                     # the enemy attacks us
                     src = rng.choice(enemy_nb)
                     start.units[other_side(side)].update(st._detach(src.units[other_side(side)], 0.6))
-        # make sure there is a fight
+        # make sure there is a fight (not at the gun line: the fight there is miles away, for now)
         for s2 in SIDES:
+            if self.scenario == "gunline":
+                break
             if sum(start.units[s2].values()) == 0:
                 start.units[s2]["inf"] += st.sc(rng.randint(3, 6))
                 start.units[s2]["mg"] += st.sc(1)
@@ -333,9 +339,9 @@ class Game:
             w = Item(wid)
             if p.add_item(w) is not None or True:
                 p.wield(w)
-                from .ammo import give_ammo
+                from .ammo import give_loads
                 try:
-                    give_ammo(p, w, 4)
+                    give_loads(p, w, 4)
                 except Exception:
                     pass
         for tid, n in (su.get("kit") or {}).items():
@@ -459,6 +465,13 @@ class Game:
         self.update_view_range()
         from .spawn import populate
         populate(self, sector, att, att_edge)
+        try:
+            f = self.support.fires
+            f.populate(self)
+            f.link_mortars(self)               # the battalion's mortars here are real squads on the map
+        except Exception:
+            if os.environ.get("FOW_DEBUG"):
+                raise
         if fresh:
             from .loot import scatter
             try:
@@ -763,6 +776,7 @@ class Game:
         """Time on the road: the war goes on without you watching it."""
         t0 = self.turn
         self.turn += n
+        self.clock += n                       # the sun moves too
         for k in range(t0 // STRATEGIC_TICK + 1, self.turn // STRATEGIC_TICK + 1):
             self._strategic_tick()
         for w in self.waves:
@@ -833,6 +847,13 @@ class Game:
         d.pop("_nb_cache", None)            # regenerated on demand
         d.pop("_prefs", None)               # the player's settings live in settings.json, not the save
         d.pop("_order_hint", None)
+        d.pop("_vis_mat", None)             # this turn's distance matrix
+        # the id counters, so nothing made after loading can share an id with something already in the world
+        import itertools
+        from . import entities
+        n = next(entities._ids)
+        entities._ids = itertools.count(n)
+        d["_counters"] = dict(ids=n, squad=Squad._next)
         return d
 
     def _local_attacker(self, sector):
@@ -904,9 +925,11 @@ class Game:
         m = self.map
         s = self.sector
         pk = self._pack
+        recs = [r for r in (getattr(m, "gen_positions", None) or []) if r.get("side") and r.get("spots") is not None]
         s.saved = dict(t=pk(m.t), hp=pk(m.hp), blood=pk(m.blood), scorch=pk(m.scorch),
                        items=m.items, mines=m.mines, objectives=m.objectives, explored=pk(m.explored),
-                       name=m.name, biome=m.biome, climate=m.climate, buildings=m.buildings, var=m.var)
+                       name=m.name, biome=m.biome, climate=m.climate, buildings=m.buildings, var=m.var,
+                       positions=recs)
 
     def _load_map(self, sector):
         from .gamemap import GameMap
@@ -925,7 +948,10 @@ class Game:
         m.name, m.biome, m.climate = sv["name"], sv["biome"], sv["climate"]
         m.buildings = sv["buildings"]
         m.var = sv["var"]
-        m.gen_positions = []
+        # the bases are still there: their records come back (populate() puts the people and vehicles back -
+        # neither is saved with the map - but not the crates and dressings, which are)
+        m.gen_positions = list(sv.get("positions", []))
+        m.loaded = True
         m.refresh()
         return m
 
@@ -982,6 +1008,20 @@ class Game:
             from .actions import put_down
             put_down(self, p)
         vehicle = p.vehicle
+        riders = []
+        if vehicle is not None:
+            # the vehicle and everyone in it come along - and stop counting as part of the old sector
+            riders = [a for a in list(vehicle.crew_actors) + list(vehicle.passengers) if a is not p and a.alive]
+            vsq = vehicle.squad
+            if vsq is not None and vehicle in vsq.vehicles:
+                vsq.vehicles.remove(vehicle)
+            for a in riders:
+                if a in comp:
+                    comp.remove(a)
+                if a.squad is not None and a in a.squad.members:
+                    a.squad.members.remove(a)
+                if a in self.actors:
+                    self.actors.remove(a)
         # store what's left behind (the companions and player are no longer part of it)
         old_sq_ref = p.squad
         if old_sq_ref is not None:
@@ -1006,10 +1046,9 @@ class Game:
         sq = Squad(p.side, p.nation, old_sq.kind if old_sq else "rifle", old_sq.name if old_sq else "squad")
         sq.player_led = bool(old_sq and old_sq.player_led)
         sq.order = Order("follow") if sq.player_led else Order("hold")
-        members = [p] + comp
+        members = [p] + comp + riders
         sq.members = members
         sq.initial = len(members)
-        sq.no_count = True
         old_leader = old_sq.leader if old_sq else None
         sq.leader = old_leader if old_leader in members else (p if sq.player_led else (comp[0] if comp else p))
         for a in members:
@@ -1026,6 +1065,10 @@ class Game:
             sq.vehicles.append(vehicle)
             p.x, p.y = vehicle.x, vehicle.y
             self.actors.append(p)
+            for a in riders:
+                a.x, a.y = vehicle.x, vehicle.y
+                if a not in self.actors:
+                    self.actors.append(a)
         else:
             from .spawn import place
             place(self, p, ex, ey, 6)
@@ -1185,6 +1228,7 @@ class Game:
         self._arr_index = {a.id: i for i, a in enumerate(acts)}
         self._arr_turn = self.turn
         self._enemy_arr = {}
+        self._enemy_idx = {}
         return self._arr
 
     def near(self, x, y, r, side=None):
@@ -1203,11 +1247,10 @@ class Game:
                 self._arr[0][i, 0] = a.x
                 self._arr[0][i, 1] = a.y
         for side, (pos, ents) in self._enemy_arr.items():
-            for k, e in enumerate(ents):
-                if e is a:
-                    pos[k, 0] = a.x
-                    pos[k, 1] = a.y
-                    break
+            k = self.__dict__.get("_enemy_idx", {}).get(side, {}).get(id(a))
+            if k is not None:
+                pos[k, 0] = a.x
+                pos[k, 1] = a.y
 
     def enemies_of(self, side):
         pl = self.player
@@ -1229,6 +1272,7 @@ class Game:
         ents = self.enemies_of(side)
         pos = np.array([(e.x, e.y) for e in ents], np.float32).reshape(-1, 2)
         self._enemy_arr[side] = (pos, ents)
+        self.__dict__.setdefault("_enemy_idx", {})[side] = {id(e): k for k, e in enumerate(ents)}
         return pos, ents
 
     def side_strength(self, side):
@@ -1349,7 +1393,7 @@ class Game:
 
     def can_see(self, x, y) -> bool:
         m = self.map
-        return self.player is not None and m.in_bounds(x, y) and bool(m.visible[x, y])
+        return self.player is not None and m is not None and m.in_bounds(x, y) and bool(m.visible[x, y])
 
     def name_of(self, a) -> str:
         if a is None:
@@ -1715,16 +1759,21 @@ class Game:
 
     def turn_vehicle(self, v, facing) -> bool:
         """Swing the hull round on the spot, if there's room."""
+        from .vdamage import can_move, turret_turns
         facing %= 8
         if facing == v.facing:
             return True
         if v.vt.static:
             v.facing = facing
             return True
+        if not can_move(v):
+            return False                  # a broken track or a dead engine: it doesn't pivot either
         room = self._vehicle_room(v, v.x, v.y, facing)
         if room is None or room[1] or room[2]:
             return False
         self.lift_vehicle(v)
+        if v.vt.turret and not turret_turns(v):
+            v.turret = (v.turret + facing - v.facing) % 8      # a jammed turret swings with the hull
         v.facing = facing
         self.place_vehicle(v)
         return True
@@ -1796,6 +1845,10 @@ class Game:
             self.emit_sound(cx, cy, 60, "crash", f"a {vt.name} smashing through {d.name}", v.side, v)
             cost += 150
         self.lift_vehicle(v)
+        if v.vt.turret and f != v.facing:
+            from .vdamage import turret_turns
+            if not turret_turns(v):
+                v.turret = (v.turret + f - v.facing) % 8
         v.facing = f
         v.x, v.y = nx, ny
         self.place_vehicle(v)
@@ -1936,10 +1989,10 @@ class Game:
                     attacker=thrower, source=f"a {t.name}", crater=t.kind == "explosive")
 
     def schedule_shell(self, x, y, flight, power, radius, frags, frag_dmg, attacker, source,
-                       whistle=True, sound=None, side=None, fire=0, pen=0):
+                       whistle=True, sound=None, side=None, fire=0, pen=0, smoke=False):
         self.shells.append(dict(x=x, y=y, t=self.turn + flight, power=power, radius=radius, frags=frags,
                                 frag_dmg=frag_dmg, attacker=attacker, source=source, whistle=whistle,
-                                sound=sound, side=side, fire=fire, pen=pen))
+                                sound=sound, side=side, fire=fire, pen=pen, smoke=smoke))
 
     def _tick_shells(self):
         keep = []
@@ -1965,8 +2018,14 @@ class Game:
             if dtt <= 0:
                 x, y = s["x"], s["y"]
                 if m.in_bounds(x, y):
-                    explode(self, x, y, s["power"], s["radius"], frags=s["frags"], frag_dmg=s["frag_dmg"],
-                            attacker=s["attacker"], source=s["source"], fire=s["fire"], pen=s["pen"])
+                    if s.get("smoke"):
+                        # a smoke round: a pop, and a white cloud that spreads and drifts on the wind
+                        self.effect_explosion(x, y, 0)
+                        self.emit_sound(x, y, 70, "explosion", "the dull pop of a smoke shell", None, None)
+                        self.smoke_sources.append([x, y, 70, 3.0])
+                    else:
+                        explode(self, x, y, s["power"], s["radius"], frags=s["frags"], frag_dmg=s["frag_dmg"],
+                                attacker=s["attacker"], source=s["source"], fire=s["fire"], pen=s["pen"])
                 continue
             keep.append(s)
         self.shells = keep
@@ -2316,7 +2375,8 @@ class Game:
                 continue
             half = Counter({k: max(1, n // 2) if n else 0 for k, n in now.items()})
             rest = now - half
-            spawn_units(self, w["side"], half, w["edge"], w["side"] == self.attacker, [], landing=w.get("landing", False))
+            spawn_units(self, w["side"], half, w["edge"], w["side"] == self.attacker, [], landing=w.get("landing", False),
+                        wave=True)
             for sq in self.squads:
                 if getattr(sq, "formation", None) is None:
                     self.command.attach_squad(self, sq)
@@ -2349,6 +2409,12 @@ class Game:
             events = [e for e in events if e[0] not in ("reinforce", "sally")]
         else:
             events = st.tick(self.sector, self.local_units())
+        if self.support is not None and self.sector is not None:
+            try:
+                self.support.fires.strategic_tick(self)    # the guns and squadrons of the war around you
+            except Exception:
+                if os.environ.get("FOW_DEBUG"):
+                    raise
         for n in st.order_news:
             self.msg(n, "radio")
         st.order_news = []
@@ -2464,11 +2530,16 @@ class Game:
                 from . import shipboard as _SB
                 from .shipyard import DECK_NAME
                 ab = self.aboard
+                from . import naval as _NV
+                port = _NV.status_words(self)
                 cond = "GENERAL QUARTERS" if ab["condition"] == "GQ" else \
-                    ("Condition III - you're on watch" if _SB.on_watch(self) else "Condition III - off watch")
+                    (("In-port watch - you're on" if _SB.on_watch(self) else "Off watch - liberty (e at the rail)")
+                     if ab["condition"] == "port" else
+                     ("Condition III - you're on watch" if _SB.on_watch(self) else "Condition III - off watch"))
                 job = _SB.task_line(self)
-                self.player_orders = ((f"{job} " if job else "") + f"{cond}. On {DECK_NAME.get(ab['deck'], ab['deck'])}. "
-                                      + _SB.station_words(self) + f" {mis}")
+                self.player_orders = ((f"{job} " if job else "") + (port or "") + f"{cond}. "
+                                      f"On {DECK_NAME.get(ab['deck'], ab['deck'])}. "
+                                      + _SB.station_words(self) + ("" if port else f" {mis}"))
                 return
             self.player_orders = f"{mis} {where} ({_AB.status_line(self) or ''})"
             return
@@ -2483,8 +2554,13 @@ class Game:
         m = self.map
         text = ""
         cmd = self.command
+        pb = self.support.fires.player_battery(self) if self.support is not None else None
         if sq is None:
             text = "No orders. Find your unit."
+        elif pb is not None and cmd.billet is None:
+            what = "tube" if pb.kind == "mortar" else "gun"
+            text = (f"On your {what} with {pb.name}: stand by for fire missions. "
+                    f"({pb.ammo} rounds left with the {'platoon' if pb.kind == 'mortar' else 'battery'}.)")
         elif cmd.billet is not None:
             text = f"You command {cmd.billet_title(self)}. C for command, m for the front."
             enemy_obj = [o for o in m.objectives if o.owner != p.side]
@@ -2512,6 +2588,26 @@ class Game:
                 text = f"{lname}: 'Stay on me.'"
             else:
                 text = f"{lname}: 'Hold here and keep your eyes open.'"
+        from . import base as _BASE
+        bo = _BASE.order_line(self)
+        if bo:
+            text = "ORDERS: " + bo
+        if self.support is not None and self.map is not None:
+            fm = self.support.fires.order_text(self)      # a fire mission for your gun or your mortar
+            if fm:
+                text = fm
+        from .medevac import order_line as _medevac_line
+        mv = _medevac_line(self)
+        if mv:
+            text = mv
+        if self.__dict__.get("ship_ashore"):
+            ctx = self.ship_ashore
+            left = ctx["back_by"] - self.turn
+            text = (f"Ashore on liberty from {ctx['ship_name']}. Back aboard by 0500 "
+                    f"({max(0, left) // 3600} h {max(0, left) % 3600 // 60} min): the port director has the boat."
+                    if left > 0 else f"You're adrift from {ctx['ship_name']}! Get back aboard - the port director.")
+        elif self.__dict__.get("awol"):
+            text = "You missed your ship. You're absent without leave: report to the adjutant before the MPs find you."
         duty = getattr(self, "duty", None)
         if duty is not None and duty.task is not None:
             text = duty.task_text(self)
@@ -2524,8 +2620,11 @@ class Game:
             it = p.find(lambda i: i.tid == "orders")
             if it is not None:
                 it.data = {"text": text}
-            if not force or self.turn > 0:
+            # a clock ticking down in the orders isn't a new order: say it again only when the words change
+            gist = re.sub(r"\d+ h \d+ min|\d+ min", "#", text)
+            if gist != self.__dict__.get("_orders_gist") and (not force or self.turn > 0):
                 self.msg(text, "radio" if "HQ" in text else "shout")
+            self._orders_gist = gist
 
     def _pointing(self, o):
         """The leader points: a direction and a rough distance."""
@@ -2564,6 +2663,11 @@ class Game:
             if pt is not None and max(abs(pt[0] - p.x), abs(pt[1] - p.y)) > 1:
                 from .duty import TASK_TEXT
                 return int(pt[0]), int(pt[1]), TASK_TEXT[duty.task["kind"]].split("!")[0].split(".")[0]
+        if self.__dict__.get("base_order") and self.__dict__.get("domain", "land") == "land" and self.map is not None:
+            from . import base as _BASE
+            pt = _BASE.order_point(self)
+            if pt is not None and max(abs(pt[0] - p.x), abs(pt[1] - p.y)) > 1:
+                return int(pt[0]), int(pt[1]), pt[2]
         sq = p.squad
         if sq is None or p.state != "ok":
             return None
@@ -2718,6 +2822,14 @@ class Game:
         self.command.update(self)
         if self.turn % 10 == 4:
             self.duty.update(self)
+        if self.turn % 5 == 3 and self.__dict__.get("domain", "land") == "land":
+            from . import maintenance as _MT
+            _MT.tick(self)
+        if self.turn % 10 == 6 and self.__dict__.get("domain", "land") == "land":
+            from . import base as _BASE
+            from . import naval as _NV
+            _BASE.update(self)
+            _NV.land_tick(self)
         if self.turn % 30 == 0:
             self._medical_tick()
         if self.turn % 40 == 17:
@@ -2758,6 +2870,13 @@ class Game:
         self._tick_pending()
         self._tick_shells()
         self.support.update()
+        if self.turn % 5 == 2 and not aboard and self.map is not None:
+            f = self.support.fires
+            f.tick(self)
+            f.sync(self)
+        if self.__dict__.get("medevac") is not None and self.turn % 2 == 0:
+            from .medevac import update as _medevac_update
+            _medevac_update(self)
         self._environment()
         if self.terrain_dirty:
             m.refresh()
@@ -3079,10 +3198,14 @@ class Game:
                 a.recoil = 0.0
         if "domain" not in g.__dict__:
             g.domain, g.skysea = "land", None
-        if g.__dict__.get("skysea") is not None:
+        ss_ = g.__dict__.get("skysea") or (g.__dict__.get("ship_ashore") or {}).get("skysea")
+        if g.__dict__.get("skysea") is not None and g.__dict__.get("domain") == "aboard" and \
+                g.skysea.station in ("bridge", "captain", "plot"):
+            g.skysea.station = "deck"                # (saved at the plot: back on deck, the captain has her)
+        if ss_ is not None:
             from .skysea import Plane, Ship
-            Plane._next = max([pl.id for pl in g.skysea.planes] + [0]) + 1
-            Ship._next = max([sh.id for sh in g.skysea.ships] + [0]) + 1
+            Plane._next = max([pl.id for pl in ss_.planes] + [0]) + 1
+            Ship._next = max([sh.id for sh in ss_.ships] + [0]) + 1
         if "ops" not in g.__dict__:
             from .operations import Operations
             g.ops = Operations()
@@ -3105,8 +3228,16 @@ class Game:
                 top = max(top, getattr(it, "iid", 0))
         for v in self.vehicles:
             top = max(top, v.id)
-        entities._ids = itertools.count(top + 1)
-        Squad._next = max([sq.id for sq in self.squads] + [0]) + 1
+        # the other decks of a ship (and the ship you're ashore from) have men and kit of their own
+        abd = self.__dict__.get("aboard") or (self.__dict__.get("ship_ashore") or {}).get("aboard") or {}
+        for d in (abd.get("decks") or {}).values():
+            for a in getattr(d, "actors", None) or []:
+                top = max(top, a.id)
+            for v in getattr(d, "vehicles", None) or []:
+                top = max(top, v.id)
+        saved = self.__dict__.get("_counters") or {}
+        entities._ids = itertools.count(max(top + 1, saved.get("ids", 0)))
+        Squad._next = max([sq.id for sq in self.squads] + [0, saved.get("squad", 0) - 1]) + 1
 
     @staticmethod
     def delete_save(path=None):

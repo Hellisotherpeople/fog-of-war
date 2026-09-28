@@ -1303,7 +1303,7 @@ class Gen:
     INSTALLATION_NAMES = {
         "depot": "supply depot", "artillery": "artillery battery", "aa": "flak position",
         "hq": "command post", "aid": "aid station", "motor_pool": "motor pool",
-        "airfield": "airfield", "fortress": "fortress",
+        "airfield": "airfield", "fortress": "fortress", "naval_base": "naval base",
     }
 
     def installation(self, kind: str, side: str, depth: float | None = None, lat: float | None = None):
@@ -1321,12 +1321,40 @@ class Gen:
         cx, cy = self.point_at_depth(depth, lat)
         size = {"depot": (34, 22), "artillery": (40, 18), "aa": (26, 18), "hq": (26, 20),
                 "aid": (24, 16), "motor_pool": (34, 22), "airfield": (150, 30),
-                "fortress": (70, 34)}[kind]
+                "fortress": (70, 34), "naval_base": (44, 34)}[kind]
         sw, sh = size
-        if self.att in ("E", "W") and kind not in ("airfield",):
+        if self.att in ("E", "W") and kind not in ("airfield", "naval_base"):
             sw, sh = sh, sw
         x0 = max(3, min(self.w - sw - 3, cx - sw // 2))
         y0 = max(3, min(self.h - sh - 3, cy - sh // 2))
+        if kind == "naval_base":
+            sea = self.spec.get("sea_edge")
+            if sea is None:
+                kind = "depot"                   # no water on this map: a naval supply depot inland
+                sw, sh = 34, 22
+            else:
+                # on the waterline: find where the land starts, halfway along the shore
+                lat_i = int((self.w if sea in ("N", "S") else self.h) * r.uniform(0.3, 0.7))
+                shore = 0
+                for d in range(0, (self.h if sea in ("N", "S") else self.w) // 2):
+                    x, y = self._beach_xy(sea, d, lat_i)
+                    if not T.WATER[self.m.t[x, y]]:
+                        shore = d
+                        break
+                along, deep = (44, 34) if sea in ("N", "S") else (34, 44)
+                sw, sh = along, deep
+                sx, sy = self._beach_xy(sea, max(0, shore - 12), lat_i)
+                if sea == "N":
+                    x0, y0 = sx - sw // 2, sy
+                elif sea == "S":
+                    x0, y0 = sx - sw // 2, sy - sh + 1
+                elif sea == "W":
+                    x0, y0 = sx, sy - sh // 2
+                else:
+                    x0, y0 = sx - sw + 1, sy - sh // 2
+                x0 = max(1, min(self.w - sw - 1, x0))
+                y0 = max(1, min(self.h - sh - 1, y0))
+                self.naval_shore = (sea, shore, lat_i)
         if kind == "airfield":
             x0, sw = 10, self.w - 20
         rec = dict(kind=kind, side=side, x=x0 + sw // 2, y=y0 + sh // 2, rect=(x0, y0, sw, sh),
@@ -1485,6 +1513,76 @@ class Gen:
         self._tent(x0 + 2, y0 + sh - 5, 5, 4)
         rec["spots"] += [("car", x0 + sw - 4, y0 + sh - 3), ("guards", x0 + sw // 2, y0 + sh - 2),
                          ("intel", x0 + sw // 2, y0 + sh // 2)]
+
+    def _inst_naval_base(self, rec, x0, y0, sw, sh):
+        """A quay along the shore, piers out into the water, a harbour office, a warehouse, fuel tanks."""
+        r = self.rng
+        m = self.m
+        sea, shore, lat_i = getattr(self, "naval_shore", (None, 0, 0))
+        if sea is None:
+            return self._inst_depot(rec, x0, y0, sw, sh)
+        L = sw if sea in ("N", "S") else sh              # along the shore
+        a0 = x0 if sea in ("N", "S") else y0
+
+        def xy(d, a):                                   # d: depth from the sea edge, a: along the shore
+            return self._beach_xy(sea, d, a)
+
+        def put(d, a, key):
+            x, y = xy(d, a)
+            if 0 < x < self.w - 1 and 0 < y < self.h - 1:
+                m.t[x, y] = T.ID[key]
+        # the quay: a paved strip on the waterline
+        for a in range(a0, a0 + L):
+            for d in range(shore - 1, shore + 3):
+                put(d, a, "paved")
+            put(shore - 1, a, "paved")
+        for a in range(a0 + 2, a0 + L - 2, 6):
+            put(shore - 1, a, "bollard")
+        # piers out into the water
+        piers = [a0 + L // 4, a0 + (3 * L) // 4]
+        for pa in piers:
+            for d in range(max(1, shore - 12), shore):
+                put(d, pa, "pier")
+                put(d, pa + 1, "pier")
+            put(max(1, shore - 12), pa - 1, "bollard")
+        # behind the quay: the harbour office, a warehouse, fuel tanks, stacks of stores
+        off = None
+        bx, by = xy(shore + 5, a0 + 3)
+        bx2, by2 = xy(shore + 12, a0 + 12)
+        ox0, oy0 = min(bx, bx2), min(by, by2)
+        off = self.building(ox0, oy0, 10, 8, "house", rooms=False)
+        wx, wy = xy(shore + 5, a0 + L - 18)
+        wx2, wy2 = xy(shore + 14, a0 + L - 4)
+        self.building(min(wx, wx2), min(wy, wy2), max(3, abs(wx2 - wx)), max(3, abs(wy2 - wy)), "barn", rooms=False)
+        for k in range(8):
+            put(shore + 18 + k % 3, a0 + L // 2 - 3 + k // 3 * 2, "fuel_drums")
+        for k in range(6):
+            put(shore + 5 + k // 2, a0 + L // 2 - 2 + k % 2 * 3, "crates")
+        self.protected[x0:x0 + sw, y0:y0 + sh] = False
+        # wire round the landward side only (the water is the other wall)
+        cx0, cy0 = xy(shore + 3, a0)
+        cx1, cy1 = xy(min(shore + 3 + 24, (self.h if sea in ("N", "S") else self.w) - 2), a0 + L - 1)
+        ix0, iy0, ix1, iy1 = min(cx0, cx1), min(cy0, cy1), max(cx0, cx1), max(cy0, cy1)
+        if ix1 - ix0 > 4 and iy1 - iy0 > 4:
+            self._perimeter(ix0, iy0, ix1 - ix0 + 1, iy1 - iy0 + 1, "wire", gaps=3)
+            for x in range(ix0, ix1 + 1):
+                for y in range(iy0, iy1 + 1):
+                    if m.t[x, y] == T.ID["wire"] and self._near_quay(x, y):
+                        m.t[x, y] = T.ID["paved"]          # the quay stays open end to end
+        px, py = xy(shore, piers[0])
+        ofx, ofy = (off[0] + off[2] // 2, off[1] + off[3] // 2) if off else xy(shore + 8, a0 + 8)
+        rec["spots"] += [("pier", px, py), ("guards", *xy(shore + 20, a0 + L // 2)), ("crate", *xy(shore + 4, a0 + L // 2)),
+                         ("truck", *xy(shore + 16, a0 + L - 8))]
+        rec["staff_at"] = {"port_officer": (ofx, ofy), "clerk": (ofx + 1, ofy),
+                           "mp": xy(shore + 3, piers[0] + 3), "cook": xy(shore + 16, a0 + 6)}
+
+    def _near_quay(self, x, y):
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                if 0 <= x + dx < self.w and 0 <= y + dy < self.h and \
+                        self.m.t[x + dx, y + dy] in (T.ID["paved"], T.ID["bollard"]):
+                    return True
+        return False
 
     def _inst_aid(self, rec, x0, y0, sw, sh):
         r = self.rng

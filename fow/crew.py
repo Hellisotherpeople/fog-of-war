@@ -60,8 +60,11 @@ def name(vt, st) -> str:
 
 
 def manned(v) -> set:
-    """The seats with a man in them."""
-    key = (v.crew, v.player_crewed, v.__dict__.get("player_station"))
+    """The seats with a man in them.  The crew fills the important seats first - but a man just hit
+    leaves his seat empty until the others have pulled him clear and one of them climbed across
+    (v.ai["seat_out"], cleared by vdamage.tick)."""
+    out_now = v.ai.get("seat_out") or {}
+    key = (v.crew, v.player_crewed, v.__dict__.get("player_station"), tuple(sorted(out_now)))
     cache = v.__dict__.get("_manned")
     if cache and cache[0] == key:
         return cache[1]
@@ -75,7 +78,7 @@ def manned(v) -> set:
     for s in seats:
         if n <= 0:
             break
-        if s not in out:
+        if s not in out and s not in out_now:
             out.add(s)
             n -= 1
     v._manned = (key, out)

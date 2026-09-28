@@ -344,9 +344,9 @@ class Inventory:
 
     # ------------------------------------------------------------ weight
     def weight(self) -> float:
+        """Everything carried.  items() lists the webbing and the pack *and* what's in them, and a
+        container's own weight includes its contents - so count the container empty."""
         w = 0.0
         for it in self.items():
-            w += it.weight
-            if it.t.kind == "container":
-                pass
+            w += it.t.weight if it.t.kind == "container" else it.weight
         return w

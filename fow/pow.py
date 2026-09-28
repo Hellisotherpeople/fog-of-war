@@ -173,8 +173,9 @@ def camp_day(game) -> list[str]:
     b = p.body
     out = []
     pw["day"] += 1
-    # the war goes on: a day of strategic time
+    # the war goes on: a day of strategic time (turn and clock together)
     game.advance_clock(86400)
+    game.turn += 86400
     st = game.strategic
     if pw.get("sector"):
         st.touch(*pw["sector"], 2)                     # the war as it's heard from behind the wire
@@ -269,6 +270,9 @@ def return_to_war(game, how):
     p.morale = 40.0
     p.stamina = 60.0
     game.remove_actor(p) if p in game.actors else None
+    if game.map is not None and game.__dict__.get("domain", "land") == "land" and game.sector is not None:
+        game._save_map()                         # the ground you were taken on stays as it was
+        game.sector.units = game.local_units()
     game.enter_sector(sector, entry_edge=None)
     from .spawn import place
     edge = game.home_edge(side)

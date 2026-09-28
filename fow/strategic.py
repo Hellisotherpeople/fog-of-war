@@ -426,7 +426,8 @@ class Strategic:
                             ("artillery", 0.12 if depth <= 4.5 else 0.03),
                             ("motor_pool", 0.05 if armor > 0.35 else 0),
                             ("airfield", 0.04 if depth >= 4 and c.biome in ("farmland", "steppe", "desert", "volcanic", "hills")
-                             else 0)):
+                             else 0),
+                            ("naval_base", 0.12 if c.sea_edge is not None and depth >= 2 else 0)):
                 if len(ins) < 2 and rng.random() < p:
                     ins.append([kind, side, True])
         elif front and side == self.defender and th.get("fort", 0) >= 2 and rng.random() < 0.06:
@@ -449,6 +450,16 @@ class Strategic:
                 u[k] = self.sc(u[k], rng)
                 if u[k] <= 0:
                     del u[k]
+
+    def _arrive(self, dst, side, units, src=None):
+        """Units reaching a sector.  The player's sector is counted from the map every tick, so there
+        they must come as a wave marching in (from the neighbour they left, or from their own rear)."""
+        if dst is not None and dst is self.__dict__.get("_psec"):
+            u = Counter({k: v for k, v in units.items() if v > 0})
+            if u and self.__dict__.get("_events") is not None:
+                self._events.append(("reinforce", side, u, self.neighbor_dir(dst, src) if src is not None else None))
+            return
+        dst.units[side].update(units)
 
     def neighbor_dir(self, s, n) -> str | None:
         for e, (dx, dy) in DIRS.items():
@@ -545,6 +556,10 @@ class Strategic:
                 place("airfield", [r for r in rear[:depth] if r.biome in ("farmland", "steppe", "desert", "volcanic", "hills")], 1)
             if side == self.defender and th.get("fort", 0) >= 2:
                 place("fortress", fronts, rng.randint(1, 3))
+            # a navy's harbour, on its own shore well back from the fighting
+            coast = [c for c in rear[:depth + 2] if c.sea_edge is not None and not self.is_front(c, side)]
+            if coast:
+                place("naval_base", coast, 1)
 
     def _front_distance(self, s, side) -> int:
         """Steps from s to the nearest enemy-held sector (99: nowhere near)."""
@@ -728,6 +743,9 @@ class Strategic:
             del at[k]
         if local_units is not None and player_sector is not None:
             player_sector.units = {s: Counter(local_units.get(s, {})) for s in SIDES}
+        # (anything sent into the player's sector this tick must arrive as men on the map: see _arrive)
+        self._psec = player_sector
+        self._events = events
         self.compute_supply()
         # pockets wither: no food, no ammunition, no way out
         for s in act:
@@ -825,6 +843,7 @@ class Strategic:
         # 4. reinforcements from the rear / the sea
         if self.ticks % 2 == 0:
             self._reinforce(player_sector, events)
+        self._psec = self._events = None
         return events
 
     def _player_orders(self, player_sector, events):
@@ -937,7 +956,7 @@ class Strategic:
             survivors = b.units[enemy]
             retreat = [n for n in self.neighbors(b) if n.control == enemy and n.playable]
             if retreat and power(survivors) > 0:
-                rng.choice(retreat).units[enemy].update(survivors)
+                self._arrive(rng.choice(retreat), enemy, survivors, src=b)
             b.units[enemy] = Counter()
             b.units[side].update(self._detach(a.units[side], 0.5))
             self._capture(b, side)
@@ -1016,7 +1035,7 @@ class Strategic:
                        and self.supply_of(side, s) > 0.2]
             while repl >= 1 and owned_f:
                 tgt = min(owned_f, key=lambda s: power(s.units[side]) + rng.random())
-                tgt.units[side]["inf"] += 1
+                self._arrive(tgt, side, Counter({"inf": 1}))
                 repl -= 1
             owned = [s for s in self.active() if s.control == side]
             if not owned:
@@ -1033,11 +1052,12 @@ class Strategic:
                     rear = sea[:1]
             for s in rear:
                 if rng.random() < 0.45 * th.get("intensity", 1.0) * supply:
-                    s.units[side]["inf"] += self.sc(rng.randint(1, 2))
+                    add = Counter({"inf": self.sc(rng.randint(1, 2))})
                     if rng.random() < th["armor"].get(side, 0.3) * 0.5:
-                        s.units[side]["tank"] += self.sc(1)
+                        add["tank"] += self.sc(1)
                     if rng.random() < 0.2:
-                        s.units[side]["mg"] += self.sc(1)
+                        add["mg"] += self.sc(1)
+                    self._arrive(s, side, add)
 
     def overview(self) -> dict:
         """Sectors held in the part of the war you can see from here."""

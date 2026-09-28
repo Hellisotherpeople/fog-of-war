@@ -536,7 +536,23 @@ def vehicle_face(v, ox, oy) -> int:
     return 2
 
 
+def _riders_hit(game, v, source):
+    """Men riding on the outside of a tank take what hits it: splinters, spall, the blast."""
+    for a in list(v.passengers):
+        if a.ai.get("rider") and a.alive and game.rng.random() < 0.45:
+            hit_actor(game, a, game.rng.uniform(10, 45), "fragment", None, f"a hit on the {v.vt.name} ({source})")
+
+
 def hit_vehicle(game, v, pen, dmg, ox, oy, attacker, source, kind="ap", he_power=0, face=None):
+    v.ai["hit_turn"] = game.turn
+    if v.passengers:
+        _riders_hit(game, v, source)
+    return _hit_vehicle(game, v, pen, dmg, ox, oy, attacker, source, kind, he_power, face)
+
+
+def _hit_vehicle(game, v, pen, dmg, ox, oy, attacker, source, kind="ap", he_power=0, face=None):
+    """A hit on a vehicle: what it came through, and what it broke (vdamage.py)."""
+    from . import vdamage as VD
     if v.dead:
         return
     rng = game.rng
@@ -546,6 +562,8 @@ def hit_vehicle(game, v, pen, dmg, ox, oy, attacker, source, kind="ap", he_power
     armor = vt.armor[face] * rng.uniform(0.85, 1.15)
     seen = game.can_see(v.x, v.y)
     name = game.name_of_vehicle(v)
+    if source == "a mine" and not vt.static:
+        VD.break_part(game, v, "tracks", VD.OUT, attacker, source, seen)     # the blast takes the track off
     # open-topped vehicles and gun crews: small arms can hit the crew
     exposed_crew = (vt.open_top or v.static) and kind in ("bullet", "frag")
     if exposed_crew and face != 0 or (exposed_crew and v.static and rng.random() < 0.25):
@@ -553,32 +571,34 @@ def hit_vehicle(game, v, pen, dmg, ox, oy, attacker, source, kind="ap", he_power
             _vehicle_crew_casualty(game, v, attacker, source, seen)
             return
     if kind in ("bullet", "frag"):
+        if VD.exposed_hit(game, v, kind, attacker, source, seen):
+            return                                # the commander, head out of the hatch
         if pen >= armor and armor < 25:
             v.hp -= dmg * 0.3
             if rng.random() < 0.08:
                 _vehicle_crew_casualty(game, v, attacker, source, seen)
             if rng.random() < 0.04:
-                v.engine = False
+                VD.break_part(game, v, rng.choice([p for p in ("engine", "fuel", "radio") if p in v.parts] or
+                                                  ["engine"]), VD.DAMAGED, attacker, source, seen)
             if seen and rng.random() < 0.3:
                 game.msg(f"Rounds punch through {name}!", "combat", v.pos)
         else:
+            VD.glanced(game, v, face, kind, pen, armor, attacker=attacker, source=source, seen=seen)
             if seen and attacker is game.player:
                 game.msg(f"Your rounds spark harmlessly off {name}.", "combat", v.pos)
         _check_vehicle_dead(game, v, attacker, source)
         return
     penetrated = pen >= armor
     if kind == "he":
-        # HE: blast damage, may break tracks, penetrates thin armour
+        # HE: blast damage, may break tracks and periscopes, penetrates thin armour
         eff = he_power / 8.0
         if face == 3:
             eff *= 1.5
         penetrated = eff >= max(armor, 6) and rng.random() < min(1.0, eff / (max(armor, 6) * 2.5))
         if not penetrated:
             v.hp -= he_power * 0.05
-            if rng.random() < he_power / 1500 and v.tracks and not v.static:
-                v.tracks = False
-                if seen:
-                    game.msg(f"A blast throws a track off {name}!", "combat", v.pos)
+            VD.exposed_hit(game, v, "he", attacker, source, seen)
+            VD.glanced(game, v, face, "he", pen, armor, he_power, attacker, source, seen)
             if vt.open_top:
                 for _ in range(rng.randint(0, 2)):
                     _vehicle_crew_casualty(game, v, attacker, source, seen)
@@ -592,56 +612,35 @@ def hit_vehicle(game, v, pen, dmg, ox, oy, attacker, source, kind="ap", he_power
         game.emit_sound(v.x, v.y, 70, "ricochet", "the clang of a ricochet", None, None)
         if rng.random() < 0.15:
             v.ai["shaken"] = game.turn + 10
+        VD.glanced(game, v, face, "ap", pen, armor, attacker=attacker, source=source, seen=seen)
         _check_vehicle_dead(game, v, attacker, source)
         return
-    # ---- penetration
-    v.hp -= dmg
+    # ---- penetration: the round and its spall go through whatever's inside.  The hull itself takes
+    # a share (three or four big holes and it's scrap); what it breaks inside decides the rest.
+    v.hp -= dmg * 0.35
     game.emit_sound(v.x, v.y, 75, "penetration", "the crack of a penetrating hit", None, None)
-    effects = []
-    roll = rng.random()
-    if roll < 0.14 and v.ap + v.he > 0:
-        effects.append("ammo")
-    elif roll < 0.32:
-        effects.append("fire")
-    if rng.random() < 0.55:
-        effects.append("crew")
-    if rng.random() < 0.25:
-        effects.append("engine")
-    if rng.random() < 0.15 and vt.main:
-        effects.append("gun")
-    if rng.random() < 0.15:
-        effects.append("tracks")
     if seen or attacker is game.player:
         if kind == "he":
             game.msg(f"The blast tears into {name}!", "hit", v.pos)
         else:
             game.msg(f"A round penetrates {name}'s {FACE_NAMES[face]} armour!", "hit", v.pos)
-    if "ammo" in effects:
-        if seen:
-            game.msg(f"{name} explodes in a sheet of flame as its ammunition goes up!", "death", v.pos)
-        v.hp = 0
-        destroy_vehicle(game, v, attacker, source, catastrophic=True)
+    hit = VD.penetrated(game, v, face, dmg, kind, attacker, source, seen)
+    if "boom" in hit or v.dead:
         return
-    for e in effects:
-        if e == "crew":
-            for _ in range(rng.randint(1, 2)):
-                _vehicle_crew_casualty(game, v, attacker, source, seen, quiet=True)
-        elif e == "fire":
-            v.burning = max(v.burning, rng.randint(15, 60))
-            if seen:
-                game.msg(f"Smoke pours from {name} - it's on fire!", "combat", v.pos)
-        elif e == "engine":
-            v.engine = False
-        elif e == "gun":
-            v.gun_ok = False
-        elif e == "tracks":
-            v.tracks = False
-    if v.crew > 0 and not v.player_crewed and rng.random() < 0.35 + (0.3 if v.burning else 0):
+    fire = 0.08 + (0.25 if VD.state(v, "fuel") < VD.OK else 0)       # hot spall among oil, fuel and cordite
+    if not v.burning and rng.random() < fire:
+        v.burning = rng.randint(15, 60)
+        if seen:
+            game.msg(f"Smoke pours from {name} - it's on fire!", "combat", v.pos)
+    if v.crew > 0 and not v.player_crewed and rng.random() < VD.bail_chance(v, hit):
         abandon_vehicle(game, v)
     _check_vehicle_dead(game, v, attacker, source)
 
 
 def _vehicle_crew_casualty(game, v, attacker, source, seen, quiet=False):
+    """A crewman (or a man riding) hit: one of the manned seats, at random."""
+    from . import vdamage as VD
+    from .crew import manned
     rng = game.rng
     if v.passengers and rng.random() < 0.5:
         p = rng.choice(v.passengers)
@@ -649,19 +648,12 @@ def _vehicle_crew_casualty(game, v, attacker, source, seen, quiet=False):
         if not p.alive and p in v.passengers:
             v.passengers.remove(p)
         return
-    if v.player_crewed and game.player.vehicle is v and rng.random() < 1.0 / max(1, v.crew):
-        hit_actor(game, game.player, rng.uniform(20, 55), "fragment", attacker, source)
+    seats = sorted(manned(v))
+    if v.player_crewed and v.player_station and v.player_station not in seats:
+        seats.append(v.player_station)
+    if not seats:
         return
-    if v.crew > 0:
-        v.crew -= 1
-        if attacker is not None and hasattr(attacker, "kills"):
-            attacker.kills += 1
-        if seen and not quiet:
-            game.msg(f"A crewman of {game.name_of_vehicle(v)} is hit.", "combat", v.pos)
-        if v.crew <= 0 and not v.player_crewed:
-            v.abandoned = True
-            if v.passengers:
-                game.disembark_all(v)
+    VD.crew_hit(game, v, rng.choice(seats), attacker, source, seen, quiet=quiet)
 
 
 def _check_vehicle_dead(game, v, attacker, source):
@@ -815,7 +807,11 @@ def explode(game, x: int, y: int, power: float, radius: int, *, frags: int = 0,
     for v in list(game.vehicles):
         if v.dead or v is self_vehicle:
             continue
+        if abs(v.x - x) + abs(v.y - y) > radius + 16:
+            continue
         dist = min(math.hypot(cx - x, cy - y) for cx, cy in v.cells())
+        if dist <= radius + 8:
+            v.ai["near_blast"] = game.turn          # shells bursting close: heads down, hatches shut
         if dist <= radius:
             f = max(0.0, 1 - dist / (radius + 1))
             face = 3 if dist < 1 else None
@@ -1063,9 +1059,20 @@ def vehicle_fire_main(game, v, tx, ty, target=None, ammo=None) -> bool:
     mt = v.mount
     if mt is None or not v.gun_ok or v.reload > 0:
         return False
+    from . import vdamage as VD
+    if v.vt.turret and not v.static and VD.traverse(v) in ("hand", "jammed") and \
+            (octant(tx - v.x, ty - v.y) - v.turret) % 8 not in (0, 1, 7):
+        return False                                   # the gun doesn't point there, and won't swing quickly
     rng = game.rng
     ammo = ammo or v.ammo_choice
     if mt.flame:
+        # the fuel trailer: 400 gallons, about eighty one-second bursts
+        fuel = v.ai.setdefault("flame_fuel", 80)
+        if fuel <= 0:
+            if v.player_crewed:
+                game.msg(f"The {v.vt.name}'s flame fuel is gone.", "warn")
+            return False
+        v.ai["flame_fuel"] = fuel - 1
         pts = []
         ang = math.atan2(ty - v.y, tx - v.x)
         dist = min(mt.rng, int(math.hypot(tx - v.x, ty - v.y)))
@@ -1097,9 +1104,13 @@ def vehicle_fire_main(game, v, tx, ty, target=None, ammo=None) -> bool:
         v.ap -= 1
     else:
         v.he -= 1
-    v.turret = octant(tx - v.x, ty - v.y) if v.vt.turret else v.facing
+    if v.vt.turret and VD.turret_turns(v):
+        v.turret = octant(tx - v.x, ty - v.y)
+    elif not v.vt.turret:
+        v.turret = v.facing
     dist = math.hypot(tx - v.x, ty - v.y)
     disp = mt.disp + (0.6 if v.moved_turn >= game.turn - 1 else 0) + (0.8 if v.ai.get("shaken", 0) > game.turn else 0)
+    disp += VD.gun_disp(v)                             # a damaged gun, cracked or smashed sights
     disp += 0.4 * max(0, 4 - v.crew)
     from .familiar import vehicle_learn, vehicle_level
     disp += (1 - vehicle_level(v)) * 0.8               # a captured gun's strange sight
@@ -1122,7 +1133,7 @@ def vehicle_fire_main(game, v, tx, ty, target=None, ammo=None) -> bool:
                 hit_vehicle(game, ov, pen * rng.uniform(0.9, 1.05), mt.ap_dmg, v.x, v.y, v, mt.name, kind="ap")
                 impact = (x, y)
                 game.effect_tracer(v.x, v.y, x, y, False, rocket=True)
-                v.reload = mt.reload_cost
+                v.reload = int(mt.reload_cost * VD.reload_mult(v))
                 v.fired_turn = game.turn
                 return True
             impact = (x, y)
@@ -1152,7 +1163,7 @@ def vehicle_fire_main(game, v, tx, ty, target=None, ammo=None) -> bool:
                 frag_dmg=22, attacker=v, source=f"a {mt.name} HE shell")
     else:
         game.effect_explosion(impact[0], impact[1], 0)
-    v.reload = mt.reload_cost
+    v.reload = int(mt.reload_cost * VD.reload_mult(v))
     v.fired_turn = game.turn
     return True
 
@@ -1161,7 +1172,8 @@ def vehicle_fire_mg(game, v, tx, ty, target=None, idxs=None) -> bool:
     """A burst from machine gun(s) idxs (default: the first).  Each gun has its own burst."""
     if not v.vt.mgs or v.mg_ammo <= 0 or v.crew <= 0:
         return False
-    idxs = [i for i in (idxs if idxs is not None else [0]) if i < len(v.vt.mgs)]
+    from .vdamage import mg_ok
+    idxs = [i for i in (idxs if idxs is not None else [0]) if i < len(v.vt.mgs) and mg_ok(v, i)]
     if not idxs:
         return False
     base = math.atan2(ty + 0.5 - (v.y + 0.5), tx + 0.5 - (v.x + 0.5))

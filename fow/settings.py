@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import os
 
-SETTINGS_DIR = os.path.join(os.path.expanduser("~"), ".fogofwar")
+SETTINGS_DIR = os.environ.get("FOW_HOME") or os.path.join(os.path.expanduser("~"), ".fogofwar")
 SETTINGS_PATH = os.path.join(SETTINGS_DIR, "settings.json")
 
 DEFAULTS = {
@@ -13,6 +13,7 @@ DEFAULTS = {
     "volume": 0.8,
     "ambience": True,
     "voices": True,           # soldiers' shouts and radio traffic, spoken
+    "voice_engine": "neural", # "neural" (Piper: natural, local; needs piper-tts) or "system" (say / espeak: instant)
     "font": "ttf",            # "ttf" (DejaVu Sans Mono, crisp at any size) or "bitmap"
     "font_scale": 1.0,        # >1 bigger text (fewer columns fit, window grows)
     "zoom": 1.4,              # sprite size relative to a text row (mouse wheel / + -)
@@ -23,6 +24,7 @@ DEFAULTS = {
     "edge_scroll": False,     # the mouse at the edge of the battlefield scrolls it
     "shake": True,            # the view jolts when shells land close
     "safe_mode": True,        # stop and warn before a step while the enemy's in sight or you're under fire
+    "hints": True,            # a line under your orders with the keys for what's beside you
     # the sound mixer (each 0..1, on top of the master volume)
     "vol_weapons": 0.9,       # gunfire, shells, explosions, ricochets
     "vol_ambience": 0.45,     # the distant battle, wind and rain
@@ -44,6 +46,8 @@ class Settings(dict):
         try:
             with open(SETTINGS_PATH, encoding="utf-8") as f:
                 data = json.load(f)
+            if not isinstance(data, dict):
+                data = {}                         # (a settings file that isn't settings: ignore it)
             for k, v in data.items():
                 if k in DEFAULTS and type(v) is type(DEFAULTS[k]) or (k in DEFAULTS and isinstance(DEFAULTS[k], float) and isinstance(v, (int, float))):
                     self[k] = v
@@ -52,9 +56,11 @@ class Settings(dict):
 
     def save(self):
         try:
-            os.makedirs(SETTINGS_DIR, exist_ok=True)
-            with open(SETTINGS_PATH, "w", encoding="utf-8") as f:
+            os.makedirs(os.path.dirname(SETTINGS_PATH) or SETTINGS_DIR, exist_ok=True)
+            tmp = SETTINGS_PATH + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
                 json.dump(dict(self), f, indent=2)
+            os.replace(tmp, SETTINGS_PATH)       # (all or nothing: a crash mid-write doesn't lose your settings)
         except OSError:
             pass
 

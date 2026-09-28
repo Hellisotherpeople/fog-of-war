@@ -190,7 +190,7 @@ class MainMenuState(MenuState):
         if v == "quit":
             app.quit()
         elif v == "help":
-            app.push(HelpState(app))
+            app.push(HelpState(app, play=self.play))
         elif v == "memorial":
             app.push(MemorialState(app))
         elif v == "options":
@@ -563,17 +563,23 @@ class CreatorState:
         rng = random.Random()
         v = self.v
         side = self._side() or (NATIONS[self._nation()]["side"] if self._nation() else rng.choice((ALLIES, AXIS)))
-        th = self._theatre() or rng.choice(list(THEATRES))
         nat = self._nation()
+        th = self._theatre()
+        if th is None:
+            # a random battle - but one this nation fought, on this side
+            fought = [t for t, d in THEATRES.items() if nat is None or any(n == nat for n, _ in d["sides"][side])]
+            th = rng.choice(fought or list(THEATRES))
         if nat is None or nat not in [n for n, _ in THEATRES[th]["sides"][side]]:
-            if nat is None:
-                pool = THEATRES[th]["sides"][side]
-                nat = rng.choices([n for n, _ in pool], [w for _, w in pool])[0]
-        role = None if v["role"] in ("default",) else (rng.choice(list(PLAYER_ROLE_WEIGHTS)) if v["role"] == "random"
-                                                       else v["role"])
-        if v["service"] != "army" and role is None and v["role"] == "random":
-            from .data.roles import SERVICE_ROLES
-            role = rng.choice(SERVICE_ROLES[v["service"]])
+            pool = THEATRES[th]["sides"][side]
+            nat = rng.choices([n for n, _ in pool], [w for _, w in pool])[0]
+        from .data.roles import SERVICE_ROLES
+        if v["role"] == "default":
+            role = None
+        elif v["role"] == "random":
+            sv = v["service"]
+            role = rng.choice(SERVICE_ROLES[sv] if sv in SERVICE_ROLES else list(PLAYER_ROLE_WEIGHTS))
+        else:
+            role = v["role"]
         setup = dict(scenario=v["scenario"], service=v["service"], rank=v["rank"], name=v["name"] or None,
                      traits=v["traits"], unit=v["unit"],
                      weapon=v["weapon"], kit=dict(v["kit"]), fair=v["fair"], role_random=v["role"] == "random")
@@ -780,109 +786,255 @@ class TextState:
         self.app.pop()
 
 
-HELP = [
-    ("MOVEMENT", UI_HI),
-    ("  arrows / numpad / hjklyubn     move (into an enemy: melee; into a friend: swap places)", None),
-    ("  Shift + direction / HJKLUN     run until something happens (Y and B are shout and bandage)", None),
-    ("  left-click                      walk to a spot (stops when anything interesting happens)", None),
-    ("  . or numpad 5 or s              wait a second        z   wait until something happens", None),
-    ("  c  crouch   p  prone            staying low is staying alive", None),
-    ("  q  lean out of cover (round a corner, over a wall, out of a window) - q again or move to pull back", None),
-    ("  walk off the map edge           straight on into the next stretch of ground - the world never ends", None),
-    ("  W  pace: creep / walk / run / sprint   creeping is slow and all but silent; running spoils your aim", None),
-    ("  Enter  carry out your current order (walk there and do it - the panel says what it'll do)", None),
-    ("  Safe mode: with the enemy in sight or under fire, a step stops with a warning. Step again to go anyway;", None),
-    ("     '  ignore what you can see now      !  safe mode off / on", None),
-    ("", None),
-    ("FIGHTING", UI_HI),
-    ("  f / Tab    aim & fire: Tab next target, f fires now, a aims longer (snap > aimed > careful > precise),", None),
-    ("             A aims all the way and fires. Aim costs time; moving, flinching or a new target loses it.", None),
-    ("             Every shot kicks: fire again too soon (or hold a burst) and you'll miss. Prone steadies it.", None),
-    ("  F          change fire mode (or AP/HE when crewing a tank)       r  reload / clear a jam", None),
-    ("  t          throw a grenade (c while aiming to cook it)           v  vehicle machine gun", None),
-    ("  right-click a spot for a context menu (fire, throw, call artillery, order the squad)", None),
-    ("", None),
-    ("KIT", UI_HI),
-    ("  i  your kit: webbing and packs are grids (arrows + Enter or drag to move things, r rotate,", None),
-    ("     e use/equip, l load, u unload, c count, d drop, q quick-move; Tab/[ ] when searching a body)", None),
-    ("  g or ,  pick up (a body here: search him)   d  drop    w  take up a weapon    a  use something", None),
-    ("     in the kit screen, [ ] or a click on the tabs: the other piles and bodies within reach; PgUp/PgDn", None),
-    ("  B  patch up yourself or a wounded comrade beside you (or right-click him)", None),
-    ("  S  resupply at an ammo dump or crate      D  dig in (with a shovel)      V  binoculars", None),
-    ("  e  get in a vehicle or man a gun (or, beside a parked aircraft on your airfield, take off);", None),
-    ("     inside, e to change seats, give crew orders, or climb out", None),
-    ("  On the shore, right-click the water to signal a boat out to the fleet.", None),
-    ("     Each seat does its own job: the driver drives, the gunner shoots, the loader loads. From the", None),
-    ("     commander's seat, move keys tell the driver where to go and f / v give the gunners a target.", None),
-    ("  o  close a door", None),
-    ("", None),
-    ("COMMAND & COMMUNICATION", UI_HI),
-    ("  O  orders for the squad you lead (flank, suppress, ambush, rules of engagement...)", None),
-    ("  C  command: your chain of command, plus any friendly unit whose leader you outrank", None),
-    ("     Orders travel by voice, hand signal, radio, relay or runner - and take time to arrive.", None),
-    ("     Units report back. Grease-pencil marks show where they last said they were.", None),
-    ("  m  the front; from colonel up, the war map: order sectors to attack, dig in, move, get priority", None),
-    ("  The arrow at the edge of the map (or the X on the ground) is where your orders send you.", None),
-    ("  R  radio (fire missions, smoke, air)      Y  shout (medic! grenade! hands up! ... or surrender)", None),
-    ("  Prisoners: right-click a surrendered man to take him; again to search him, send him back, hand him on.", None),
-    ("  Leaders die. The next man takes over - sometimes that's you. Merit brings promotion and medals.", None),
-    ("", None),
-    ("DISPLAY", UI_HI),
-    ("  F2  sprites / ASCII     F3  sound on / off     F4  font", None),
-    ("  mouse wheel or + / -  zoom toward the mouse (or the look cursor)   middle-drag  pan   Home  back to you", None),
-    ("  Ctrl+arrows (or shift+wheel, or two fingers sideways) pan   F5 minimap - click it to look there", None),
-    ("  The view glides back to you when you move. Esc > Options: the sound mixer (turn the ambience down),", None),
-    ("  auto-centre, edge scrolling, screen shake, animation speed, voices, safe mode, battlefield size.", None),
-    ("", None),
-    ("INFORMATION", UI_HI),
-    ("  x or ;  look around - or just rest the mouse on something   P  message log", None),
-    ("  m  the war map: arrows scroll forever, z wide view. A map sheet shows the ground around you.", None),
-    ("  @  yourself: your body in detail (wounds, blood, pain, cold and heat, breath, load, nerves); Tab for", None),
-    ("     your service record and chain of command     ?  this help    Esc  menu (save & quit)", None),
-    ("  G  general staff (colonels and up): divisions, corps, the reserve, waiting at headquarters;", None),
-    ("     v  go and see - out to the jump-off line, or into the fighting. The numbers are real: what's", None),
-    ("     listed is what's on the ground, and the attacks you order are fought where you can watch them.", None),
-    ("", None),
-    ("ABOARD SHIP / IN A BOMBER", UI_HI),
-    ("  You're one man in her company. Ships are full size - a carrier is 270 m of five decks and 2,600 men.", None),
-    ("  < >  up and down a ladder (or e on it)    Enter  your job: to your station, the ammunition, a fire", None),
-    ("  Z  let the hours go by (stops for anything that matters)    e on a bunk  turn in (sleep until called)", None),
-    ("  Condition III: you stand a 4-hour watch in three, the rest is yours. General quarters: to your battle", None),
-    ("  station, at the double. Jobs come down from the chief: feed a mount from the ready lockers, hoses and", None),
-    ("  shoring from the repair locker, the wounded to sickbay; a lookout who spots something first reports it.", None),
-    ("  e also takes the helm and plot (the chart view: steer and fight her; Esc to step back), a crew station", None),
-    ("  in a bomber (controls, a turret, the bombsight) and the escape hatch. Man an AA mount (e beside it)", None),
-    ("  and f picks an attacking aircraft. Over the rail is the sea.", None),
-    ("", None),
-    ("WHAT YOU KNOW IS WHAT YOUR SOLDIER KNOWS", UI_HI),
-    ("  There are no hit points. Your body is on the right: watch the colours and the bleeding marks (~).", None),
-    ("  A watch tells you the time. A compass or map tells you which way sounds came from.", None),
-    ("  A map shows the objectives (letters) and the front. Otherwise, listen to your squad leader.", None),
-    ("  You only know how many rounds are left if you count them (r on a full gun, or the kit menu).", None),
-    ("  Suppression narrows your vision. Blood loss drains the colour from the world.", None),
-    ("  Crawling and heavy loads wind you: winded men move slowly and shoot badly. Catch your breath.", None),
-    ("  Speed (on the right) is how fast you do everything - walk, aim, load. Load, wounds and breath cut it.", None),
-    ("  Fatigue builds over hours and lowers the ceiling on your breath. Everyone - both sides - tires,", None),
-    ("  freezes and overheats just as you do.", None),
-    ("  Cold and heat are real: wet clothes in a Russian winter will kill you; so will the desert at noon.", None),
-    ("  Captured weapons work, but you're slow and clumsy with them until you learn them (shown under", None),
-    ("  your weapon). A captured tank or an enemy helmet can draw your own side's fire - paint markings (e).", None),
-    ("  Sounds you can't see appear on the map where you think they came from - it's a guess.", None),
-    ("  Being seen takes a moment: lie still in cover and they may look straight at you. The panel says how", None),
-    ("  hidden you feel. Camouflage works where it matches the ground; snipers and scouts know the craft.", None),
-    ("", None),
-    ("LESSONS", UI_HI),
-    ("  Lie down behind something that stops bullets. Straw, hedges and doors hide you; they don't stop rounds.", None),
-    ("  Bleeding kills slowly, then all at once. Bandage (B). Shout for a medic (Y).", None),
-    ("  Machine guns own open ground. Crawl, use dead ground and smoke, flank them, or call the guns.", None),
-    ("  When the shells whistle, you have a second. Get flat, or get in a hole.", None),
-    ("  Heavy kit in deep water drowns you. Drop it.", None),
-]
+class HelpState:
+    """How to play: the sections down the left, the keys (bold, on keycaps) and what they do on the right.
+    Opened from play it starts at "Right now" - the keys for where you are this moment.  / searches everything."""
+    LEFT = 24                    # the section list
+    KEYW = 21                    # the keycap column
 
+    def __init__(self, app, section=None, play=None):
+        from .helpdata import SECTIONS
+        self.app = app
+        self.play = play
+        now = None
+        if play is not None:
+            try:
+                now = play.help_now()
+            except Exception:
+                now = None
+        self.sections = ([("Right now", now)] if now else []) + list(SECTIONS)
+        self.sel = 0
+        if section:
+            want = section.lower()
+            alias = {"aboard": "aboard ship", "chart": "chart & cockpit", "looking": "looking around",
+                     "kit": "your kit", "information": "looking around", "the chart": "chart & cockpit"}
+            want = alias.get(want, want)
+            for i, (t, _r) in enumerate(self.sections):
+                if t.lower().startswith(want):
+                    self.sel = i
+                    break
+        self.scroll = 0
+        self.query = ""
+        self.typing = False
+        self._lines = []
+        self._list_rows = {}
 
-class HelpState(TextState):
-    def __init__(self, app):
-        super().__init__(app, "How to play", HELP)
+    # ---------------------------------------------------------------- what's on the right
+    def _rows(self):
+        from .helpdata import search
+        if self.query.strip():
+            now = self.sections[0][1] if self.sections and self.sections[0][0] == "Right now" else None
+            return search(self.query, now) or [("t", f"Nothing mentions '{self.query}'.")]
+        return self.sections[self.sel][1]
+
+    @staticmethod
+    def _merged(rows):
+        from .helpdata import merged
+        return merged(rows)
+
+    def _inline(self, x, text, fg):
+        """A line with {key} marks in it: the keys in bold, the rest plain."""
+        import re
+        from .fonts import bold
+        segs = []
+        pos = 0
+        cx = x
+        for mt in re.finditer(r"\{([^}]*)\}", text):
+            if mt.start() > pos:
+                seg = text[pos:mt.start()]
+                segs.append((cx, seg, fg, None))
+                cx += len(seg)
+            k = mt.group(1)
+            segs.append((cx, bold(k), (255, 232, 150), None))
+            cx += len(k)
+            pos = mt.end()
+        if pos < len(text):
+            segs.append((cx, text[pos:], fg, None))
+        return segs
+
+    @staticmethod
+    def _wrap(text, width):
+        """Word-wrap, keeping a {key} mark (even {move keys}) whole and counting it as the key alone."""
+        import re
+        words = re.findall(r"\{[^}]*\}\S*|\S+", text)
+        lines, cur, n = [], [], 0
+        for w_ in words:
+            wl = len(w_.replace("{", "").replace("}", ""))
+            if cur and n + 1 + wl > width:
+                lines.append(" ".join(cur))
+                cur, n = [], 0
+            cur.append(w_)
+            n += wl + (1 if len(cur) > 1 else 0)
+        if cur:
+            lines.append(" ".join(cur))
+        return lines or [""]
+
+    def _layout(self, width):
+        """The rows as screen lines: each a list of (x, text, fg, bg)."""
+        from .fonts import bold
+        out = []
+        kw = self.KEYW
+        dw = max(20, width - kw - 1)
+        cap_fg, cap_bg = (255, 232, 150), (58, 60, 74)
+        prev = None
+        for r in self._merged(self._rows()):
+            kind = r[0]
+            if kind == "h":
+                if out:
+                    out.append([])
+                out.append([(0, bold(r[1].upper()), UI_HI, None)])
+                prev = kind
+                continue
+            if prev is not None and (kind == "t") != (prev == "t") and prev != "h" and out and out[-1]:
+                out.append([])                        # a breath between a list of keys and a paragraph
+            prev = kind
+            if kind == "t":
+                for ln in self._wrap(r[1], width):
+                    out.append(self._inline(0, ln, (190, 185, 165)))
+                continue
+            if kind == "l":
+                desc = self._wrap(r[2], dw)
+                for i, d in enumerate(desc):
+                    segs = [(0, bold(r[1]), (205, 200, 170), None)] if i == 0 else []
+                    out.append(segs + self._inline(kw + 1, d, UI_TEXT))
+                continue
+            keys = [k for k in r[1].split("|") if k] if r[1] else []
+            desc = self._wrap(r[2], dw)
+            # keycaps, wrapping inside their column
+            cap_lines = [[]]
+            x = 0
+            for k in keys:
+                w = len(k) + 2
+                if x and x + w > kw:
+                    cap_lines.append([])
+                    x = 0
+                cap_lines[-1].append((x, bold(f" {k} "), cap_fg, cap_bg))
+                x += w + 1
+            n = max(len(cap_lines), len(desc))
+            for i in range(n):
+                segs = list(cap_lines[i]) if i < len(cap_lines) else []
+                if i < len(desc):
+                    segs += self._inline(kw + 1, desc[i], UI_TEXT)
+                out.append(segs)
+        return out
+
+    # ---------------------------------------------------------------- drawing
+    def render(self, con):
+        from .fonts import bold
+        con.clear()
+        x0, y0 = 1, 0
+        w, h = SCREEN_W - 2, SCREEN_H
+        con.draw_frame(x0, y0, w, h, clear=True, fg=UI_FRAME, bg=UI_BG)
+        con.print(x0 + 2, y0, f" {bold('HOW TO PLAY')} ", fg=UI_HI, bg=UI_BG)
+        # the search box
+        sb = f" / search: {self.query}{'_' if self.typing else ''} " if (self.typing or self.query) else \
+            " / to search every key "
+        con.print(x0 + w - len(sb) - 2, y0, sb, fg=(255, 232, 150) if self.typing or self.query else UI_DIM,
+                  bg=(40, 42, 52) if self.typing else UI_BG)
+        # sections
+        lx, ly = x0 + 2, y0 + 2
+        self._list_rows = {}
+        for i, (t, _r) in enumerate(self.sections):
+            y = ly + i
+            if y >= y0 + h - 4:
+                break
+            on = i == self.sel and not self.query.strip()
+            label = f"{'►' if on else ' '} {t}"
+            con.print(lx, y, label.ljust(self.LEFT - 2), fg=(255, 240, 190) if on else
+                      ((170, 210, 160) if t == "Right now" else UI_TEXT), bg=(52, 50, 38) if on else UI_BG)
+            self._list_rows[y] = i
+        foot = ["↑↓  section", "PgUp PgDn  scroll", "/  search", "Esc  close"]
+        for j, f_ in enumerate(foot):
+            con.print(lx, y0 + h - 2 - len(foot) + j, f_, fg=UI_DIM, bg=UI_BG)
+        for y in range(y0 + 1, y0 + h - 1):
+            con.print(x0 + self.LEFT + 1, y, "│", fg=UI_FRAME, bg=UI_BG)
+        # the section
+        rx = x0 + self.LEFT + 3
+        rw = w - self.LEFT - 6
+        title = f"Search: {self.query}" if self.query.strip() else self.sections[self.sel][0]
+        con.print(rx, y0 + 2, bold(title.upper()), fg=UI_HI, bg=UI_BG)
+        lines = self._layout(rw)
+        self._lines = lines
+        top = y0 + 4
+        rows = h - 6
+        self.scroll = max(0, min(self.scroll, max(0, len(lines) - rows)))
+        for i, segs in enumerate(lines[self.scroll:self.scroll + rows]):
+            for dx, text, fg, bg in segs:
+                con.print(rx + dx, top + i, text, fg=fg, bg=bg if bg is not None else UI_BG)
+        if self.scroll > 0:
+            con.print(rx + rw - 8, y0 + 3, "▲ more", fg=UI_DIM, bg=UI_BG)
+        if self.scroll + rows < len(lines):
+            con.print(rx + rw - 8, y0 + h - 2, "▼ more", fg=UI_DIM, bg=UI_BG)
+
+    # ---------------------------------------------------------------- keys and the mouse
+    def _page(self):
+        return max(1, SCREEN_H - 8)
+
+    def on_key(self, key):
+        n = len(self.sections)
+        if self.typing:
+            if key.sym == E.KeySym.ESCAPE:
+                self.typing = False
+                self.query = ""
+            elif key.sym in (E.KeySym.RETURN, E.KeySym.KP_ENTER):
+                self.typing = False
+            elif key.sym == E.KeySym.BACKSPACE:
+                self.query = self.query[:-1]
+            elif key.sym == E.KeySym.SPACE:
+                self.query += " "
+            elif key.char and key.char.isprintable():
+                self.query += key.char
+            self.scroll = 0
+            return
+        c = key.char
+        if key.sym == E.KeySym.ESCAPE or c in ("q", "?") or key.sym == E.KeySym.F1:
+            if self.query and key.sym == E.KeySym.ESCAPE:
+                self.query = ""
+                return
+            self.app.pop()
+            return
+        if c == "/":
+            self.typing = True
+            self.query = ""
+            return
+        if key.sym in (E.KeySym.UP, E.KeySym.KP_8):
+            self.sel = (self.sel - 1) % n
+            self.scroll = 0
+            self.query = ""
+        elif key.sym in (E.KeySym.DOWN, E.KeySym.KP_2):
+            self.sel = (self.sel + 1) % n
+            self.scroll = 0
+            self.query = ""
+        elif key.sym == E.KeySym.TAB:
+            self.sel = (self.sel + (-1 if getattr(key, "shift", False) else 1)) % n
+            self.scroll = 0
+            self.query = ""
+        elif key.sym in (E.KeySym.PAGEDOWN, E.KeySym.KP_3):
+            self.scroll += self._page()
+        elif key.sym in (E.KeySym.PAGEUP, E.KeySym.KP_9):
+            self.scroll = max(0, self.scroll - self._page())
+        elif key.sym == E.KeySym.HOME:
+            self.sel, self.scroll = 0, 0
+        elif key.sym == E.KeySym.END:
+            self.sel, self.scroll = n - 1, 0
+        elif c and c.isalpha():
+            # a letter: the next section beginning with it
+            for k in range(1, n + 1):
+                j = (self.sel + k) % n
+                if self.sections[j][0].lower().startswith(c.lower()):
+                    self.sel, self.scroll, self.query = j, 0, ""
+                    break
+
+    def on_wheel(self, dy, *a, **kw):
+        self.scroll = max(0, self.scroll - dy * 3)
+
+    def on_click(self, tx, ty, b):
+        if tx < 1 + self.LEFT and ty in self._list_rows:
+            self.sel = self._list_rows[ty]
+            self.scroll = 0
+            self.query = ""
+        elif b == 3:
+            self.app.pop()
 
 
 class MemorialState(TextState):
@@ -1182,6 +1334,16 @@ def _bar(v, n=10):
     return "█" * k + "░" * (n - k) + f" {int(round(v * 100)):3d}%"
 
 
+def _voice_engine_desc() -> str:
+    from . import neural_voice as NV
+    base = ("natural: Piper, a neural voice that runs on your own machine - it fetches one voice per language "
+            "(60-80 MB each, into ~/.fogofwar/piper) the first time a battle needs it, and the system voice speaks "
+            "until it's here, and for Japanese and Chinese.  system: macOS say or espeak - instant, robotic.")
+    if not NV.available():
+        base += "  (Piper isn't installed: pip install -r requirements-voices.txt - until then it's the system voice.)"
+    return base
+
+
 class OptionsState:
     """Every setting in one place, grouped, each with a word on what it does.  ←/→ change a value,
     Enter toggles or cycles it, Esc goes back."""
@@ -1210,6 +1372,7 @@ class OptionsState:
              "out the fighting you're actually in.", None),
             ("Voices", "vol_voices", "slider", "Shouts, orders and the radio, in each army's language.", None),
             ("Spoken voices", "voices", "toggle", "Voices at all: off saves the time it takes to render them.", None),
+            ("Voice engine", "voice_engine", "cycle", _voice_engine_desc(), ("neural", "system")),
             ("Footsteps, engines and the rest", "vol_effects", "slider",
              "Footsteps, engines and tracks, doors, digging, the ringing in your ears after a blast.", None),
             ("Interface", "vol_ui", "slider", "The rustle of your kit and the clicks of the menus.", None),
@@ -1219,7 +1382,6 @@ class OptionsState:
             ("DISPLAY", None, "head", "", None),
             ("Graphics", "sprites", "toggle", "Sprites or ASCII (F2).", None),
             ("Font", "font", "cycle", "DejaVu Sans Mono or the classic bitmap font (F4).", ("ttf", "bitmap")),
-            ("Text size", "font_scale", "slider2", "Bigger text fits fewer columns (the window grows).", (0.8, 1.6)),
             ("Animations", "anim_speed", "cycle", "How long shots and blasts stay on screen: slow ones play "
              "second by second in the order they happened.", ("fast", "normal", "slow", "very slow")),
             ("Screen shake", "shake", "toggle", "The view jolts when shells land close.", None),
@@ -1229,6 +1391,9 @@ class OptionsState:
             ("Minimap open at the start", "minimap", "toggle", "F5 shows or hides it in play.", None),
             ("Hit chances as numbers", "show_numbers", "toggle", "Percentages instead of words when aiming.", None),
             ("PLAY", None, "head", "", None),
+            ("Key hints", "hints", "toggle", "A line under your orders with the keys for what's beside you: a "
+             "vehicle, a door, a wounded man, someone to talk to, your seat in a tank. F1 or ? for all the keys.",
+             None),
             ("Safe mode", "safe_mode", "toggle", "With the enemy in sight or rounds coming in, a step stops with a "
              "warning; step again to go anyway. (! in play; ' ignores what you can see.)", None),
             ("Battlefield size (new games)", "battlefield", "cycle",
@@ -1267,7 +1432,8 @@ class OptionsState:
             f = (float(v or 1.0) - lo) / (hi - lo)
             return f"{lab:34} {'█' * int(round(f * 10)) + '░' * (10 - int(round(f * 10)))} {float(v or 1.0):.1f}x"
         if kind == "cycle":
-            shown = {"ttf": "DejaVu Sans Mono", "bitmap": "classic bitmap"}.get(v, v)
+            shown = {"ttf": "DejaVu Sans Mono", "bitmap": "classic bitmap", "neural": "natural (Piper)",
+                     "system": "system (instant, robotic)"}.get(v, v)
             return f"{lab}: {shown}"
         return lab
 
@@ -1299,8 +1465,8 @@ class OptionsState:
         for j, line in enumerate(textwrap.wrap(desc, w - 6)[:3]):
             con.print(x + 3, y + h - 5 + j, line, fg=UI_DIM, bg=UI_BG)
         con.print(x + 3, y + h - 2, "↑↓ choose   ←→ change   Enter toggle   Esc back"[: w - 6], fg=UI_DIM, bg=UI_BG)
-        if self.play is not None:
-            self.play._finish_overlay() if con is not None and hasattr(self.play, "_finish_overlay") else None
+        if self.play is not None and getattr(self.play, "overlay", None) is not None:
+            self.play._finish_overlay()
 
     @property
     def layers(self):
@@ -1720,7 +1886,8 @@ class OvermapState:
                     inst = [k for k, side, ok in s.installations if ok and side == p.side]
                     if inst:
                         sym = "".join({"depot": "D", "artillery": "A", "aa": "F", "hq": "H", "aid": "+",
-                                       "motor_pool": "M", "airfield": "W", "fortress": "#"}.get(k, "?")
+                                       "motor_pool": "M", "airfield": "W", "fortress": "#",
+                                       "naval_base": "N"}.get(k, "?")
                                       for k in inst)
                         con.print(x + 1, y + 2, sym[: self.CW - 2], fg=(200, 220, 160), bg=bg)
                     if s.fort:
@@ -1836,7 +2003,7 @@ class OvermapState:
                 con.print(ix, yy, w, fg=col or UI_TEXT)
                 yy += 1
         leg = ["@ you   ▮ strength", "D depot  A artillery", "F flak  H HQ  + aid", "M motor pool  W airfield",
-               "# fortress" + ("   bright: in your reach" if self.reach else "")]
+               "# fortress  N naval base" + ("   bright: in your reach" if self.reach else "")]
         for i, l in enumerate(leg):
             con.print(ix, SCREEN_H - 8 + i, l, fg=UI_DIM)
         foot = ("Arrows (shift: faster) to look around, z " + ("detail" if self.compact else "wide view")
@@ -1924,6 +2091,9 @@ class OvermapState:
             return
         if self.reach and not self.mode and c in ("a", "r", "d", "p", "f", "x"):
             s = st.at(self.cx, self.cy)
+            if s is None:
+                self.note = "You know nothing of that ground."
+                return
             ok, why = g.command.can_order_sector(g, s)
             if not ok:
                 self.note = why
@@ -1953,7 +2123,7 @@ class OvermapState:
                 cmd.strategic_orders = [o for o in cmd.strategic_orders if tuple(o["src"]) != (s.x, s.y)]
                 self.note = "Orders cancelled."
             return
-        mv = key.move()
+        mv = key.move() if key.sym != E.KeySym.HOME else None     # (Home is "back to you" here, not north-west)
         if mv:
             k = 5 if key.is_run() else 1
             self.cx += mv[0] * k

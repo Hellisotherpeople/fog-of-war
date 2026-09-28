@@ -39,14 +39,15 @@ TASK_TEXT = {"help": "See to him! Patch him up!", "ammo": "Get that ammo over to
              "down": "Get down, you idiot!", "come": "Get back here! On me!", "fire": "Fire, damn you! Put rounds on them!",
              "dig": "Get digging! I want a hole!", "runner": "Take this to him - run!",
              "fetch": "Go back to the dump and get us ammo!", "scout": "Go and have a look up there. Quietly.",
-             "escort": "Take the prisoners back to the rear."}
+             "escort": "Take the prisoners back to the rear.",
+             "track": "Give that tank crew a hand with the track!", "shells": "Get some shells up to that tank!"}
 TASK_PHRASE = {"help": "t_help", "ammo": "t_ammo", "gun": "t_gun", "down": "t_down", "come": "t_come",
                "fire": "t_fire", "dig": "t_dig", "runner": "t_runner", "fetch": "t_fetch", "scout": "t_scout",
-               "escort": "t_escort"}
+               "escort": "t_escort", "track": "t_help", "shells": "t_fetch"}
 DEADLINE = {"help": 45, "ammo": 60, "gun": 60, "down": 12, "come": 50, "fire": 30, "dig": 500, "runner": 400,
-            "fetch": 700, "scout": 300, "escort": 900}
+            "fetch": 700, "scout": 300, "escort": 900, "track": 2400, "shells": 1500}
 REWARD = {"help": 5, "ammo": 4, "gun": 4, "down": 1, "come": 1, "fire": 2, "dig": 2, "runner": 4, "fetch": 4,
-          "scout": 4, "escort": 5}
+          "scout": 4, "escort": 5, "track": 4, "shells": 5}
 EN = ("usa", "uk", "canada", "australia", "newzealand", "india")
 
 
@@ -200,6 +201,12 @@ class Duty:
         g = self._orphan_gun(game)
         if g is not None:
             return self.give(game, "gun", sup, g[0], item=g[1])
+        # 4b. a tank that's thrown a track, or run out of shells, and you standing about
+        vt = self._vehicle_needing(game)
+        if vt is not None:
+            kind, v = vt
+            return self.give(game, kind, sup, (v.x, v.y), vid=v.id,
+                             base=v.ai.get("handed_by_player", 0))
         # 5. you haven't fired a shot and they're right there
         c = self._idle_target(game)
         if c is not None:
@@ -262,6 +269,19 @@ class Duty:
             if a is None or not a.alive:
                 self.task = None
                 return
+        elif k in ("track", "shells"):
+            from . import maintenance as MT
+            v = next((v for v in game.vehicles if v.id == t.get("vid")), None)
+            if v is None or v.dead or v.abandoned:
+                self.task = None
+                return
+            if k == "track":
+                if v.near(p.x, p.y) <= 1 and p.vehicle is None:
+                    p.ai["helping"] = v.id               # beside it, you're working
+                done = "track" not in MT.repairs(v)
+            else:
+                done = v.ai.get("handed_by_player", 0) >= t.get("base", 0) + MT.CRATE_ROUNDS // 2 or \
+                    MT.shells_short(v) <= 0
         elif k == "gun":
             w = p.weapon
             done = w is not None and w is t.get("item")
@@ -322,8 +342,10 @@ class Duty:
         sup = self._actor(game, t["by"])
         if sup is not None and sup.active and self.watching(game, sup) and t["kind"] not in ("down",):
             spoken = phrase(game.rng, sup.nation, "praise")
-            sup.say(spoken if lang(sup.nation) != "en" else spoken, game.turn, 2)
-            game.msg(f"{sup.rank_short} {sup.last_name}: '{spoken if lang(sup.nation) == 'en' else 'Good man.'}'",
+            if spoken == "Good man." and getattr(game.player, "female", False):
+                spoken = "Well done."
+            sup.say(spoken, game.turn, 2)
+            game.msg(f"{sup.rank_short} {sup.last_name}: '{spoken if lang(sup.nation) == 'en' else 'Well done.'}'",
                      "good")
         self.next_task = game.turn + game.rng.randint(60, 160)
         game.update_orders(force=True)
@@ -400,9 +422,10 @@ class Duty:
                     fire(game, sup, p.x, p.y, p)
                 self.rep -= 10
             else:
-                self.strikes = max(self.strikes, 4)
+                self.strikes = max(self.strikes, 5)
                 self._escalate(game, sup.full_name)
                 self.rep -= 10
+                game.__dict__["wanted"] = "desertion"         # the MPs at any base will pick you up (base.py)
                 game.msg("You're marked as a deserter. The military police will be waiting.", "warn")
 
     # ------------------------------------------------------------ what nobody has to order
@@ -509,8 +532,9 @@ class Duty:
             game.update_orders(force=True)
             return
         if game.turn - self.arrest["turn"] > 15:
+            witness = self._actor(game, self.arrest["by"])
             self.arrest = None
-            self.turn_on_player(game, self._actor(game, self.arrest["by"]) if self.arrest else None)
+            self.turn_on_player(game, witness)
 
     def turn_on_player(self, game, witness=None):
         """Your own side has had enough of you."""
@@ -658,6 +682,29 @@ class Duty:
             if sources(p, w):
                 return a
         return None
+
+    def _vehicle_needing(self, game):
+        """A friendly vehicle close by with a thrown track, or short of shells when there's somewhere to get
+        them: ('track'|'shells', vehicle) or None."""
+        from . import maintenance as MT
+        p = game.player
+        if p.vehicle is not None or p.carrying is not None:
+            return None
+        best = None
+        for v in game.vehicles:
+            if v.side != p.side or v.dead or v.abandoned or v is p.vehicle:
+                continue
+            d = abs(v.x - p.x) + abs(v.y - p.y)
+            if d > 18 or not MT.quiet(game, v):
+                continue
+            if "track" in MT.repairs(v):
+                return "track", v
+            if MT.shells_short(v) > max(6, sum(MT.full_load(v)[:2]) * 0.25):
+                trucks = [t for t in game.vehicles if t.side == v.side and MT.is_supply_truck(t)
+                          and abs(t.x - p.x) + abs(t.y - p.y) < 40]
+                if trucks and best is None:
+                    best = ("shells", v)
+        return best
 
     def _orphan_gun(self, game):
         p = game.player

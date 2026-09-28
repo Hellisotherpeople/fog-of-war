@@ -389,8 +389,12 @@ class VoiceBank:
     MAX_READY = 600
     WORKERS = 3
 
-    def __init__(self):
-        self.synth = find_synth()
+    def __init__(self, engine="neural"):
+        self.synth = find_synth()                  # the system synthesiser: instant, always there, robotic
+        from . import neural_voice as NV
+        self.neural = NV.Piper() if NV.available() else None
+        self.engine = engine                       # "neural" (Piper, where it has the language) or "system"
+        self._neural_checked = {}
         self.jobs: queue.PriorityQueue = queue.PriorityQueue()
         self._seq = 0
         self.ready: dict = {}          # render key -> mono float32 at SR (clean, unprocessed)
@@ -407,11 +411,41 @@ class VoiceBank:
 
     @property
     def available(self):
-        return self.synth.name != "none"
+        return self.synth.name != "none" or self.neural is not None
+
+    def set_engine(self, engine):
+        if engine != self.engine:
+            self.engine = engine
+            self._neural_checked = {}
+
+    def _neural_voices(self, loc, female):
+        """Piper's voices for a language, if it's the chosen engine and the model's here (a missing model is
+        fetched in the background; the system voice speaks meanwhile).  Rechecked every half-minute."""
+        if self.engine != "neural" or self.neural is None:
+            return []
+        import time as _t
+        key = (loc, female)
+        c = self._neural_checked.get(key)
+        if c is not None and _t.time() - c[0] < (120 if c[1] else 30):
+            return c[1]
+        try:
+            vs = self.neural.voices(loc, female)
+        except Exception:
+            vs = []
+        self._neural_checked[key] = (_t.time(), vs)
+        return vs
 
     # ---------------------------------------------------------------- speakers
     def speaker(self, nation, sid, female=False, role=""):
         loc = LOCALE.get(nation, "en_US")
+        nv = self._neural_voices(loc, female)
+        if nv:
+            # a voice of his own from the many-speaker model; a little pitch either way besides
+            h = int(hashlib.md5(str(sid).encode()).hexdigest()[:8], 16)
+            pitch = 0.96 + (h % 1000) / 1000 * 0.08
+            if role == "volkssturm":
+                pitch *= 0.95
+            return Speaker(nv[h % len(nv)], 0, pitch, female, loc)
         pool = self._pools.get(loc)
         if pool is None:
             male, fem = self.synth.voices(loc)
@@ -437,18 +471,20 @@ class VoiceBank:
         return Speaker(None, 0, pitch, female, loc)
 
     def voice_set(self, nation):
-        """One speaker for each distinct voice this army's men can have (for warming the cache)."""
-        loc = LOCALE.get(nation, "en_US")
+        """One speaker for each distinct voice this army's men can have (for warming the cache) - a few of them,
+        with a many-voiced neural model (the rest are rendered as they're first heard, in a fraction of a second)."""
         seen = {}
         for sid in range(40):
             for fem in (False,):
                 s = self.speaker(nation, sid, fem)
                 seen.setdefault((s.voice, s.pbas), s)
-        return list(seen.values())
+        out = list(seen.values())
+        return out[:3] if out and (out[0].voice or "").startswith("piper:") else out
 
     # ---------------------------------------------------------------- rendering
     def _key(self, spk, text, rate):
-        return hashlib.sha1(f"{self.synth.name}|{spk.voice}|{spk.pbas}|{rate}|{text}".encode()).hexdigest()[:20]
+        eng = "piper" if (spk.voice or "").startswith("piper:") else self.synth.name
+        return hashlib.sha1(f"{eng}|{spk.voice}|{spk.pbas}|{rate}|{text}".encode()).hexdigest()[:20]
 
     def request(self, spk, line, style="shout", warm=False):
         """Ask for a line.  Returns a processed clip if it's ready, else queues it and returns None."""
@@ -498,12 +534,24 @@ class VoiceBank:
     def _work(self):
         while True:
             _, _, (rk, voice, text, rate, pbas) = self.jobs.get()
+            try:
+                self._job(rk, voice, text, rate, pbas)
+            except Exception:
+                # (a full disk or a vanished cache folder mustn't kill the worker - and with it every voice)
+                with self.lock:
+                    self.queued.discard(rk)
+                    self.failed.add(rk)
+
+    def _job(self, rk, voice, text, rate, pbas):
+        if True:
             path = os.path.join(CACHE_DIR, rk + ".wav")
             ok = os.path.exists(path) and os.path.getsize(path) > 1000
             if not ok:
+                os.makedirs(CACHE_DIR, exist_ok=True)
                 fd, tmp = tempfile.mkstemp(suffix=".wav", dir=CACHE_DIR)
                 os.close(fd)
-                ok = self.synth.render(voice, text, rate, pbas, tmp)
+                eng = self.neural if (voice or "").startswith("piper:") and self.neural is not None else self.synth
+                ok = eng.render(voice, text, rate, pbas, tmp)
                 if ok:
                     os.replace(tmp, path)
                 else:

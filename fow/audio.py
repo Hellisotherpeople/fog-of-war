@@ -456,7 +456,9 @@ class Audio:
     def _bank(self):
         if self.voice_bank is None:
             from .voice import VoiceBank
-            self.voice_bank = VoiceBank()
+            self.voice_bank = VoiceBank(self.settings.get("voice_engine", "neural"))
+        else:
+            self.voice_bank.set_engine(self.settings.get("voice_engine", "neural"))
         return self.voice_bank
 
     def close(self):
@@ -597,6 +599,9 @@ class Audio:
             return
         self._warmed.add(key)
         bank = self._bank()
+        avail = bank.available() if callable(getattr(bank, "available", None)) else getattr(bank, "available", True)
+        if not avail:
+            return                               # (no speech engine: nothing to warm - and no babble to render)
         from .data import ranks as R
         from .data.nations import NATIONS
         from .data.phrases import all_lines

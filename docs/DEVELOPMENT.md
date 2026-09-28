@@ -11,7 +11,10 @@ python3 -m venv .venv
 ```
 
 Python 3.10 or newer (developed on 3.12). The only runtime dependencies are `tcod`, `numpy` and
-`pillow`. Spoken voices use the OS speech engine if there is one: `say` on macOS (built in),
+`pillow`; `numba` (`requirements-fast.txt`) is optional and only speeds up the Dijkstra maps
+(`fow/fastpath.py`; `FOW_NO_NUMBA=1` turns it off, and the results are identical). `piper-tts`
+(`requirements-voices.txt`) is optional too: natural voices (`fow/neural_voice.py`), with models
+downloaded into `~/.fogofwar/piper` on first use. Spoken voices use the OS speech engine if there is one: `say` on macOS (built in),
 `espeak-ng` on Linux (`sudo apt install espeak-ng`). Without it, everything else still works.
 
 ## Running headless
@@ -39,6 +42,11 @@ real interface, build a `PlayState` around it with a stand-in app (see `FakeApp`
 
 `FOW_DEBUG=1` makes an exception inside one soldier's AI stop the game instead of being logged
 and skipped. Errors in a normal run go to `~/.fogofwar/error.log`.
+
+`FOW_HOME=/some/dir` moves saves, settings, the memorial and the error log out of `~/.fogofwar`.
+The tests, the fuzzer and the GIF maker set it to a scratch folder, so a test soldier's death never
+lands in your memorial and a test game never overwrites (or, dying, deletes) your save. Do the same
+in any script that plays the game.
 
 ## Tests
 

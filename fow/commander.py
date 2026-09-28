@@ -69,6 +69,8 @@ def commander_update(game, side: str):
     for sq in squads:
         if sq.player_led or sq.order.kind == "retreat" or getattr(sq.order, "src", "ai") == "player":
             continue
+        if sq.kind in ("staff", "rear", "aid", "supply"):
+            continue                # quartermasters, clerks and surgeons stay at their posts; trucks do their run
         if sq.order.kind == "resupply" and game.turn - sq.order.issued < 500:
             continue
         # quiet moment and the pouches are empty: back to the dump

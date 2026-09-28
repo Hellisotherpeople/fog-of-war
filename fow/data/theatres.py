@@ -524,3 +524,22 @@ def theatre_year(t: dict) -> float:
 
 def theatres_for_side(side: str) -> list[dict]:
     return list(THEATRES.values())
+
+
+# Where the sun is: (latitude, longitude east, the clock's hours ahead of GMT) for each battle.  The clock is
+# the one its start time is given in - German summer time, Moscow time, British double summer time, Tokyo
+# time - so a dawn attack starts at the dawn it really started at.
+SUN = {
+    "poland39": (52.2, 19.8, 1), "france40": (49.7, 4.9, 2), "crete41": (35.5, 23.8, 2),
+    "barbarossa41": (54.8, 32.0, 2), "moscow41": (55.7, 37.6, 3), "alamein42": (30.8, 28.9, 2),
+    "stalingrad42": (48.7, 44.5, 3), "uranus42": (49.6, 42.7, 3), "guadalcanal42": (-9.45, 160.0, 11),
+    "tunisia43": (35.2, 8.7, 1), "kursk43": (52.3, 36.3, 3), "sicily43": (37.1, 14.25, 2),
+    "cassino44": (41.5, 13.8, 2), "normandy_airborne44": (49.4, -1.3, 2), "omaha44": (49.4, -0.9, 2),
+    "bocage44": (49.1, -1.1, 2), "arnhem44": (52.0, 5.9, 2), "hurtgen44": (50.7, 6.4, 1),
+    "bastogne44": (50.0, 5.7, 1), "iwojima45": (24.8, 141.3, 10), "berlin45": (52.5, 13.4, 2),
+    "changsha41": (28.2, 113.0, 8), "kohima44": (25.7, 94.1, 6.5), "karelia44": (60.8, 28.8, 3),
+    "don43": (50.9, 39.1, 3), "okinawa45": (26.2, 127.7, 9),
+}
+for _k, _v in SUN.items():
+    if _k in THEATRES:
+        THEATRES[_k]["sun"] = _v

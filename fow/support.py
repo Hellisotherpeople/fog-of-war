@@ -77,7 +77,16 @@ class Support:
             self.missions[s] = 1 + 3 * self.arty_level.get(s, 0.5)
         self.planes = {s: [p for p in available(AIRCRAFT, game.side_nation(s), game.year)] for s in SIDES}
 
-    # ------------------------------------------------------------ artillery
+    # ------------------------------------------------------------ artillery: real batteries (fires.py)
+    @property
+    def fires(self):
+        g = self.game
+        f = g.__dict__.get("fires")
+        if f is None:
+            from .fires import Fires
+            f = g.fires = Fires(g)
+        return f
+
     def capacity_mult(self, side) -> float:
         """Installations in this and nearby sectors change what is available."""
         g = self.game
@@ -87,103 +96,22 @@ class Support:
         return mult
 
     def request_fire(self, side, x, y, caller=None, battery=None, rounds=None, delay=None,
-                     silent=False) -> bool:
-        g = self.game
-        if self.missions[side] < 1 and caller is not None and not getattr(caller, "is_player", False):
-            return False
-        grade = getattr(caller, "rank", 0) if caller is not None and getattr(caller, "is_player", False) else 0
-        if self.missions[side] < 1 and caller is not None and caller.is_player:
-            if grade >= 12:
-                self.missions[side] = 1
-                if not silent:
-                    g.msg("Radio: 'All guns are committed - wait... Regiment gives you priority. Stand by.'",
-                          "radio")
-            else:
-                if not silent:
-                    g.msg("Radio: 'Negative, no guns available. Wait one.'", "radio")
-                return False
-        bats = self.batteries.get(side) or []
-        if battery is None:
-            if not bats:
-                return False
-            weights = [b.freq if b.freq > 0 else 1 for b in bats]
-            if caller is not None and any(b.naval for b in bats) and g.rng.random() < 0.4:
-                battery = next(b for b in bats if b.naval)
-            else:
-                battery = g.rng.choices(bats, weights)[0]
-        if caller is not None:
-            self.missions[side] -= 1
-        rng = g.rng
-        skill = getattr(caller, "skill", 5) if caller is not None else 5
-        spread = battery.spread + max(0, 7 - skill) * 0.5
-        # a systematic error: map reading, wind, worn barrels. Sometimes horribly wrong.
-        bias_d = abs(rng.gauss(0, 3 + (8 - skill)))
-        if rng.random() < 0.06:
-            bias_d += rng.uniform(15, 35)          # short round / wrong grid
-        ba = rng.uniform(0, math.tau)
-        bias = (math.cos(ba) * bias_d, math.sin(ba) * bias_d)
-        d = battery.delay + rng.randint(-10, 25) if delay is None else delay
-        n = rounds or battery.salvo
-        if grade >= 11:
-            # the more senior the caller, the more guns answer - and the faster
-            n = int(n * (1 + 0.15 * (grade - 10)))
-            d = int(d * max(0.5, 1 - 0.06 * (grade - 10)))
-        mult = self.capacity_mult(side)
-        n = max(2, int(n * mult))
-        fm = FireMission(side, battery, x, y, g.turn + d, caller, n, spread, bias)
-        self.queue.append(fm)
-        if caller is not None and (caller.is_player or g.player_near_radio(side)):
-            if not silent:
-                g.msg(f"Radio: 'Fire mission, {battery.name}. {n} rounds. Shot, over.'", "radio")
-        return True
+                     silent=False, smoke=False) -> bool:
+        """A call for fire: a battery that can reach and is free takes it, and fires the rounds it has."""
+        return self.fires.call(self.game, side, x, y, caller=caller, rounds=rounds, delay=delay, silent=silent,
+                               smoke=smoke) is not None
 
     def barrage(self, side, x, y, radius, rounds, delay=0, naval=False):
-        """A scheduled bombardment (preparation, harassing fire, or the navy offshore)."""
-        bats = self.batteries.get(side) or []
-        g = self.game
-        if naval:
-            from .data.vehicles import BATTERIES
-            nat = g.side_nation(side)
-            bats = [b for b in BATTERIES.values() if b.naval and nat in b.nations
-                    and b.years[0] <= g.year < b.years[1]]
-        if not bats:
-            return False
-        land = [b for b in bats if not b.naval]
-        pool = bats if (naval or not land or g.rng.random() < 0.25) else land
-        b = g.rng.choice(pool)
-        for i in range(max(1, rounds // b.salvo)):
-            px = x + g.rng.randint(-radius, radius)
-            py = y + g.rng.randint(-radius, radius)
-            fm = FireMission(side, b, px, py, g.turn + delay + i * 20, None, b.salvo, b.spread + radius / 3, (0, 0))
-            self.queue.append(fm)
-        return True
+        """A scheduled bombardment (preparation, harassing fire, or the navy offshore): every battery in range
+        that's free takes a share."""
+        return self.fires.barrage(self.game, side, x, y, radius, rounds, delay, naval)
 
     def update(self):
         g = self.game
         rng = g.rng
-        for s in SIDES:
-            self.missions[s] = min(8.0, self.missions[s] + self.arty_level.get(s, 0.5) * 0.004 * self.capacity_mult(s))
-        keep = []
-        for fm in self.queue:
-            if g.turn < fm.fire_turn:
-                keep.append(fm)
-                continue
-            b = fm.battery
-            per_turn = 4 if b.rocket else 2
-            for _ in range(min(per_turn, fm.rounds)):
-                fm.rounds -= 1
-                ix = int(round(fm.x + fm.bias[0] + rng.gauss(0, fm.spread)))
-                iy = int(round(fm.y + fm.bias[1] + rng.gauss(0, fm.spread)))
-                flight = rng.randint(2, 4)
-                g.schedule_shell(ix, iy, flight, b.power, b.radius, b.frags, 24, None,
-                                 f"a {b.cal} shell" if not b.rocket else f"a {b.cal}",
-                                 whistle=True, sound=b.sound, side=fm.side)
-            if fm.rounds > 0:
-                fm.fire_turn = g.turn + (1 if b.rocket else rng.randint(1, 3))
-                keep.append(fm)
-            elif fm.caller is not None and getattr(fm.caller, "is_player", False):
-                g.msg("Radio: 'Rounds complete, over.'", "radio")
-        self.queue = keep
+        self.fires.update(g)
+        if g.sector is not None and g.turn % 10 == 0:
+            self.missions = {s: float(len(self.fires.ready(g, s))) for s in SIDES}    # (batteries free, for anyone asking)
         # air (at sea, the aircraft that come are the ones the war at sea sends: aboard.py)
         for s in SIDES:
             if g.__dict__.get("domain") == "aboard":
@@ -204,14 +132,13 @@ class Support:
         g = self.game
         rng = g.rng
         night = g.is_night()
-        planes = [p for p in self.planes.get(side, []) if (p.night if night else True)]
-        if night:
-            planes = [p for p in planes if p.night] or []
-        if roles:
-            planes = [p for p in planes if p.role in roles]
-        if not planes:
+        # a squadron with aircraft on the ground, fuelled and armed: what flies is what it has
+        sqn = self.fires.squadron_for(g, side, roles, night)
+        if sqn is None:
+            if not quiet and side == g.player.side and target is not None:
+                g.msg("Radio: 'Negative on air - nothing's available. Every squadron's up or refuelling.'", "radio")
             return False
-        at = rng.choices(planes, [p.freq for p in planes])[0]
+        at = sqn.at
         # pick a target: the densest known enemy cluster, sometimes a mistake
         brain = g.brains[side]
         cl = brain.clusters(radius=8, min_size=2, max_age=60)
@@ -231,10 +158,18 @@ class Support:
         m = g.map
         tx = max(2, min(m.w - 3, tx))
         ty = max(2, min(m.h - 3, ty))
-        # approach from a random direction, starting off-map
-        ang = rng.uniform(0, math.tau)
-        sx = tx - math.cos(ang) * (m.w * 0.8)
-        sy = ty - math.sin(ang) * (m.h * 0.8)
+        # they come from their airfield's direction (from the runway itself, if it's on this map)
+        here = (g.sector.x, g.sector.y)
+        if sqn.sec == here:
+            field = next((r for r in (getattr(m, "gen_positions", None) or []) if r.get("kind") == "airfield"
+                          and r.get("side") == side), None)
+            sx, sy = (field["x"], field["y"]) if field else (m.w // 2, m.h // 2)
+            ang = math.atan2(ty - sy, tx - sx)
+        else:
+            ex, ey, _d = self.fires.bearing_point(g, sqn.sec, None)
+            ang = math.atan2(ty - ey, tx - ex)
+            sx = tx - math.cos(ang) * (m.w * 0.8)
+            sy = ty - math.sin(ang) * (m.h * 0.8)
         role = at.role
         mode = {"fighter": "strafe", "fighterbomber": rng.choice(["strafe", "bomb"]),
                 "divebomber": "dive", "attacker": "strafe", "bomber": "bomb", "heavybomber": "carpet",
@@ -246,11 +181,16 @@ class Support:
             n = rng.randint(2, 3)
         if role == "heavybomber":
             n = rng.randint(3, 6)
+        n = max(1, min(n, sqn.ready(g.turn)))
         for i in range(n):
             off = (rng.uniform(-4, 4), rng.uniform(-4, 4))
             ac = Aircraft(at, side, g.side_nation(side), sx + off[0] - i * 6 * math.cos(ang),
                           sy + off[1] - i * 6 * math.sin(ang), tx + off[0] * 2, ty + off[1] * 2, mode)
+            ac.squadron = sqn.id
             self.aircraft.append(ac)
+        self.fires.sortie_out(g, sqn, n)
+        if side == g.player.side and target is not None and not quiet:
+            g.msg(f"Radio: '{n} {at.name}{'s' if n > 1 else ''} of {sqn.name.split(' (')[0]} on the way.'", "radio")
         friendly = side == g.player.side
         g.audio("aircraft", int(ac.x) if False else g.player.x, g.player.y, 58)
         if at.siren and not friendly:
@@ -282,13 +222,25 @@ class Support:
             if 0 <= ac.x < m.w and 0 <= ac.y < m.h:
                 self.aa_fire(ac)
             if ac.dead:
+                q = self._squadron(ac)
+                if q is not None:
+                    self.fires.plane_lost(g, q)
                 continue
-            # left the map
+            # left the map: home to its airfield
             if (ac.x < -40 or ac.x > m.w + 40 or ac.y < -40 or ac.y > m.h + 40) and ac.attacked:
                 ac.done = True
+                q = self._squadron(ac)
+                if q is not None:
+                    self.fires.plane_back(g, q)
                 continue
             keep.append(ac)
         self.aircraft = keep
+
+    def _squadron(self, ac):
+        sid = getattr(ac, "squadron", None)
+        if sid is None:
+            return None
+        return next((q for q in self.fires.squadrons if q.id == sid), None)
 
     def attack(self, ac):
         g = self.game

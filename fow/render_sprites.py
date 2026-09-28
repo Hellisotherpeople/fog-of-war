@@ -249,10 +249,10 @@ def draw_sprite_layers(bank, game, cam, frame=0, ui=None):
                 cp = bank.effect("rocket" if e.get("rocket") else "tracer")
                 for i in range(tail, head + 1):
                     x, y = int(pts[i][0]), int(pts[i][1])
-                    if cam.on_screen(x, y) and m.visible[x, y]:
+                    if cam.on_screen(x, y) and m.in_bounds(x, y) and m.visible[x, y]:
                         fx.rgba["ch"][x - x0, y - y0] = cp
             elif k == "flash" and f <= 1:
-                if cam.on_screen(e["x"], e["y"]):
+                if cam.on_screen(e["x"], e["y"]) and m.in_bounds(e["x"], e["y"]):
                     fx.rgba["ch"][e["x"] - x0, e["y"] - y0] = bank.effect("flash")
             elif k == "explosion":
                 r = e["r"]
@@ -264,10 +264,10 @@ def draw_sprite_layers(bank, game, cam, frame=0, ui=None):
                         if dd > rr + 0.3:
                             continue
                         x, y = cx + dx, cy + dy
-                        if cam.on_screen(x, y) and m.visible[x, y]:
+                        if cam.on_screen(x, y) and m.in_bounds(x, y) and m.visible[x, y]:
                             fx.rgba["ch"][x - x0, y - y0] = bank.effect("explosion", min(3, int(dd) + f // 2))
             elif k == "splash":
-                if cam.on_screen(e["x"], e["y"]):
+                if cam.on_screen(e["x"], e["y"]) and m.in_bounds(e["x"], e["y"]):
                     fx.rgba["ch"][e["x"] - x0, e["y"] - y0] = bank.effect("splash")
             elif k == "flame":
                 for i, (x, y) in enumerate(e["pts"][: f * 3 + 3]):

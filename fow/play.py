@@ -117,7 +117,7 @@ class PlayState:
 
     # ================================================================== rendering
     CURSOR_MODES = ("target", "throw", "order_target", "radio_target", "flare_target", "look", "place",
-                    "travel_pick")
+                    "travel_pick", "nearby")
 
     def sprites(self):
         gfx = getattr(self.app, "gfx", None)
@@ -143,12 +143,21 @@ class PlayState:
                     AB.take_station(self, st_)
             else:
                 self._skysea_pushed = False
+        if g.map is None:
+            # in the air or at sea with no ground under him (the sky view draws itself): nothing to draw here
+            con.clear()
+            self.layers = self.overlay = None
+            return
         gfx = getattr(self.app, "gfx", None)
         sprites = self.sprites()
         try:
             g.__dict__["_order_hint"] = self.order_hint()
         except Exception:
             g.__dict__["_order_hint"] = None
+        try:
+            g.__dict__["_ctx_hint"] = self.context_hint() if self.app.settings.get("hints", True) else None
+        except Exception:
+            g.__dict__["_ctx_hint"] = None
         con.clear()
         self.layers = None
         self.overlay = None
@@ -186,7 +195,7 @@ class PlayState:
         else:
             mapcon = con
             if layered:
-                mapcon = tcod.console.Console(vw, vh, order="F")
+                mapcon = tcod.console.Console(vw + 1, vh + 1, order="F")   # (the camera's spare row and column)
             draw_map(mapcon, g, self.cam, self.anim)
             draw_entities(mapcon, g, self.cam, self.anim)
             if self.anim > 0:
@@ -229,6 +238,9 @@ class PlayState:
         for pop in self.popups:
             draw_popup(top, pop)
         draw_panel(con, g)
+        if self.mode == "nearby" and getattr(self, "nearby", None):
+            from .nearby import draw as draw_nearby
+            draw_nearby(con, self)
         draw_log(con, g, self.log_scroll)
         if self.overlay is not None:
             self._finish_overlay()
@@ -236,7 +248,9 @@ class PlayState:
             hint = {"target": "FIRE: move cursor, Tab next target, f/Enter fire, a aim longer, A aim & fire, Esc cancel",
                     "throw": f"THROW: pick the spot, t/Enter throw, c cook ({self.cook}s), Esc cancel",
                     "look": "LOOK: move cursor, Esc done",
-                    "order_target": f"ORDER ({(self.pending or {}).get('label', 'squad')}): pick the spot, "
+                    "nearby": "AROUND YOU: everything you can see and hear, nearest first (the list is on the right)",
+                    "order_target": f"ORDER ({(self.pending or {}).get('label', 'squad')}): pick the spot"
+                                    f"{', Tab the suggested places' if (self.pending or {}).get('props') else ''}, "
                                     f"Enter confirm, Esc cancel",
                     "radio_target": "FIRE MISSION: pick the target, Enter confirm, Esc cancel",
                     "flare_target": "FLARE: pick where to fire it, Enter confirm",
@@ -515,6 +529,11 @@ class PlayState:
                 draw_line(mc, g, self.cam, ox, oy, cx, cy)
             draw_cursor(mc, self.cam, cx, cy)
         lines, title = self.describe_tile(cx, cy, targeting=self.mode == "target")
+        if self.mode == "nearby":
+            e = self._nearby_entry()
+            if e is not None and e.get("heard") is not None:
+                from .nearby import heard_lines
+                lines, title = heard_lines(e), "Heard, not seen"
         if self.mode == "throw" and self.popups == []:
             it = self.pending and self.pending.get("item")
             if it:
@@ -615,6 +634,9 @@ class PlayState:
                 lines.append((f"{st} in {where}", col))
                 if a.weapon is not None and (d < 25 or g.player_binoculars):
                     lines.append((f"armed with {'a ' if not a.weapon.t.name[0] in 'AEIOU' else 'an '}{a.weapon.t.name}", UI_TEXT))
+                if a.has_tool("brassard") and (d < 40 or g.player_binoculars):
+                    lines.append(("a Red Cross armband" + ("" if a.weapon is not None and a.weapon.t.kind == "gun"
+                                                           else " - and no weapon"), (230, 120, 120)))
                 worst = min(a.body.hp[k] / a.body.max[k] for k in a.body.hp)
                 if worst < 0.95 and d < 20:
                     lines.append(("wounded" if worst > 0.4 else "badly wounded", (240, 140, 80)))
@@ -653,8 +675,19 @@ class PlayState:
         elif v is not None and (vis or p.vehicle is v):
             friend = v.side == p.side
             title = ("Friendly " if friend else "Enemy ") + v.vt.name
-            if friend or d < 20 or v.burning:
-                lines.append((v.status_text(), FRIEND_COLOR if friend else ENEMY_COLOR))
+            lines += self._vehicle_state_lines(v, friend, d)
+            if friend and not v.dead:
+                from . import maintenance as MT
+                wl = MT.work_left(v)
+                if wl is not None:
+                    lines.append((f"the crew are at work on {MT.REPAIR_WORD[wl[0]]} (about {wl[1]} min)", (220, 200, 140)))
+                needs = MT.needs_words(v)
+                if needs:
+                    lines.append(("needs " + ", ".join(needs), (230, 170, 110)))
+                if MT.is_supply_truck(v):
+                    lines.append((f"ammunition truck: {v.ai.get('cargo', 0)} rounds aboard", (200, 220, 150)))
+                if p.vehicle is None and v.near(p.x, p.y) <= 1:
+                    lines.append(("e: get in   right-click: more", UI_DIM))
             if targeting and not friend:
                 rel = (__import__("fow.gamemap", fromlist=["octant"]).octant(ox - v.x, oy - v.y) - v.facing) % 8
                 face = "its front" if rel in (0, 1, 7) else "its side" if rel in (2, 6) else "its rear"
@@ -985,7 +1018,7 @@ class PlayState:
             "O": self.cmd_orders, "D": self.cmd_dig, "R": self.cmd_radio, "z": self.cmd_rest,
             "C": self.cmd_command, "q": self.cmd_peek,
             "Z": self.cmd_rest, "S": self.cmd_resupply, "@": self.cmd_charsheet, "Y": self.cmd_yell,
-            "v": self.cmd_vehicle_mg, "s": lambda: self.act(100), "V": self.cmd_binoculars,
+            "v": self.cmd_vehicle_mg, "s": lambda: self.act(100), "V": self.cmd_nearby,
             "+": lambda: self.zoom(1), "=": lambda: self.zoom(1), "-": lambda: self.zoom(-1),
             "G": self.cmd_staff, "W": self.cmd_pace, "!": self.cmd_safe_mode, "'": self.cmd_ignore_danger,
         }.get(c)
@@ -1048,9 +1081,16 @@ class PlayState:
         if button not in (1, 3) or ftx < 0 or fty < 0:
             return
         tx, ty = math.floor(ftx), math.floor(fty)
+        if not g.player.body.conscious or g.map is None:
+            return                               # (out cold: no walking, firing or menus by mouse either)
         if self.inv_screen is not None:
             return self.inv_screen.on_click(tx, ty, button)
-        if self.travel_path or self.running or self.auto_wait:
+        if self.travel_path or self.running or self.auto_wait or self.__dict__.get("digging") or \
+                self.__dict__.get("ff_until"):
+            if self.__dict__.get("ff_until"):
+                self.ff_until = None
+                if g.__dict__.get("aboard"):
+                    g.aboard["sleeping"] = False
             self.stop_auto()
             return
         if not self.popups and button == 1 and self._minimap_click(tx, ty):
@@ -1132,6 +1172,10 @@ class PlayState:
         other = g.soldier_at.get((nx, ny))
         if other is not None and other.side != p.side and other.state == "ok":
             return self.act(A.melee(g, p, other))
+        if other is not None and not auto and other.side == p.side and other.state == "ok" and not other.downed:
+            from .base import TALKERS, talk
+            if other.role in TALKERS and talk(self, other):
+                return False                  # walking up to a man at his post is talking to him
         if not auto and self.safe_mode_blocks((dx, dy)):
             return False
         v = g.vehicle_at.get((nx, ny))
@@ -1188,8 +1232,19 @@ class PlayState:
         from .gamemap import octant
         seat = C.player_seat(v)
         if seat == "gunner" and v.vt.turret and v.vt.main:
-            # at the gun, the direction keys traverse the turret
-            v.turret = octant(dx, dy)
+            # at the gun, the direction keys traverse the turret (by hand, slowly, if the power's gone)
+            from . import vdamage as VD
+            tr = VD.traverse(v)
+            want = octant(dx, dy)
+            if tr == "jammed":
+                g.msg("The turret's jammed: the hull has to swing to bring the gun round.", "warn")
+                return False
+            if tr == "hand" and want != v.turret:
+                diff = (want - v.turret) % 8
+                v.turret = (v.turret + (1 if diff <= 4 else -1)) % 8
+                g.msg("You crank the traverse handwheel round, turn after turn.", "info")
+                return self.act(VD.HAND_TRAVERSE)
+            v.turret = want
             return self.act(50)
         ok, why = C.can(v, "drive")
         if not ok:
@@ -1272,19 +1327,35 @@ class PlayState:
             if C.player_seat(v) == "gunner" and v.vt.turret:
                 v.turret = octant(x - v.x, y - v.y)
             if not vehicle_fire_mg(g, v, x, y, tgt, idxs=idxs):
-                g.msg("The machine gun is silent.", "warn")
+                from .vdamage import mg_ok
+                g.msg("Your machine gun's knocked out." if not any(mg_ok(v, i) for i in idxs) else
+                      "The machine gun is silent - no belts left." if v.mg_ammo <= 0 else "The machine gun is silent.",
+                      "warn")
                 return
             return self.act(100)
         if v.reload > 0:
             g.msg("The gun isn't loaded yet!" + ("" if C.is_manned(v, "loader") else " (nobody's loading - it's all you)"),
                   "warn")
             return
-        if not v.vt.turret or v.static:
+        from . import vdamage as VD
+        tr = VD.traverse(v)
+        if v.vt.turret and not v.static and tr == "hand":
             want = octant(x - v.x, y - v.y)
-            if (want - v.facing) % 8 not in (0, 1, 7):
+            diff = (want - v.turret) % 8
+            if diff not in (0, 1, 7):
+                v.turret = (v.turret + (1 if diff <= 4 else -1)) % 8
+                g.msg("No power to the traverse: you crank the turret round by hand. (f again when it bears)", "info")
+                return self.act(VD.HAND_TRAVERSE)
+        if not v.vt.turret or v.static or tr == "jammed":
+            want = octant(x - v.x, y - v.y)
+            gun = v.turret if tr == "jammed" else v.facing
+            if (want - gun) % 8 not in (0, 1, 7):
                 if C.is_manned(v, "driver") and not v.static:
+                    if not VD.can_move(v):
+                        g.msg("The gun won't bear, and she can't pivot to bring it round.", "warn")
+                        return
                     p.say("Driver, swing us round!", g.turn, 2)
-                    if g.turn_vehicle(v, v.facing + (1 if (want - v.facing) % 8 <= 4 else -1)):
+                    if g.turn_vehicle(v, v.facing + (1 if (want - gun) % 8 <= 4 else -1)) and tr != "jammed":
                         v.turret = v.facing
                     return self.act(150)
                 if v.static:
@@ -1294,9 +1365,40 @@ class PlayState:
                 g.msg("The gun won't traverse that far, and nobody's driving to swing the hull.", "info")
                 return
         if not vehicle_fire_main(g, v, x, y, tgt, v.ammo_choice):
-            g.msg("The main gun can't fire.", "warn")
+            g.msg("The gun's knocked out." if not v.gun_ok else
+                  "No rounds left in the racks." if v.ap + v.he <= 0 and not (v.mount and v.mount.flame) else
+                  "The main gun can't fire.", "warn")
             return
         return self.act(100)
+
+    def _go_to_vehicle(self, v, then=None):
+        """Walk to the nearest open ground beside a vehicle, and `then` on arrival (if it's still there)."""
+        g = self.game
+        p = g.player
+        m = g.map
+        if v.near(p.x, p.y) <= 1:
+            return then() if then is not None else None
+        cells = set(v.cells())
+        best = None
+        for cx, cy in cells:
+            for dx in (-1, 0, 1):
+                for dy in (-1, 0, 1):
+                    x, y = cx + dx, cy + dy
+                    if (x, y) in cells or not m.in_bounds(x, y) or not m.walk[x, y] or m.water[x, y] >= 2:
+                        continue
+                    if g.vehicle_at.get((x, y)) is not None or g.soldier_at.get((x, y)) not in (None, p):
+                        continue
+                    d = max(abs(x - p.x), abs(y - p.y))
+                    if best is None or d < best[0]:
+                        best = (d, x, y)
+        if best is None:
+            g.msg(f"There's no getting near the {v.vt.name}.", "info")
+            return False
+
+        def arrive():
+            if then is not None and not v.dead and v.near(p.x, p.y) <= 1:
+                then()
+        return self.start_travel(best[1], best[2], then=arrive)
 
     def start_travel(self, tx, ty, then=None, stop_short=0):
         """Walk there (click, or an order): `then` is done on arrival; `stop_short` stops beside it."""
@@ -1316,7 +1418,9 @@ class PlayState:
         cost = np.maximum(1, T.COST[m.t] // 50).astype(np.int32)
         cost[~m.walk] = 0
         cost[T.DOOR[m.t] == 1] = 3
-        cost[m.water >= 2] = 0
+        # deep water: never a route you'd choose - unless you're already in it (off a landing craft), when
+        # the way out is a swim
+        cost[m.water >= 2] = 10 if m.water[p.x, p.y] >= 2 else 0
         if blind:
             cost[~m.explored & (cost > 0)] += 2               # unknown ground: go round it if you can
         else:
@@ -1492,6 +1596,24 @@ class PlayState:
         if g.__dict__.get("domain") == "aboard" and (g.aboard or {}).get("kind") == "ship":
             from . import shipboard as SB
             return SB.plan(self)
+        if g.support is not None:
+            f = g.support.fires
+            pm = f.player_mission(g)
+            if pm is not None:
+                d = pm[1]["data"]
+                what = "drop a bomb down the tube" if pm[0].kind == "mortar" else "lay the gun and fire"
+                return (f"{what}: azimuth {d['az']:04d}, elevation {d['qe']:04d}, charge {d['charge']}",
+                        lambda: self._fire_mission_round())
+        if p.vehicle is not None:
+            bo = g.__dict__.get("base_order")
+            if bo and bo.get("kind") == "supply_run" and bo.get("truck") == p.vehicle.id:
+                from . import base as BASE
+                return BASE.order_plan(self)
+            # riding in the back: the order is to get out and get on with it; crewing it: your seat is your job
+            if p in p.vehicle.passengers:
+                v = p.vehicle
+                return ("climb out", lambda: self._vehicle_choice(v, ("exit", None)))
+            return None
         d = getattr(g, "duty", None)
         t = d.task if d is not None else None
         near = lambda a: max(abs(a.x - p.x), abs(a.y - p.y)) <= 1   # noqa: E731
@@ -1558,6 +1680,34 @@ class PlayState:
                 if by is not None:
                     return (f"go back and report to {g.name_of(by)}", lambda: self.start_travel(by.x, by.y,
                                                                                                stop_short=2))
+            if k in ("track", "shells"):
+                from . import maintenance as MT
+                v = next((v for v in g.vehicles if v.id == t.get("vid")), None)
+                if v is not None and not v.dead:
+                    if k == "track":
+                        help_ = lambda: MT.help_with(self, v)   # noqa: E731
+                        if v.near(p.x, p.y) <= 1:
+                            return (f"work on the {v.vt.name}'s track with the crew", help_)
+                        return (f"go to the {v.vt.name} and help with the track", lambda: self._go_to_vehicle(v, help_))
+                    crate = (p.invent.hands is not None and p.invent.hands.tid == "shell_crate") or \
+                        any(i.tid == "shell_crate" for i in p.inv)
+                    if crate:
+                        up = lambda: MT.hand_up(self, v)   # noqa: E731
+                        if v.near(p.x, p.y) <= 1:
+                            return (f"hand the shells up into the {v.vt.name}", up)
+                        return (f"carry the crate to the {v.vt.name} and hand it up", lambda: self._go_to_vehicle(v, up))
+                    trucks = [tr for tr in g.vehicles if tr.side == p.side and MT.is_supply_truck(tr)]
+                    if trucks:
+                        tr = min(trucks, key=lambda tr: abs(tr.x - p.x) + abs(tr.y - p.y))
+
+                        def fetch():
+                            MT.take_crate(self, tr)
+                            if p.invent.hands is not None and p.invent.hands.tid == "shell_crate":
+                                self._go_to_vehicle(v, lambda: MT.hand_up(self, v))
+                        return ("get a crate of shells off the truck and take it to the tank",
+                                (lambda: fetch()) if tr.near(p.x, p.y) <= 1 else
+                                (lambda: self._go_to_vehicle(tr, fetch)))
+                    return ("(there's no ammunition truck up here to carry shells from)", lambda: None)
             if k == "escort":
                 from .prisoners import prisoners_of
                 brain = g.brains[p.side]
@@ -1565,14 +1715,132 @@ class PlayState:
                     edge = g.home_edge(p.side)
                     x, y = g._edge_exit_point(edge, (p.x, p.y), 6) if edge else (p.x, p.y)
                     return ("walk your prisoners back toward our lines", lambda: self.start_travel(x, y))
+        from . import base as BASE
+        if g.__dict__.get("ship_ashore"):
+            pd = BASE.staff_here(g, "port_officer")
+            if pd:
+                who = min(pd, key=lambda a: abs(a.x - p.x) + abs(a.y - p.y))
+                return ("go to the port director for the boat back",
+                        lambda: self.start_travel(who.x, who.y, then=lambda: BASE.talk(self, who), stop_short=1))
+        if g.__dict__.get("awol") or (BASE._straggler(g) and not g.__dict__.get("base_order")):
+            adj = BASE.staff_here(g, "adjutant") or (BASE.staff_here(g, "port_officer") if g.__dict__.get("awol")
+                                                     else [])
+            if adj:
+                who = min(adj, key=lambda a: abs(a.x - p.x) + abs(a.y - p.y))
+                return (f"report to the {who.role_name.lower()}",
+                        lambda: self.start_travel(who.x, who.y, then=lambda: BASE.talk(self, who), stop_short=1))
+        plan = BASE.order_plan(self)
+        if plan is not None:
+            return plan
         tp = g.order_target_for_player() if p.squad is not None else None
         if tp is not None and max(abs(tp[0] - p.x), abs(tp[1] - p.y)) > 3:
             return ("move toward your objective", lambda: self.start_travel(tp[0], tp[1], stop_short=1))
         return None
 
+    def _vehicle_state_lines(self, v, friend, d):
+        """What you know of a vehicle's state: ours, everything its crew would shout down to you (yours, to
+        the round); the enemy's, only what shows from outside - a track lying off, smoke, holes, a head
+        out of the hatch."""
+        from . import vdamage as VD
+        from . import crew as C
+        g = self.game
+        p = g.player
+        out = []
+        if v.dead:
+            return [("destroyed", (200, 120, 100))]
+        close = d < 45 or g.player_binoculars
+        if friend:
+            dmg = VD.damage_list(v)
+            r = v.hp / v.vt.hp
+            hull = "hull badly holed" if r < 0.35 else "hull damaged" if r < 0.75 else None
+            words = (["burning"] if v.burning else []) + dmg + ([hull] if hull else [])
+            if v.abandoned:
+                words.insert(0, "abandoned")
+            out.append((", ".join(words) if words else "no damage", (230, 150, 110) if words else FRIEND_COLOR))
+            if not v.abandoned and v.vt.crew:
+                men = C.manned(v)
+                empty = [C.name(v.vt, st).lower() for st in (v.ai.get("seat_out") or {})]
+                crew = f"crew {v.crew} of {v.vt.crew}" + (f" - the {', the '.join(empty)} hit" if empty else "")
+                hs = VD.hatch_user(v)
+                if hs is not None and hs in men | ({v.player_station} if v.player_crewed else set()):
+                    crew += ", buttoned up" if v.buttoned else ", commander head out"
+                out.append((crew, UI_TEXT))
+            if p.vehicle is v and (v.vt.ap or v.vt.he):
+                out.append((f"{v.ap} AP, {v.he} HE aboard; machine-gun belts: {v.mg_ammo} rounds", UI_DIM))
+        else:
+            seen = VD.visible_damage(v) if close or v.burning else (["burning"] if v.burning else [])
+            if seen:
+                out.append((", ".join(seen), ENEMY_COLOR))
+            elif close:
+                out.append(("no damage you can see", ENEMY_COLOR))
+            if close and not v.abandoned and VD.hatch_user(v) is not None and not v.buttoned and v.crew > 0:
+                out.append(("the commander's head is out of the hatch", (230, 200, 120)))
+        return out
+
+    def context_hint(self):
+        """The keys that matter right where you're standing: a line under the orders (Options: Hints)."""
+        g = self.game
+        p = g.player
+        m = g.map
+        v = p.vehicle
+        if v is not None:
+            if v.player_crewed:
+                from . import crew as C
+                from .vdamage import hatch_user
+                seat = C.player_seat(v)
+                hatch = ""
+                if seat == hatch_user(v):
+                    hatch = " Hatch shut (e to open)." if v.buttoned else " Head out of the hatch (e to button up)."
+                elif seat in ("gunner", "driver") or seat.startswith("mg"):
+                    hatch = " You see only through your sight."
+                return f"{C.name(v.vt, seat)}: {C.seat_help(v, seat)}{hatch} e: seats, get out."
+            if p.ai.get("rider"):
+                return "Riding on the hull: e to jump down. (There's no firing from up there: get off to fight.)"
+            return "A passenger: e to get out (or take an empty seat)."
+        if p.carrying is not None:
+            return f"Carrying {g.name_of(p.carrying)}: walk them to cover or a medic; B puts them down."
+        if p.invent.hands is not None:
+            h = p.invent.hands
+            if h.tid == "shell_crate":
+                return "A crate of shells in your arms: right-click a tank beside you to hand it up. d drops it."
+            return f"{h.name} in your hands: i to put it away, d to drop it."
+        from .base import TALKERS
+        from . import maintenance as MT
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                if not dx and not dy:
+                    continue
+                x, y = p.x + dx, p.y + dy
+                veh = g.vehicle_at.get((x, y))
+                if veh is not None and not veh.dead and (veh.side == p.side or veh.abandoned or veh.crew == 0):
+                    extra = []
+                    if veh.side == p.side and MT.repairs(veh):
+                        extra.append("help fix it")
+                    if MT.is_supply_truck(veh):
+                        extra.append("take shells")
+                    rider = not veh.vt.seats and p.role != "tank_crew" and veh.crew >= veh.vt.crew and not veh.abandoned
+                    return (f"The {veh.vt.name}: e {'climb on and ride' if rider else 'get in'}"
+                            + (f"; right-click: {', '.join(extra)}" if extra else "; right-click for more") + ".")
+                a = g.soldier_at.get((x, y))
+                if a is not None and a is not p and a.side == p.side and a.state == "ok" and a.active:
+                    if a.role in TALKERS or a.role in ("quartermaster", "intel"):
+                        return f"The {a.role_name.lower()}: walk into {a.him} or right-click to talk."
+                    if a.downed or a.body.bleed_rate() > 0.1:
+                        return f"{g.name_of(a)} is hurt: right-click {a.him} to patch {a.him} up."
+                if m.in_bounds(x, y) and T.DOOR[m.t[x, y]]:
+                    return "A door: walk through it to open it; o shuts an open door beside you."
+        if m.items_at(p.x, p.y):
+            return "Something here: g picks it up (i for the kit screen)."
+        return None
+
     def order_hint(self):
         plan = self._order_plan()
         return f"Enter: {plan[0]}" if plan else None
+
+    def _fire_mission_round(self):
+        c = self.game.support.fires.fire_player_round(self)
+        if c:
+            self.act(c)
 
     def cmd_do_order(self, retry=0):
         """Enter: set about your orders - walk there, and do it when you arrive (he may have moved: after him)."""
@@ -1600,9 +1868,11 @@ class PlayState:
         g.aboard = None
         g.skysea = None
         if over == "dead" or not p.alive:
-            if p.alive:
-                p.body.dead = True
-                g.kill(p, None)
+            p.body.dead = True
+            if not g.game_over:
+                g.kill(p, None)                  # (safe if he's already been killed: kill() is idempotent)
+            if not g.game_over:
+                g.player_died(None)
             return self.check_over()
         if isinstance(over, tuple) and over[0] == "landed":
             g.map = None
@@ -1613,6 +1883,8 @@ class PlayState:
         if over == "raft":
             g.map = None
             adrift(g, ss)
+            if g.map is None and p.alive and not g.__dict__.get("pow"):
+                to_land(g, g.sector)            # (never left without ground under him)
         else:
             x, y = (ship.x, ship.y) if ship is not None else (ss.cx * 30, ss.cy * 30)
             coast = _nearest_coast(g, x, y, p.side) or g.sector
@@ -1636,11 +1908,14 @@ class PlayState:
             g.msg("Not now - there's something going on.", "info")
             return
         g.aboard["sleeping"] = sleep
-        self.ff_until = g.turn + (8 * 3600 if sleep else (6 * 3600 if g.aboard["condition"] == "III" else 3600))
+        cond = g.aboard["condition"]
+        self.ff_until = g.turn + (8 * 3600 if sleep else (6 * 3600 if cond in ("III", "port") else 3600))
         self.ff_start = g.turn
         self.mark_interrupt()
-        g.msg("You turn in." if sleep else ("The ship steams on. (any key stops)" if g.aboard["condition"] == "III"
-                                             else "You stand by at your station. (any key stops)"), "info")
+        g.msg("You turn in." if sleep else ("The ship steams on. (any key stops)" if cond == "III" else
+                                            "She swings at anchor; the work goes on. (any key stops)"
+                                            if cond == "port" else "You stand by at your station. (any key stops)"),
+              "info")
 
     def _ff_tick(self):
         from . import shipboard as SB
@@ -1732,6 +2007,10 @@ class PlayState:
 
     def mode_key(self, key: Key):
         g = self.game
+        if key.sym == E.KeySym.F1 or key.char == "?":
+            return self.cmd_help()                  # (the mode stays: help opens on the section for it)
+        if self.mode == "nearby":
+            return self._nearby_key(key)
         mv = key.move()
         if getattr(key, "ctrl", False) and mv:
             gfx = getattr(self.app, "gfx", None)
@@ -1768,6 +2047,13 @@ class PlayState:
             return
         if key.sym == E.KeySym.TAB and self.mode == "target":
             self.cycle_target(-1 if key.shift else 1)
+            return
+        if key.sym == E.KeySym.TAB and self.mode == "order_target" and (self.pending or {}).get("props"):
+            # step the cursor through the proposed places (the objectives, the enemy positions you know of)
+            props = self.pending["props"]
+            i = self.pending.get("prop_i", -1) + (-1 if key.shift else 1)
+            self.pending["prop_i"] = i % len(props)
+            self.cursor = tuple(props[i % len(props)])
             return
         if key.sym in (E.KeySym.RETURN, E.KeySym.KP_ENTER) or key.char in ("f", "t") and self.mode in ("target", "throw") \
                 or key.char == "." and self.mode != "look":
@@ -1880,6 +2166,9 @@ class PlayState:
                 self.open_popup(Popup("Fire at", opts, self._screen_anchor()),
                                 lambda ac: self.act(AB.fire_aa(g, p, p.vehicle, ac)) if ac is not None else None)
                 return
+        if not mg and g.support is not None and g.support.fires.player_mission(g) is not None and \
+                not self.visible_targets():
+            return self._fire_mission_round()          # nothing to shoot at here: f fires the mission
         if p.vehicle is not None:
             v = p.vehicle
             if not v.player_crewed:
@@ -2460,6 +2749,98 @@ class PlayState:
         p = self.game.player
         self.enter_mode("look", (p.x, p.y))
 
+    # ------------------------------------------------------------ V: everything around you
+    def cmd_nearby(self, keep=None):
+        """A list of everything you can see and hear, nearest first (Cataclysm's V)."""
+        from . import nearby as NB
+        g = self.game
+        p = g.player
+        lists = NB.gather(g)
+        tab = keep[0] if keep else (0 if lists["Soldiers"] or not lists["Items"] else 1)
+        self.nearby = dict(tab=tab, sel=0, lists=lists)
+        if keep:
+            ents = lists[NB.TABS[tab]]
+            self.nearby["sel"] = next((i for i, e in enumerate(ents) if (e["x"], e["y"]) == keep[1]),
+                                      min(keep[2], max(0, len(ents) - 1)))
+        self.enter_mode("nearby", (p.x, p.y))
+        self._nearby_cursor()
+
+    def _nearby_entry(self):
+        from .nearby import TABS
+        st = self.nearby
+        ents = st["lists"][TABS[st["tab"]]]
+        return ents[st["sel"]] if ents and 0 <= st["sel"] < len(ents) else None
+
+    def _nearby_cursor(self):
+        e = self._nearby_entry()
+        p = self.game.player
+        self.cursor = (e["x"], e["y"]) if e else (p.x, p.y)
+        if e and self.cam_c is not None:
+            self.view_center = None                     # let the view follow the cursor to it
+
+    def _nearby_key(self, key):
+        from .nearby import TABS
+        g = self.game
+        p = g.player
+        st = self.nearby
+        ents = st["lists"][TABS[st["tab"]]]
+        mv = key.move()
+        c = key.char
+        if key.sym == E.KeySym.ESCAPE or c in ("V", "q"):
+            self.park_view()
+            self.mode = "normal"
+            self.cursor = None
+            return
+        if key.sym == E.KeySym.TAB or (mv and mv[1] == 0 and mv[0]):
+            st["tab"] = 1 - st["tab"]
+            st["sel"] = 0
+            return self._nearby_cursor()
+        if mv and mv[0] == 0 and ents:
+            st["sel"] = (st["sel"] + mv[1] * (5 if key.is_run() else 1)) % len(ents)
+            return self._nearby_cursor()
+        if key.sym in (E.KeySym.PAGEUP, E.KeySym.PAGEDOWN) and ents:
+            st["sel"] = max(0, min(len(ents) - 1, st["sel"] + (10 if key.sym == E.KeySym.PAGEDOWN else -10)))
+            return self._nearby_cursor()
+        e = self._nearby_entry()
+        if c == "b":
+            if not p.has_tool("binoculars"):
+                g.msg("You don't have binoculars.", "info")
+                return
+            g.player_binoculars = not g.player_binoculars
+            g.msg("You raise your binoculars." if g.player_binoculars else "You lower your binoculars.", "info")
+            return self.cmd_nearby(keep=(st["tab"], (e["x"], e["y"]) if e else None, st["sel"]))
+        if e is None:
+            return
+        if c in ("x", ";"):
+            self.enter_mode("look", (e["x"], e["y"]))
+            return
+        enter = key.sym in (E.KeySym.RETURN, E.KeySym.KP_ENTER)
+        if st["tab"] == 0 and enter and e.get("heard") is not None:
+            self.enter_mode("look", (e["x"], e["y"]))      # nothing to walk to: look where it came from
+            return
+        if st["tab"] == 0 and (c == "f" or (enter and e.get("enemy"))):
+            self.mode = "normal"
+            self.begin_target()
+            if self.mode == "target":
+                self.cursor = (e["x"], e["y"])
+                for i, t in enumerate(self.target_list or []):
+                    if (t.x, t.y) == (e["x"], e["y"]):
+                        self.target_idx = i
+            return
+        if key.sym in (E.KeySym.RETURN, E.KeySym.KP_ENTER):
+            self.mode = "normal"
+            self.cursor = None
+            self.recenter()
+            if st["tab"] == 1:
+                if (e["x"], e["y"]) == (p.x, p.y):
+                    return self.cmd_pickup()
+                if not self.start_travel(e["x"], e["y"], then=self.cmd_pickup):
+                    g.msg("You can't see a way there.", "info")
+                return
+            if not self.start_travel(e["x"], e["y"], stop_short=1):
+                g.msg("You can't see a way there.", "info")
+            return
+
     def cmd_binoculars(self):
         g = self.game
         p = g.player
@@ -2484,8 +2865,141 @@ class PlayState:
         self.app.push(LogState(self.app, self.game))
 
     def cmd_help(self):
+        """F1 / ?: how to play - opened at "Right now", the keys for where you are this moment."""
         from .ui import HelpState
-        self.app.push(HelpState(self.app))
+        self.app.push(HelpState(self.app, play=self))
+
+    def help_now(self):
+        """The keys that matter where you are, for the help's first section: your seat, your orders, what's
+        beside you, the mode you're in."""
+        from . import crew as C
+        from . import maintenance as MT
+        from .base import TALKERS
+        g = self.game
+        p = g.player
+        rows = []
+        v = p.vehicle
+        m = g.map
+        # where you are
+        if g.__dict__.get("domain") == "aboard":
+            where = "Aboard ship."
+        elif v is not None:
+            seat = C.player_seat(v)
+            where = (f"In the {v.vt.name}: the {C.name(v.vt, seat).lower()}'s seat" if seat else
+                     f"Riding on the {v.vt.name}'s hull" if p.ai.get("rider") else f"A passenger in the {v.vt.name}")
+            from .vdamage import damage_list, hatch_user
+            if seat and seat == hatch_user(v):
+                where += ", hatch shut" if v.buttoned else ", head out of the hatch"
+            dmg = damage_list(v)
+            where += "." + (f" Damage: {', '.join(dmg)}." if dmg else "")
+        else:
+            where = {0: "On your feet", 1: "Crouching", 2: "Lying flat"}.get(p.stance, "On foot") + \
+                (", leaning out of cover." if getattr(p, "peek", None) else ".")
+        rows.append(("t", where))
+        # the mode you're in
+        modes = {
+            "target": [("f|t|Enter", "fire"), ("Tab|Shift+Tab", "next / previous target"),
+                       ("a|A", "aim longer / aim fully and fire"), ("Esc", "stop aiming")],
+            "throw": [("t|f|Enter", "throw"), ("c", f"cook it (now {self.cook} s)"), ("Esc", "don't")],
+            "look": [("move keys", "move the cursor"), ("x|Esc", "done")],
+            "nearby": [("up|down", "pick one"), ("Tab", "soldiers / items"), ("f|Enter", "fire / go to it"),
+                       ("x|b", "look / binoculars"), ("Esc", "close")],
+            "order_target": [("move keys", "pick the spot"), ("Enter", "order it"), ("Esc", "cancel")],
+            "radio_target": [("move keys", "pick the target"), ("Enter", "call it in"), ("Esc", "cancel")],
+            "flare_target": [("move keys", "pick the spot"), ("Enter", "fire the flare"), ("Esc", "cancel")],
+            "peek": [("move keys", "which way to lean"), ("Esc", "don't")],
+        }
+        if self.mode in modes:
+            rows.append(("h", "What you're doing"))
+            rows += [("k", k, d) for k, d in modes[self.mode]]
+        # your orders
+        rows.append(("h", "Your orders"))
+        plan = None
+        try:
+            plan = self._order_plan()
+        except Exception:
+            pass
+        rows.append(("k", "Enter", plan[0] if plan else "(nothing to carry out just now)"))
+        if g.support is not None and g.support.fires.player_mission(g) is not None:
+            rows.append(("k", "f", "fire the mission's rounds (with nothing in sight to shoot at)"))
+        # your seat
+        if v is not None:
+            rows.append(("h", "Your seat"))
+            seat = C.player_seat(v)
+            from .vdamage import hatch_user
+            vt = v.vt
+            gun = []
+            if vt.main:
+                gun.append(("f", "fire the main gun at what you can see" +
+                            (" (the crew swing the trail round for you)" if vt.static else "")))
+                if vt.ap and vt.he:
+                    gun.append(("F", "AP or HE"))
+                if vt.turret and not vt.static:
+                    gun.append(("move keys", "traverse the turret"))
+            if C.mgs_for(v, "gunner"):
+                gun.append(("v", "the machine gun" if not vt.main else "the coaxial machine gun"))
+            seat_keys = {
+                "driver": [("move keys", "drive (off the map edge: on into the next sector)")],
+                "gunner": gun,
+                "loader": [("r", "hurry the next round"), ("F", "change the round")],
+                "commander": [("move keys", "tell the driver where to go"), ("f", "give the gunner a target"),
+                              ("v", "give the machine gunners a target")],
+            }
+            if seat is None:
+                rows.append(("k", "e", "jump down" if p.ai.get("rider") else "get out, or take an empty seat"))
+            else:
+                rows += [("k", k, d) for k, d in seat_keys.get(seat, [("v", "fire your machine gun")] if
+                                                                 seat.startswith("mg") else [])]
+                menu = ["get out", "change seats"]
+                if seat == hatch_user(v):
+                    menu.append("open your hatch" if v.buttoned else "button up")
+                if seat == "commander":
+                    menu.append("crew orders")
+                rows.append(("k", "e", "the menu: " + ", ".join(menu)))
+        # what's beside you
+        near = []
+        if v is None and m is not None:
+            for dx in (-1, 0, 1):
+                for dy in (-1, 0, 1):
+                    x, y = p.x + dx, p.y + dy
+                    veh = g.vehicle_at.get((x, y))
+                    if veh is not None and not veh.dead and veh not in [n[1] for n in near if n[0] == "veh"]:
+                        near.append(("veh", veh))
+                    a = g.soldier_at.get((x, y))
+                    if a is not None and a is not p and a.side == p.side and a.alive:
+                        near.append(("man", a))
+            if near or m.items_at(p.x, p.y) or p.carrying is not None or p.invent.hands is not None:
+                rows.append(("h", "Beside you"))
+            for kind, o in near:
+                if kind == "veh" and (o.side == p.side or o.abandoned or o.crew == 0):
+                    extra = []
+                    if o.side == p.side and MT.repairs(o):
+                        extra.append("help fix it")
+                    if MT.is_supply_truck(o):
+                        extra.append("take a crate of shells")
+                    rows.append(("k", "e", f"get into the {o.vt.name}"))
+                    rows.append(("k", "right-click", f"the {o.vt.name}: " + (", ".join(extra) or "everything else")))
+                elif kind == "man":
+                    if o.role in TALKERS or o.role in ("quartermaster", "intel"):
+                        rows.append(("k", "walk into", f"the {o.role_name.lower()}: talk to {o.him}"))
+                    elif o.downed or o.body.bleed_rate() > 0.1:
+                        rows.append(("k", "B|right-click", f"patch up {g.name_of(o)}"))
+            if m.items_at(p.x, p.y):
+                rows.append(("k", "g", "pick up what's here"))
+            if p.carrying is not None:
+                rows.append(("k", "B", f"put {g.name_of(p.carrying)} down"))
+            if p.invent.hands is not None:
+                rows.append(("k", "d|i", f"drop the {p.invent.hands.name} / put it away"))
+        # danger
+        enemies = [e for e in (getattr(p, "visible", None) or []) if getattr(e, "alive", True)]
+        if enemies and v is None:
+            rows.append(("h", "The enemy's in sight"))
+            rows += [("k", "f|Tab", "aim and fire"), ("k", "c|p", "get low - prone behind cover is best"),
+                     ("k", "q", "lean out of cover to shoot, and back"), ("k", "!|'", "safe mode off / ignore what you see")]
+        rows.append(("h", "Always"))
+        rows += [("k", "V", "everything around you in a list"), ("k", "x", "look"), ("k", "i", "your kit"),
+                 ("k", "@", "yourself: your body in detail"), ("k", "Esc", "the menu")]
+        return rows
 
     def cmd_charsheet(self):
         from .ui import StatusState
@@ -2563,8 +3077,10 @@ class PlayState:
             return "wrecked"
         if v.side != p.side and not (v.abandoned or v.crew == 0):
             return "enemy crew inside"
-        if not (p.role == "tank_crew" or v.crew == 0 or v.abandoned) and len(v.passengers) >= v.vt.seats:
-            return "no room" if v.vt.seats else "the crew won't have you"
+        from .maintenance import riders_capacity
+        cap = riders_capacity(v)
+        if not (p.role == "tank_crew" or v.crew == 0 or v.abandoned) and len(v.passengers) >= cap:
+            return "no room" if cap else "no room inside, and nowhere to hold on"
         if p.role == "tank_crew" and v.crew >= v.vt.crew and len(v.passengers) >= v.vt.seats:
             return "fully crewed"
         return None
@@ -2587,8 +3103,11 @@ class PlayState:
             seat = C.player_seat(v)
             g.msg(f"You take the {C.name(v.vt, seat).lower()}'s seat in the {v.vt.name}. {C.seat_help(v, seat)} "
                   f"(e: seats and exit)", "good")
+        elif p.ai.get("rider"):
+            g.msg(f"You climb up onto the {v.vt.name}'s engine deck and grab a handhold. It's warm, it's fast - and "
+                  f"everything that shoots at it shoots at you. (e: get off)", "info")
         else:
-            g.msg(f"You clamber into the {v.vt.name}.", "info")
+            g.msg(f"You clamber into the {v.vt.name}. (e: get out)", "info")
         self.act(c)
 
     def _vehicle_menu(self, v):
@@ -2597,7 +3116,8 @@ class PlayState:
         g = self.game
         p = g.player
         seat = C.player_seat(v)
-        opts = [(f"Climb out of the {v.vt.name}", ("exit", None), None, True)]
+        opts = [((f"Jump down off the {v.vt.name}" if p.ai.get("rider") else f"Climb out of the {v.vt.name}"),
+                 ("exit", None), None, True)]
         man = C.manned(v)
         for st in C.stations(v.vt):
             if st == seat:
@@ -2609,6 +3129,11 @@ class PlayState:
                 opts.append((f"Take the {C.name(v.vt, st).lower()}'s seat ({who})", ("seat", st), None, True))
             else:
                 opts.append((f"Move to the {C.name(v.vt, st).lower()}'s seat ({who})", ("seat", st), None, True))
+        from .vdamage import hatch_user
+        if seat is not None and seat == hatch_user(v):
+            opts.insert(1, ("Button up: hatch shut, eyes to the periscopes" if not v.buttoned else
+                            "Open your hatch and put your head out: you'll see, and be seen", ("hatch", None),
+                            (180, 200, 230), True))
         if v.ai.get("captured") and not v.ai.get("marked"):
             opts.append(("Paint our markings on it (a few minutes, outside)", ("paint", None), None, True))
         if seat == "commander":
@@ -2618,9 +3143,13 @@ class PlayState:
                 opts.append(("Crew: cease fire on that target", ("undesignate", None), None, True))
             if v.vt.turret and v.vt.main:
                 opts.append(("Gunner: traverse to the front", ("front", None), None, True))
+        from .vdamage import damage_list
         lines = [(f"You are the {C.name(v.vt, seat).lower()}." if seat else "You're riding as a passenger.", UI_TEXT),
                  ("Crew: " + "  ".join(f"{C.SHORT.get(s, s)}{'*' if s == seat else '' if s in man else '-'}"
                                        for s in C.stations(v.vt)), UI_DIM)]
+        dmg = damage_list(v)
+        if dmg:
+            lines.append(("Damage: " + ", ".join(dmg), (230, 150, 110)))
         self.open_popup(Popup(v.vt.name, opts, self._screen_anchor(), lines=lines, width=58),
                         lambda ch: self._vehicle_choice(v, ch))
 
@@ -2664,6 +3193,13 @@ class PlayState:
                 g.brains[p.side].contacts.pop(v.id, None)
                 g.msg("Done. Your own side should know it now - mostly.", "good")
             return
+        if what == "hatch":
+            v.buttoned = not v.buttoned
+            g.msg("You drop down and pull the hatch shut. The world shrinks to the periscopes." if v.buttoned else
+                  "You push the hatch open and stand up in the cupola. You can see - and anyone can see your head.",
+                  "info")
+            g.player_fov()
+            return self.act(100)
         if what == "hold":
             v.ai["hold_fire"] = arg
             if arg:
@@ -3065,6 +3601,10 @@ class PlayState:
             p.morale = min(100, p.morale + 3)
             g.msg(f"You wolf down a {NATIONS[p.nation]['ration']}.", "info")
             return self.act(400)
+        if tool == "letter" and it.data and it.data.get("text"):
+            g.msg(it.data["text"], "think")
+            p.morale = min(100, p.morale + 5)
+            return self.act(300)
         if tool in ("letter", "photo"):
             lines = {"letter": ["'...and the baby has your eyes. Come home to us.'", "'Mother says to keep your head down.'",
                                 "'I'll wait for you. However long it takes.'", "'The harvest was good this year. We miss you.'"],
@@ -3341,15 +3881,17 @@ class PlayState:
     def cmd_apply(self):
         g = self.game
         p = g.player
-        its = [i for i in p.inv if i.t.kind in ("medical",) or (i.t.kind == "tool" and i.t.tool not in ("pack", "dogtags"))]
+        its = [i for i in p.inv if i.t.kind in ("medical", "explosive") or
+               (i.t.kind == "tool" and i.t.tool not in ("pack", "dogtags"))]
         if p.weapon is not None and p.weapon.t.tool == "shovel":
             its.append(p.weapon)
         if not its:
             g.msg("You have nothing to use.", "info")
             return
-        opts = [(f"{i.name}", i, self._item_color(i), True) for i in its]
+        opts = [(f"{i.name}" + (" (place it beside you)" if i.t.kind == "explosive" else ""), i, self._item_color(i),
+                 True) for i in its]
         self.open_popup(Popup("Use", opts, self._screen_anchor()),
-                        lambda it: self.item_action(it, "self" if it.t.kind == "medical" else "use"))
+                        lambda it: self.item_action(it, {"medical": "self", "explosive": "place"}.get(it.t.kind, "use")))
 
     # ---------------------------------------------------------------- context menu (right click)
     def context_menu(self, mx, my, sx, sy):
@@ -3365,13 +3907,18 @@ class PlayState:
             from .ammo import hand_over_possible
             w = who.weapon
             if w is not None and w.t.kind == "gun" and w.t.cal and hand_over_possible(p, w):
-                opts.append((f"Give him ammunition for his {w.t.name}", "give_ammo", (200, 220, 150), True))
+                opts.append((f"Give {who.him} ammunition for {who.his} {w.t.name}", "give_ammo", (200, 220, 150), True))
             if p.medical("bandage") is not None:
-                opts.append(("Give him a field dressing", "give_dressing", None, True))
+                opts.append((f"Give {who.him} a field dressing", "give_dressing", None, True))
             if p.grenades():
-                opts.append(("Give him a grenade", "give_grenade", None, True))
+                opts.append((f"Give {who.him} a grenade", "give_grenade", None, True))
             if p.find(lambda i: i.t.tool == "cigarettes") is not None:
-                opts.append(("Offer him a cigarette", "give_smoke", None, True))
+                opts.append((f"Offer {who.him} a cigarette", "give_smoke", None, True))
+        if adj and who.side == p.side and who.active and who.role in ("adjutant", "clerk", "mp", "armourer", "cook",
+                                                                        "chaplain", "politruk", "motor_sergeant",
+                                                                        "ops_officer",
+                                                                        "port_officer", "surgeon"):
+            opts.insert(0, (f"Talk to the {who.role_name.lower()}", "talk", (220, 200, 140), True))
         if adj and who.side == p.side and who.active and who.role == "quartermaster":
             opts.insert(0, ("Trade with the quartermaster", "qm", (220, 200, 140), True))
         if adj and who.side == p.side and who.active and who.role == "intel":
@@ -3407,17 +3954,65 @@ class PlayState:
         if p.squad is not None and p.squad.player_led:
             opts.append(("Order the squad there", "order_move", None, True))
             opts.append(("Order an assault on it", "order_attack", None, True))
+        # a vehicle: getting in (or onto it), out of it, and keeping it going
+        veh = g.vehicle_at.get((mx, my))
+        if veh is not None and not veh.dead:
+            from . import maintenance as MT
+            if p.vehicle is veh:
+                opts.insert(0, ("Jump down off it" if p.ai.get("rider") else f"Get out of the {veh.vt.name}",
+                                "veh_exit", (200, 220, 150), True))
+            elif p.vehicle is None and veh.near(p.x, p.y) <= 1 and (veh.side == p.side or veh.abandoned or veh.crew == 0):
+                why = self._why_not_enter(veh)
+                inside = veh.vt.seats or p.role == "tank_crew" or veh.crew < veh.vt.crew or veh.abandoned
+                label = f"Get in the {veh.vt.name}" if inside else f"Climb onto the {veh.vt.name}'s hull and ride"
+                opts.insert(0, (label + (f" ({why})" if why else ""), "veh_enter", (200, 220, 150), why is None))
+                if veh.side == p.side:
+                    jobs = MT.repairs(veh)
+                    if jobs:
+                        opts.insert(1, (f"Help fix {MT.REPAIR_WORD[jobs[0]]}", "veh_help", (220, 200, 140), True))
+                    carrying = (p.invent.hands is not None and p.invent.hands.tid == "shell_crate") or \
+                        any(i.tid == "shell_crate" for i in p.inv)
+                    if MT.shells_short(veh) > 0 and carrying:
+                        opts.insert(1, ("Hand up the shells", "veh_shells", (220, 200, 140), True))
+                    if MT.is_supply_truck(veh):
+                        opts.insert(1, (f"Take a crate of shells ({veh.ai.get('cargo', 0)} rounds on the truck)",
+                                        "veh_crate", (220, 200, 140), p.invent.hands is None))
+        # our own men and machines: nothing on the list to shoot them with (you still can - aim with f)
+        mine = (veh is not None and not veh.dead and veh.side == p.side) or \
+            (who is not None and who is not p and who.side == p.side and who.state == "ok")
+        if mine or veh is not None:
+            opts = [o for o in opts if not (o[1] == "peek" or mine and o[1] in ("fire", "throw", "arty", "flare"))]
         self.open_popup(Popup("", opts, (sx, sy)), lambda v: self._context(v, mx, my))
 
     def _context(self, v, x, y):
         g = self.game
         if v == "fleet":
             return self._to_the_fleet()
+        if v in ("veh_enter", "veh_exit", "veh_help", "veh_shells", "veh_crate"):
+            from . import maintenance as MT
+            veh = g.vehicle_at.get((x, y)) or g.player.vehicle
+            if veh is None:
+                return
+            if v == "veh_enter":
+                return self._enter_vehicle(veh)
+            if v == "veh_exit":
+                return self._vehicle_choice(veh, ("exit", None))
+            if v == "veh_help":
+                return MT.help_with(self, veh)
+            if v == "veh_shells":
+                return MT.hand_up(self, veh)
+            return MT.take_crate(self, veh)
         if v == "chain":
             who = g.soldier_at.get((x, y))
             if who is not None:
                 from .ui import ChainState
                 self.app.push(ChainState(self.app, g, who))
+            return
+        if v == "talk":
+            who = g.soldier_at.get((x, y))
+            if who is not None:
+                from .base import talk
+                talk(self, who)
             return
         if v in ("qm", "intel"):
             who = g.soldier_at.get((x, y))
@@ -3486,6 +4081,8 @@ class PlayState:
                 ("Fire at will" + (" (now)" if roe == "free" else ""), "roe_free", (180, 200, 230), True),
                 ("Return fire only" + (" (now)" if roe == "return" else ""), "roe_return", (180, 200, 230), True),
                 ("Hold your fire" + (" (now)" if roe == "hold" else ""), "roe_hold", (180, 200, 230), True)]
+        opts.append(("Tasks... (scavenge, the wounded, prisoners, a hand for the tanks)", "tasks", (220, 200, 140),
+                     True))
         from .cmdui import command_units
         chain, others = command_units(g)
         if [x for x in chain if x is not sq] or others:
@@ -3516,17 +4113,22 @@ class PlayState:
         elif what == "retreat":
             sq.order = Order("retreat", issued=g.turn)
             text = "Fall back! Fall back!"
-        elif what in ("move", "attack"):
-            cb = self._order_move if what == "move" else self._order_attack
-            self.enter_mode("order_target", (p.x, p.y), {"cb": cb, "label": "squad"})
+        elif what == "tasks":
+            from . import tasks as TK
+            self.open_popup(Popup("Tasks for the squad", TK.menu_options(g, sq, (p.x, p.y)), self._screen_anchor(),
+                                  width=78, lines=[("Men go when there's no enemy close, and stop to fight when "
+                                                    "there is.", UI_DIM)]),
+                            lambda k: self._task(k))
             return
+        elif what in ("move", "attack"):
+            from .cmdui import choose_target
+            cb = self._order_move if what == "move" else self._order_attack
+            return choose_target(self, what, [sq], cb, (p.x, p.y), "squad")
         elif what == "command":
             return self.cmd_command()
         elif what in ("flank", "suppress"):
-            from .cmdui import _send
-            self.enter_mode("order_target", (p.x, p.y), {"cb": lambda pos: _send(self, [sq], what, pos),
-                                                         "label": what})
-            return
+            from .cmdui import _send, choose_target
+            return choose_target(self, what, [sq], lambda pos: _send(self, [sq], what, pos), (p.x, p.y), what)
         elif what == "ambush":
             g.command.issue(g, [sq], "ambush", None, say=False)
             text = "Get down. Nobody fires till I do."
@@ -3538,6 +4140,27 @@ class PlayState:
         else:
             return
         p.say(text, g.turn, voice=self._native_order(what))
+        g.msg(f"You shout: '{text}'", "shout")
+        g.emit_sound(p.x, p.y, 55, "shout", text, p.side, p)
+        self.act(50)
+
+    def _task(self, kind):
+        """A job for your own squad: they hear you, and get on with it."""
+        from . import tasks as TK
+        g = self.game
+        p = g.player
+        sq = p.squad
+        if kind == "stop":
+            TK.finish(g, sq, "stopped")
+            text = "Leave that! Back to your places!"
+        else:
+            TK.assign(g, sq, kind, by=p)
+            text = {"ammo": "Go round the dead - get their ammunition!", "medical": "Get their dressings and morphine!",
+                    "weapons": "Grab any grenades you can find!", "papers": "Search their dead - bring me any papers!",
+                    "casevac": "Get the wounded back to the aid post!",
+                    "prisoners": "Search that lot and march them back!",
+                    "repair": "Rifles down, lads - give the tankers a hand!"}[kind]
+        p.say(text, g.turn)
         g.msg(f"You shout: '{text}'", "shout")
         g.emit_sound(p.x, p.y, 55, "shout", text, p.side, p)
         self.act(50)
@@ -3592,6 +4215,10 @@ class PlayState:
         p = g.player
         if p.has_tool("radio"):
             return True
+        v = p.vehicle
+        from .vdamage import has_radio
+        if v is not None and has_radio(g, v):
+            return True                          # the vehicle's own set (most had one; early Soviet tanks mostly didn't)
         if (p.role in ("officer", "squad_leader") or p.rank >= 8) and p.squad is not None:
             for a in p.squad.members:
                 if a is not p and a.active and a.has_tool("radio") and abs(a.x - p.x) + abs(a.y - p.y) <= 3:
@@ -3602,14 +4229,29 @@ class PlayState:
         g = self.game
         p = g.player
         if not self._can_radio():
+            from .medevac import _radio_near, can_call
+            if _radio_near(g, p):
+                # not yours to call the guns on - but a wounded man can ask the radioman for the stretchers
+                ok, why = can_call(g)
+                self.open_popup(Popup("The radioman's set", [(
+                    "Ask him to call for stretcher-bearers" + (f" ({why})" if not ok else ""), "medevac",
+                    (240, 170, 170), ok)], self._screen_anchor()), self._radio)
+                return
             g.msg("You have no radio, and no radioman at your side.", "info")
             return
         opts = [("Fire mission (HE)", "he", None, True), ("Smoke screen", "smoke", None, True)]
         if (p.role == "officer" or p.rank >= 12) and g.support.air_level.get(p.side, 0) > 0.3:
             opts.append(("Request air support", "air", None, True))
+        if p.vehicle is not None or p.role in ("tank_crew", "officer") or p.rank >= 8:
+            cd = g.__dict__.get("_truck_call", -9999)
+            opts.append(("Request an ammunition truck (and fitters)", "truck", None, g.turn - cd > 1200))
+        from .medevac import can_call
+        ok, why = can_call(g)
+        opts.append(("Request medical evacuation - stretcher-bearers" + (f" ({why})" if not ok else ""), "medevac",
+                     (240, 170, 170), ok))
         opts.append(("Ask for a situation report", "sitrep", None, True))
         self.open_popup(Popup("Radio", opts, self._screen_anchor(),
-                              lines=[(f"Guns available: {'yes' if g.support.missions[p.side] >= 1 else 'no'}", UI_DIM)]),
+                              lines=[(g.support.fires.summary(g, p.side), UI_DIM)]),
                         self._radio)
 
     def _radio(self, what):
@@ -3621,6 +4263,19 @@ class PlayState:
             self.enter_mode("radio_target", (p.x, p.y), {"cb": self._smoke_mission})
         elif what == "air":
             self.enter_mode("radio_target", (p.x, p.y), {"cb": self._air_mission})
+        elif what == "truck":
+            from .maintenance import call_truck
+            near = (p.vehicle.x, p.vehicle.y) if p.vehicle is not None else (p.x, p.y)
+            g.msg(f"You: 'Request ammunition and fitters at grid {near[0]:03d}{near[1]:03d}, over.'", "radio")
+            r = call_truck(g, p.side, target=near, why="asked")
+            if r and r.startswith("An ammunition"):
+                g.__dict__["_truck_call"] = g.turn
+            elif r:
+                g.msg(f"Radio: '{r}'", "radio")
+            self.act(200)
+        elif what == "medevac":
+            from .medevac import call
+            call(self)
         elif what == "sitrep":
             st = g.strategic.overview()
             mine = st["allies" if p.side == "allies" else "axis"]
@@ -3647,14 +4302,10 @@ class PlayState:
     def _smoke_mission(self, pos):
         g = self.game
         p = g.player
-        if g.support.missions[p.side] < 1:
-            g.msg("Radio: 'Negative, no guns available.'", "radio")
-            return
-        g.support.missions[p.side] -= 1
         x, y = pos
-        for i in range(6):
-            g.smoke_sources.append([x + g.rng.randint(-4, 4), y + g.rng.randint(-4, 4), 60, 3.0])
-        g.msg("Radio: 'Smoke on the way.'", "radio")
+        g.msg(f"You: 'Fire mission, over. Grid {x:03d}{y:03d}. Smoke - I say again, smoke.'", "radio")
+        if g.support.request_fire(p.side, x, y, caller=p, smoke=True):
+            g.msg("Radio: 'Smoke on the way.'", "radio")
         self.act(300)
 
     def _air_mission(self, pos):
@@ -3662,5 +4313,4 @@ class PlayState:
         p = g.player
         g.msg("You: 'Request air on the marked position, over.' Radio: 'Wilco. Mark with smoke.'", "radio")
         g.support.launch_sortie(p.side, target=pos)
-        g.support.air_level[p.side] = max(0.0, g.support.air_level[p.side] - 0.1)
         self.act(300)

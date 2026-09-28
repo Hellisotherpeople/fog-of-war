@@ -121,11 +121,15 @@ def _wanted(d, condition):
     if condition == "GQ":
         return [s for s in d.slots if s["gq"] and not s.get("player")]
     out = [s for s in d.slots if s["watch"] and not s.get("player")]
+    if condition == "port":
+        # harbour routine: a lighter watch, and a third of the ship ashore on liberty
+        out = out[::2]
     k = 0
     for s in d.slots:
         if s["kind"] in ("berth", "mess") and not s.get("player"):
             k += 1
-            if s["kind"] == "berth" and k % 2 == 0 or s["kind"] == "mess" and k % 4 == 0:
+            if s["kind"] == "berth" and k % (2 if condition != "port" else 3) == 0 or \
+                    s["kind"] == "mess" and k % 4 == 0:
                 out.append(s)
     return out
 
@@ -254,15 +258,26 @@ def tick(game, ship):
 
 
 def _homeward(game):
-    """The job's done (or has failed): she turns for port, and some hours later makes it."""
+    """Between jobs (fow/naval.py): when one ends, the signal for the next - more work, or back to base to
+    refuel, rearm and repair; at the base, the refit and then her sailing orders."""
+    from . import naval as NV
     ss = game.skysea
     m = ss.mission or {}
-    if m.get("stage") in ("done", "failed"):
-        if m.get("port_at") is None:
-            m["port_at"] = game.turn + game.rng.randint(3, 8) * 3600
-            game.msg("The ship turns for home. (Z to let the hours go by)", "radio")
-        elif game.turn >= m["port_at"] and not ss.over:
-            ss.over = "port"
+    ship = _ship(game)
+    if ship is None or not ship.alive:
+        return
+    ab = game.aboard
+    if m.get("stage") in ("done", "failed") and not m.get("decided"):
+        m["decided"] = True
+        NV.after_action(game, ss, ship)
+        return
+    if m.get("kind") == "rtb" and m.get("stage") == "arrived" and ab.get("condition") != "port":
+        if ab.get("condition") == "GQ":
+            return                                   # not while there are aircraft about
+        NV.enter_port(game, ship)
+        return
+    if ab.get("refit"):
+        NV.port_tick(game, ship)
 
 
 def _enemy_near(game, ship):
@@ -306,9 +321,12 @@ def general_quarters(game, ship):
 
 def secure(game, ship):
     ab = game.aboard
-    ab["condition"] = "III"
-    game.msg("'Secure from general quarters. Set condition three.' The off-watch sections go below.", "info")
-    _transition(game, ship, "III")
+    back = ab.get("base_condition", "III")
+    ab["condition"] = back
+    game.msg("'Secure from general quarters. " + ("Set the in-port watch.'" if back == "port" else
+                                                  "Set condition three.'") + " The off-watch sections go below.",
+             "info")
+    _transition(game, ship, back)
     game.update_orders(force=True)
 
 
@@ -372,20 +390,25 @@ def _moving_men(game):
     if arr and d.ladders and ship is not None:
         batch = arr[:2]
         ab["arrivals"] = arr[2:]
-        d.slots_backup = None
-        tmp = list(d.slots)
-        d.slots = batch
-        for s in batch:
-            s.setdefault("gq", True)
-            s.setdefault("watch", True)
-        populate(game, ship, d, "GQ" if ab["condition"] == "GQ" else "III", arrive=True)
-        d.slots = tmp
+        place_arrivals(game, ship, d, batch, arrive=True)
     for a in list(game.actors):
         lv = a.ai.get("leaving")
         if lv and max(abs(a.x - lv[0]), abs(a.y - lv[1])) <= 1:
             game.remove_actor(a)
             if a.squad is not None and a in a.squad.members:
                 a.squad.members.remove(a)
+
+
+def place_arrivals(game, ship, d, slots, arrive=True):
+    """Put men at these slots on the current deck (coming down the ladders if `arrive`).  The slots were
+    already chosen for the condition (see _transition), so they're filled as they are - not filtered again."""
+    d.slots_backup = None
+    tmp = d.slots
+    d.slots = [dict(s, gq=True, watch=True) for s in slots]
+    try:
+        populate(game, ship, d, "GQ", arrive=arrive)
+    finally:
+        d.slots = tmp
 
 
 def _loaders(game):
@@ -535,7 +558,7 @@ def _tasks(game, ship):
     bs = ab["battle_station"]
     if ab["condition"] == "GQ" and not at(game, bs, 2):
         return _give(game, "station", target=bs)
-    if ab["condition"] == "III" and on_watch(game) and not at(game, ab["watch_station"], 3) and \
+    if ab["condition"] in ("III", "port") and on_watch(game) and not at(game, ab["watch_station"], 3) and \
             game.turn - ab.get("watch_nag", -9999) > 300:
         ab["watch_nag"] = game.turn
         return _give(game, "watch", target=ab["watch_station"])
@@ -604,7 +627,7 @@ def _check(game, ship, t):
             game.command.merit += reward
             game.duty.rep += reward / 2
         if k in ("ammo", "fire", "shore", "casevac", "overboard"):
-            game.msg({"ammo": "The mount's firing again. 'Good man.'", "fire": "The fire's out. Steam and "
+            game.msg({"ammo": "The mount's firing again. 'That's the way.'", "fire": "The fire's out. Steam and "
                       "black water everywhere.", "shore": "The shoring holds. The pumps start to gain.",
                       "casevac": "The corpsmen take him.", "overboard": "They haul him in, blue and choking."}[k],
                      "good")
@@ -750,6 +773,7 @@ def fast_step(game, secs=30):
     before = set(ss.contacts)
     watch0 = on_watch(game)
     cond0 = ab["condition"]
+    mis0 = (id(ss.mission), (ss.mission or {}).get("stage"))
     hit0 = ab.get("last_hit")
     if cond0 == "GQ":
         secs = min(secs, 10)                     # standing by at general quarters: shorter steps
@@ -792,6 +816,8 @@ def fast_step(game, secs=30):
                  ".", "radio")
     del before
     _homeward(game)
+    if (id(ss.mission), (ss.mission or {}).get("stage")) != mis0 or ab.pop("ff_stop", None):
+        return True                              # new orders, the anchorage, the sailing signal
     if on_watch(game) and not watch0:
         return True                              # your watch: go and stand it
     return bool(fresh) or ab["condition"] != cond0 or ab.get("last_hit") != hit0 or ss.over or \
@@ -880,7 +906,7 @@ def plan(ps):
     if t is None:
         if ab["condition"] == "GQ" and not at(g, ab["battle_station"], 2):
             return ("go to your battle station", lambda: route(ps, ab["battle_station"]))
-        if on_watch(g) and ab["condition"] == "III" and not at(g, ab["watch_station"], 3):
+        if on_watch(g) and ab["condition"] in ("III", "port") and not at(g, ab["watch_station"], 3):
             return ("go to your watch station", lambda: route(ps, ab["watch_station"]))
         return None
     k = t["kind"]

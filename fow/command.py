@@ -258,7 +258,7 @@ def vehicle_has_radio(game, v) -> bool:
                  "france": 0.25, "china": 0.2}.get(n, 0.6)
             r = game.rng.random() < p
         v.ai["radio"] = r
-    return r
+    return r and v.parts.get("radio", 2) > 0          # fitted - and not shot to pieces (vdamage.py)
 
 
 def has_radio(a) -> bool:
@@ -967,7 +967,7 @@ class CommandState:
             if ch is None:
                 fails.append((sq, "no way to reach them"))
                 continue
-            if kind in ("roe", "release", "report", "attach"):
+            if kind in ("roe", "release", "report", "attach") or kind.startswith("task_"):
                 order = None
             elif kind in ("hold", "dig") and target is None:
                 order = self.make_order(game, kind, contact_point(sq), sq)
@@ -1179,6 +1179,12 @@ class CommandState:
             return True
         elif kind == "attach":
             self.attached.add(sq.id)
+        elif kind.startswith("task_"):
+            from .tasks import assign, finish
+            if kind == "task_stop":
+                finish(game, sq, "stopped")
+            else:
+                assign(game, sq, kind[5:], by=p)
         else:
             o = job["order"]
             if o is None:
@@ -1639,4 +1645,8 @@ ORDER_TEXT = {"move": "move up", "attack": "take that position", "assault": "ass
               "retreat": "fall back", "regroup": "close up on your leader", "come": "on me, to my position",
               "mount": "mount up", "dismount": "dismount", "roe": "change of fire orders",
               "report": "report your status", "release": "carry on, use your own judgement",
-              "attach": "you're under my command", "resupply": "go back and draw ammunition"}
+              "attach": "you're under my command", "resupply": "go back and draw ammunition",
+              "task_ammo": "scrounge ammunition off the dead", "task_medical": "find dressings and medical kit",
+              "task_weapons": "pick up grenades and any weapons", "task_papers": "search the enemy dead for papers",
+              "task_casevac": "get the wounded back", "task_prisoners": "take the prisoners back",
+              "task_repair": "give the tankers a hand", "task_stop": "leave that, back to your places"}

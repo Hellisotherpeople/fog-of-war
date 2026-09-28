@@ -795,8 +795,20 @@ def draw_panel(con, game):
         v = p.vehicle
         con.print(x, y, v.vt.name[:wdt], fg=UI_HI, bg=UI_BG)
         y += 1
-        con.print(x, y, v.status_text()[:wdt], fg=UI_TEXT, bg=UI_BG)
-        y += 1
+        from .vdamage import damage_list, hatch_user
+        dmg = damage_list(v)
+        if v.burning:
+            dmg.insert(0, "ON FIRE")
+        if not dmg:
+            con.print(x, y, "no damage"[:wdt], fg=UI_DIM, bg=UI_BG)
+            y += 1
+        for line in dmg[:5]:
+            con.print(x, y, line[:wdt], fg=(240, 90, 60) if line == "ON FIRE" or "immobilised" in line or
+                      "out" in line or "dead" in line or "jammed" in line else (230, 170, 110), bg=UI_BG)
+            y += 1
+        if hatch_user(v) is not None:
+            con.print(x, y, ("buttoned up" if v.buttoned else "commander's hatch open")[:wdt], fg=UI_DIM, bg=UI_BG)
+            y += 1
         if v.mount:
             ready = "loaded" if v.reload <= 0 else "loading..."
             con.print(x, y, f"{v.mount.name[:wdt]}", fg=UI_TEXT, bg=UI_BG)
@@ -879,6 +891,11 @@ def draw_panel(con, game):
     if hint:
         for line in textwrap.wrap(hint, wdt)[:2]:
             con.print(x, y, line, fg=(150, 200, 140), bg=UI_BG)
+            y += 1
+    ctx = game.__dict__.get("_ctx_hint")
+    if ctx:
+        for line in textwrap.wrap(ctx, wdt)[:3]:
+            con.print(x, y, line, fg=(140, 180, 210), bg=UI_BG)
             y += 1
     ptr = game.order_pointer()
     if ptr is not None:
@@ -1136,6 +1153,8 @@ def draw_line(con, game, cam, x0, y0, x1, y1, color_fn=None):
         if not cam.on_screen(x, y):
             continue
         sx, sy = cam.to_screen(x, y)
+        if not (0 <= sx < con.width and 0 <= sy < con.height):
+            continue
         if m.in_bounds(x, y) and not m.see[x, y]:
             blocked = True
         col = (220, 60, 60) if blocked else ((230, 230, 120) if i < len(pts) - 1 else (255, 255, 255))
@@ -1152,6 +1171,8 @@ def draw_line(con, game, cam, x0, y0, x1, y1, color_fn=None):
 def draw_cursor(con, cam, x, y, color=(255, 255, 255)):
     if cam.on_screen(x, y):
         sx, sy = cam.to_screen(x, y)
+        if not (0 <= sx < con.width and 0 <= sy < con.height):
+            return
         con.rgb["bg"][sx, sy] = (120, 100, 40)
         con.rgb["fg"][sx, sy] = color
 

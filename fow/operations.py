@@ -195,6 +195,11 @@ class Operations:
         r = strength(self.reserve, game.player_nation)
         for k in t:
             t[k] += r[k]
+        # reserves on the road to the front are still ours (not casualties)
+        for _due, _k, u in getattr(self, "arriving", []):
+            a = strength(u, game.player_nation)
+            for k in t:
+                t[k] += a[k]
         return t
 
     # ------------------------------------------------------------ orders

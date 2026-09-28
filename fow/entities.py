@@ -463,9 +463,8 @@ class Vehicle:
         self.base_facing = facing       # an emplaced gun's carriage doesn't turn with the barrel
         self.turret = facing
         self.hp = vt.hp
-        self.engine = True
-        self.tracks = True
-        self.gun_ok = vt.main is not None
+        from .vdamage import parts_for
+        self.parts = parts_for(vt)      # tracks, engine, gun, turret ring, sights... (vdamage.py)
         self.crew = vt.crew
         self.passengers: list[Actor] = []
         self.ap = vt.ap
@@ -497,6 +496,43 @@ class Vehicle:
     @property
     def pos(self):
         return (self.x, self.y)
+
+    # ------------------------------------------------------------ its parts (see vdamage.py)
+    @property
+    def engine(self) -> bool:
+        return self.parts.get("engine", 2) > 0
+
+    @engine.setter
+    def engine(self, ok):
+        if "engine" in self.parts:
+            self.parts["engine"] = 2 if ok else 0
+
+    @property
+    def tracks(self) -> bool:
+        return self.parts.get("tracks", 2) > 0 and self.parts.get("transmission", 2) > 0
+
+    @tracks.setter
+    def tracks(self, ok):
+        if "tracks" in self.parts:
+            self.parts["tracks"] = 2 if ok else 0
+
+    @property
+    def gun_ok(self) -> bool:
+        return self.parts.get("gun", 0) > 0
+
+    @gun_ok.setter
+    def gun_ok(self, ok):
+        if "gun" in self.parts:
+            self.parts["gun"] = 2 if ok else 0
+
+    def __setstate__(self, st):
+        # saves from before vehicles had parts: engine / tracks / gun_ok were plain flags
+        eng, trk, gun = st.pop("engine", True), st.pop("tracks", True), st.pop("gun_ok", True)
+        self.__dict__.update(st)
+        if "parts" not in st:
+            from .vdamage import parts_for
+            self.parts = parts_for(self.vt)
+            self.engine, self.tracks, self.gun_ok = eng, trk, gun
 
     # ------------------------------------------------------------ the ground it covers
     @property
@@ -555,7 +591,8 @@ class Vehicle:
         mult = tile_vcost / 100.0
         if vt.vtype in ("car", "truck", "armcar") and tile_vcost > 100:
             mult *= 1.4
-        return max(20, int(base * mult))
+        from .vdamage import move_mult
+        return max(20, int(base * mult * move_mult(self)))
 
     def describe_short(self) -> str:
         return f"{NATIONS[self.nation]['adj']} {self.name}"
@@ -568,12 +605,8 @@ class Vehicle:
         bits = []
         if self.burning:
             bits.append("burning")
-        if not self.engine:
-            bits.append("engine dead")
-        if not self.tracks:
-            bits.append("immobilised")
-        if self.vt.main and not self.gun_ok:
-            bits.append("gun out")
+        from .vdamage import damage_list
+        bits += damage_list(self)
         r = self.hp / self.vt.hp
         if r < 0.35:
             bits.append("badly damaged")

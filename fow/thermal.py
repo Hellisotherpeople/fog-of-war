@@ -92,13 +92,15 @@ def update(game, a, dt=30):
         b.frost = min(100.0, b.frost + (0.4 + b.wet / 100) * dt / 30)
         if b.frost > 60 and game.rng.random() < 0.02:
             part = game.rng.choice(("l_arm", "r_arm", "l_leg", "r_leg"))
-            b.hp[part] = max(1, b.hp[part] - 1)
+            if b.hp[part] > 1:
+                b.hp[part] -= 1                  # (a limb already lost can't be frostbitten back to life)
     else:
         b.frost = max(0.0, b.frost - 0.1 * dt / 30)
     events = []
     if b.temp < 30.0:
         b.dead = True
         b.cause = "the cold"
+        game.kill(a, None)                       # a body in the snow, not a man frozen standing
     elif b.temp < 32.0 and game.rng.random() < 0.05:
         b.unconscious = max(b.unconscious, 60)
         events.append("collapse_cold")

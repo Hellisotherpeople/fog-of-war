@@ -410,6 +410,11 @@ T("deck_below", "the deck below", ".", (95, 97, 104), (35, 37, 42), walk=False, 
   desc="The deck, below you.")
 T("fire_curtain", "fire curtain", "▦", (170, 90, 70), (60, 44, 40), cost=150, door=0,
   desc="A steel roller curtain dividing the hangar - rolled up.")
+# (new tiles go on the end: saved maps store tile numbers)
+T("pier", "wooden pier", "═", (175, 150, 110), (74, 58, 40), cost=100, hp=500, armor=60, into="deep", vcost=80,
+  sound=3, flam=30, burnt="deep", desc="Planks on pilings, tarred black, smelling of fuel oil and fish.")
+T("bollard", "bollard", "o", (60, 60, 64), (74, 74, 72), walk=False, see=True, cover=30, hp=0, armor=300,
+  desc="An iron bollard for the mooring lines.")
 
 EXPLODE = {}   # tile id -> (power, radius, fire)
 
@@ -418,6 +423,10 @@ NUM = len(DEFS)
 # ------------------------------------------------------------------ lookup arrays
 WALK = np.array([d.walk for d in DEFS], bool)
 SEE = np.array([d.see for d in DEFS], bool)
+# what a man sitting high - a tank commander, the periscopes, a man riding on the hull or standing in a
+# half-track - sees over that a man on the ground doesn't: crops, undergrowth, garden hedges, hay, crates
+LOW_SCREEN = ("corn", "sunflower", "bush", "bush_snow", "garden_hedge", "hay", "crates", "ammo_stack")
+SEE_HIGH = SEE | np.array([d.key in LOW_SCREEN for d in DEFS], bool)
 COST = np.array([d.cost for d in DEFS], np.int32)
 COVER = np.array([d.cover for d in DEFS], np.int16)
 TALL = np.array([d.tall for d in DEFS], bool)

@@ -103,11 +103,9 @@ def adrift(g, ss):
     for h in range(1, 121):
         g.advance_clock(3600)
         if friends and rng.random() < 0.18:
-            coast = _nearest_coast(g, x, y, side)
-            g.msg(f"After {h} hours a destroyer's whaler finds you. They put you ashore at "
-                  f"{coast.name if coast else 'the beachhead'}.", "good")
-            if coast is not None:
-                to_land(g, coast)
+            coast = _nearest_coast(g, x, y, side) or _nearest_coast(g, x, y, None) or g.sector
+            g.msg(f"After {h} hours a destroyer's whaler finds you. They put you ashore at {coast.name}.", "good")
+            to_land(g, coast)
             return
         if enemies and rng.random() < 0.06:
             g.msg(f"After {h} hours an enemy ship stops alongside. Rough hands haul you aboard.", "warn")

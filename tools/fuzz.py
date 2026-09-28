@@ -18,6 +18,7 @@ import traceback
 
 os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
+os.environ.setdefault("FOW_HOME", tempfile.mkdtemp(prefix="fow_home_"))   # never the player's saves or memorial
 os.environ["FOW_DEBUG"] = "1"
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import fow.settings as FS  # noqa: E402
@@ -32,7 +33,18 @@ import tcod.event as E  # noqa: E402
 
 ROLE_POOL = None
 
+def draw(app, ps):
+    """Render a frame the way the real window does (sprite layers or ASCII, then the compositor)."""
+    app.console.clear()
+    ps.render(app.console)
+    if app.gfx is not None:
+        app.gfx.present(app.console, getattr(ps, "layers", None), getattr(ps, "overlay", None),
+                        getattr(ps, "map_offset", None))
+
+
 def run(th, nat, seed, steps, app, verbose=False):
+    if app.gfx is not None:
+        app.gfx.enable_sprites(seed % 2 == 0)             # half the games in sprites, half in ASCII (as F2 does)
     role = random.Random(seed * 3 + len(th)).choice(ROLE_POOL) if ROLE_POOL else None
     g = Game(th, nat, role=role, seed=seed)
     ps = PlayState(app, g)
@@ -69,7 +81,7 @@ def run(th, nat, seed, steps, app, verbose=False):
                 ps.on_click(x, y, rng.choice((1, 1, 3)))
                 ps.on_release(x + rng.randint(-5, 5), y + rng.randint(-3, 3), 1)
             if step % 10 == 0:
-                app.console.clear(); ps.render(app.console)
+                draw(app, ps)
             continue
         if ps.popups:
             pop = ps.popups[-1]
@@ -146,10 +158,22 @@ def run(th, nat, seed, steps, app, verbose=False):
             key(c=rng.choice('CCO'))
         elif r < 0.95:
             key(c=rng.choice('qqBY+-'))
+        elif r < 0.965:
+            key(sym=E.KeySym.RETURN)                   # carry out your orders
+        elif r < 0.98 and g.map is not None:
+            # right-click the nearest vehicle, or someone nearby: the context menus
+            p = g.player
+            near = [(v.x, v.y) for v in g.vehicles if not v.dead and abs(v.x - p.x) + abs(v.y - p.y) < 12] + \
+                [(a.x, a.y) for a in g.actors if a.alive and a is not p and abs(a.x - p.x) + abs(a.y - p.y) < 4]
+            if near:
+                x, y = rng.choice(near)
+                ps.context_menu(x, y, 10, 10)
+        elif r < 0.985:
+            key(c='V')
         else:
             key(c='.')
         if step % 25 == 0:
-            app.console.clear(); ps.render(app.console)
+            draw(app, ps)
     dt = time.perf_counter() - t0
     p = g.player
     return dict(th=th, nat=nat, seed=seed, rank=p.rank_short, orders=g.command.battle.get('orders'), turns=g.turn, over=g.game_over, death=(g.death_text or '')[:110], secs=round(dt,1), role=p.role, kills=g.stats['kills'], sectors=len(g.sector_log))
@@ -158,6 +182,15 @@ if len(sys.argv) > 5 and sys.argv[5] == 'cmd':
     ROLE_POOL = ['officer', 'squad_leader', 'company_commander', 'battalion_commander', 'regiment_commander',
                  'brigade_commander', 'division_commander', 'corps_commander', 'army_commander', 'army_group_commander']
 app = App()
+# a real (headless) renderer, so drawing bugs show up too
+try:
+    import tcod
+    from fow.gfx import Graphics
+    _ctx = tcod.context.new(width=1440, height=900, tileset=app.tileset)
+    app.context = _ctx
+    app.gfx = Graphics(_ctx, app.settings)
+except Exception as ex:
+    print("(no renderer:", ex, ")")
 ths = sys.argv[1].split(',') if len(sys.argv) > 1 and sys.argv[1] != 'all' else list(THEATRES)
 seeds = int(sys.argv[2]) if len(sys.argv) > 2 else 1
 steps = int(sys.argv[3]) if len(sys.argv) > 3 else 300

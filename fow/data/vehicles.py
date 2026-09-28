@@ -87,7 +87,7 @@ mount("122mm_d25", "122mm D-25T", 122, 160, 380, rng=110, reload_cost=900)
 mount("152mm_ml20", "152mm ML-20S", 152, 130, 500, rng=100, reload_cost=1000)
 mount("152mm_m10", "152mm M-10T", 152, 90, 500, rng=90, reload_cost=1000)
 mount("70mm_type92", "Type 92 battalion gun", 70, 25, 150, rng=80, reload_cost=350)
-mount("crocodile", "Crocodile flame projector", 0, 0, 0, rng=14, reload_cost=100, flame=True)
+mount("crocodile", "Crocodile flame projector", 0, 0, 0, rng=36, reload_cost=100, flame=True)
 mount("flame_hull", "flame projector", 0, 0, 0, rng=10, reload_cost=100, flame=True)
 mount("25mm_hotchkiss", "25mm Hotchkiss", 25, 40, 25, rng=80, reload_cost=180, he_radius=1)
 mount("20mm_tks", "20mm FK wz. 38", 20, 30, 20, rng=70, reload_cost=100, he_radius=1)
@@ -456,6 +456,39 @@ veh("type91_gun", "Type 91 105mm howitzer", "fieldgun", ["japan"], (1931, 1950),
     speed=900, crew=6, main="type91_how", ap=4, he=60, turret=False, freq=0)
 veh("wz14_gun", "100mm wz. 14/19 howitzer", "fieldgun", ["poland"], (1919, 1941), (6, 0, 0, 0),
     speed=900, crew=6, main="wz14_how", ap=4, he=60, turret=False, freq=0)
+# the medium guns and the rocket launchers of the batteries (fires.py puts each battery's own pieces down)
+mount("155mm_m1", "155mm M1 howitzer", 155, 60, 400, rng=95, reload_cost=900)
+mount("sfh18", "15 cm sFH 18", 150, 60, 410, rng=95, reload_cost=900)
+mount("ml20", "152mm ML-20 gun-howitzer", 152, 70, 420, rng=100, reload_cost=950)
+mount("55in", "BL 5.5-inch medium gun", 140, 60, 340, rng=100, reload_cost=800)
+mount("zis3_div", "76mm ZiS-3 divisional gun", 76, 70, 160, rng=95, reload_cost=350)
+mount("type38_75", "Type 38 75mm field gun", 75, 40, 150, rng=85, reload_cost=380)
+mount("it_100_17", "Obice da 100/17", 100, 35, 220, rng=85, reload_cost=480)
+mount("fr_155gpf", "Canon de 155 GPF", 155, 60, 380, rng=100, reload_cost=950)
+mount("bm13", "BM-13 rocket rails", 132, 20, 210, rng=100, reload_cost=3000)
+mount("nbw41", "15 cm Nebelwerfer 41", 150, 20, 280, rng=90, reload_cost=2400)
+veh("m1_155", "155mm M1 howitzer", "fieldgun", ["usa"], (1942, 1950), (6, 0, 0, 0), speed=1200, crew=11,
+    main="155mm_m1", ap=2, he=40, turret=False, freq=0)
+veh("sfh18_gun", "15 cm sFH 18", "fieldgun", ["germany"], (1935, 1950), (6, 0, 0, 0), speed=1200, crew=7,
+    main="sfh18", ap=2, he=40, turret=False, freq=0)
+veh("ml20_gun", "152mm ML-20 gun-howitzer", "fieldgun", ["ussr"], (1939, 1950), (6, 0, 0, 0), speed=1200,
+    crew=9, main="ml20", ap=2, he=40, turret=False, freq=0)
+veh("55in_gun", "BL 5.5-inch medium gun", "fieldgun", ["uk", "canada", "newzealand", "poland"], (1942, 1950),
+    (6, 0, 0, 0), speed=1200, crew=10, main="55in", ap=2, he=40, turret=False, freq=0)
+veh("zis3_div_gun", "76mm ZiS-3 divisional gun", "fieldgun", ["ussr", "poland"], (1939, 1950), (6, 0, 0, 0),
+    speed=700, crew=6, main="zis3_div", ap=10, he=60, turret=False, freq=0)
+veh("type38_gun", "Type 38 75mm field gun", "fieldgun", ["japan"], (1905, 1950), (6, 0, 0, 0), speed=700,
+    crew=6, main="type38_75", ap=6, he=60, turret=False, freq=0)
+veh("it100_gun", "Obice da 100/17", "fieldgun", ["italy"], (1914, 1950), (6, 0, 0, 0), speed=900, crew=6,
+    main="it_100_17", ap=2, he=50, turret=False, freq=0)
+veh("gpf155_gun", "Canon de 155 GPF", "fieldgun", ["france"], (1917, 1950), (6, 0, 0, 0), speed=1300, crew=8,
+    main="fr_155gpf", ap=2, he=40, turret=False, freq=0)
+veh("katyusha", "BM-13 Katyusha", "truck", ["ussr", "poland"], (1941.6, 1950), (4, 0, 0, 0), speed=45, crush=1,
+    crew=5, main="bm13", ap=0, he=16, turret=False, freq=0,
+    desc="Sixteen 132mm rockets on rails on the back of a lorry. 'Stalin's organ.'")
+veh("nebelwerfer", "15 cm Nebelwerfer 41", "fieldgun", ["germany"], (1941, 1950), (4, 0, 0, 0), speed=900,
+    crew=4, main="nbw41", ap=0, he=12, turret=False, freq=0, desc="Six rocket tubes on a wheeled carriage.")
+
 veh("ambulance", "field ambulance", "truck", ["usa", "uk", "ussr", "germany", "italy", "japan",
     "france", "poland", "china", "finland", "hungary", "romania", "canada", "australia",
     "newzealand", "india"], (1930, 1950), (0, 0, 0, 0), speed=45, crush=1, crew=1, seats=6,

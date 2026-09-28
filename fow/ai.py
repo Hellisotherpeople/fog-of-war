@@ -141,15 +141,24 @@ class Squad:
 
 # ====================================================================== movement helpers
 
-def crowd_penalty(game, a, x, y) -> float:
+def crowd_penalty(game, a, x, y, mates=None) -> float:
     """Discourage bunching up: one buddy is fine, a clump draws fire."""
-    n = 0
-    for dx in (-1, 0, 1):
-        for dy in (-1, 0, 1):
-            o = game.soldier_at.get((x + dx, y + dy))
-            if o is not None and o is not a and o.side == a.side:
-                n += 1
+    if mates is None:
+        mates = _mates_near(game, a)
+    n = sum(1 for mx, my in mates if abs(mx - x) <= 1 and abs(my - y) <= 1)
     return max(0, n - 1) * 1.2
+
+
+def _mates_near(game, a):
+    """Friends within two tiles (every step a man considers is within one of him)."""
+    sa = game.soldier_at
+    out = []
+    for dx in (-2, -1, 0, 1, 2):
+        for dy in (-2, -1, 0, 1, 2):
+            o = sa.get((a.x + dx, a.y + dy))
+            if o is not None and o is not a and o.side == a.side:
+                out.append((o.x, o.y))
+    return out
 
 
 def best_step(game, a, maps, exposure_w=0.0, cohesion=None, spread=4, stay_bias=0.0,
@@ -161,55 +170,66 @@ def best_step(game, a, maps, exposure_w=0.0, cohesion=None, spread=4, stay_bias=
     rng = game.rng
     best = None
     best_score = None
+    mates = _mates_near(game, a) if crowd else None
+    # (this runs for every man who moves, every second: locals, and .item() for single cells)
+    mt, fire, mines = m.t, m.fire, m.mines
+    walk_t, door_t, water_t = T.WALK, T.DOOR, T.WATER
+    sa, va = game.soldier_at, game.vehicle_at
+    w_, h_ = m.w, m.h
+    side = a.side
+    half = BIG // 2
+    live = [(mp, w) for mp, w in maps if mp is not None and w != 0]
+    kr = keep_range if keep_range is not None and keep_range[0] is not None else None
+    ax, ay = a.x, a.y
     for dx in (-1, 0, 1):
+        x = ax + dx
+        if x < 0 or x >= w_:
+            continue
         for dy in (-1, 0, 1):
-            x, y = a.x + dx, a.y + dy
-            if not m.in_bounds(x, y):
+            y = ay + dy
+            if y < 0 or y >= h_:
                 continue
             stay = dx == 0 and dy == 0
+            s = 0.0
             if not stay:
-                tid = m.t[x, y]
-                if not (T.WALK[tid] or T.DOOR[tid]):
+                tid = mt.item(x, y)
+                if not (walk_t[tid] or door_t[tid]):
                     continue
-                if (x, y) in game.vehicle_at:
+                if (x, y) in va:
                     continue
-                o = game.soldier_at.get((x, y))
-                if o is not None and (o.side != a.side or o.is_player or o.downed):
-                    continue
-            s = 2 * UNIT if (not stay and game.soldier_at.get((x, y)) is not None) else 0.0
+                o = sa.get((x, y))
+                if o is not None:
+                    if o.side != side or o.is_player or o.downed:
+                        continue
+                    s = 2 * UNIT
             ok = True
-            for mp, w in maps:
-                if mp is None or w == 0:
-                    continue
-                v = int(mp[x, y])
-                if v >= BIG // 2:
+            for mp, w in live:
+                v = mp.item(x, y)
+                if v >= half:
                     ok = False
                     break
                 s += w * v
             if not ok:
                 continue
-            if keep_range is not None:
-                mp, r, w = keep_range
-                if mp is not None:
-                    v = int(mp[x, y])
-                    if v < BIG // 2:
-                        s += w * abs(v - r * UNIT)
+            if kr is not None:
+                v = kr[0].item(x, y)
+                if v < half:
+                    s += kr[2] * abs(v - kr[1] * UNIT)
             if exp is not None:
-                s += exposure_w * float(exp[x, y]) * UNIT
+                s += exposure_w * exp.item(x, y) * UNIT
             if cohesion is not None:
-                cx, cy = cohesion
-                d = max(abs(x - cx), abs(y - cy))
+                d = max(abs(x - cohesion[0]), abs(y - cohesion[1]))
                 if d > spread:
                     s += (d - spread) * UNIT * 1.5
-            if crowd:
-                s += crowd_penalty(game, a, x, y)
-            if avoid_fire and m.fire[x, y] > 0:
+            if mates:
+                s += crowd_penalty(game, a, x, y, mates)
+            if avoid_fire and fire.item(x, y) > 0:
                 s += 60
             if not stay:
-                mn = m.mines.get((x, y))
-                if mn is not None and a.side in mn.known:
+                mn = mines.get((x, y))
+                if mn is not None and side in mn.known:
                     s += 200
-                if T.WATER[m.t[x, y]] >= 2:
+                if water_t[tid] >= 2:
                     s += 40
                 # moving costs a little so units don't jitter
                 s += 0.4
@@ -330,11 +350,29 @@ def safe_fire(game, a, tx, ty, target=None, area=False):
 
 # ====================================================================== targeting
 
+def respects_red_cross(shooter, e) -> bool:
+    """An unarmed medic wearing the armband: most armies held their fire.  The Japanese didn't, and
+    on the Eastern Front neither side did."""
+    if e.role not in ("medic", "surgeon") or not e.has_tool("brassard"):
+        return False
+    w = e.weapon
+    if w is not None and w.t.kind == "gun":
+        return False                              # a medic with a rifle in his hands is a rifleman
+    if shooter.nation == "japan":
+        return False
+    east = {shooter.nation, e.nation}
+    if "ussr" in east and east & {"germany", "finland", "hungary", "romania", "italy"}:
+        return False
+    return True
+
+
 def threat_value(e, shooter) -> float:
     if getattr(e, "vt", None) is not None:
         return 5.0
     if e.state != "ok":
         return 0.0
+    if respects_red_cross(shooter, e):
+        return 0.05                               # not a target - though bullets don't read armbands
     if e.downed:
         return 0.15
     k = contact_kind(e)
@@ -386,6 +424,8 @@ def choose_target(game, a, vis):
                 # don't waste rockets on single riflemen unless close or in a building
                 if d > 12 and not T.FLOOR[game.map.t[e.x, e.y]]:
                     continue
+            if respects_red_cross(a, e) and (w.t.cat == "sniper" or d > 3):
+                continue                          # a man picking his shot doesn't pick the medic
             p = estimate_hit(game, a, w, e)
             s = threat_value(e, a) * (0.2 + p) / (1 + d / 30)
             if e.is_player:
@@ -727,16 +767,38 @@ def assign_positions(game, sq):
     sq.positions_order = sq.order
     W = x1 - x0
     Hh = y1 - y0
+    # a spot within two steps (Manhattan) of one already claimed is no good: mark those on a grid of the
+    # window once, instead of checking every candidate against every claimed spot on the field
+    blocked = [[False] * Hh for _ in range(W)]
+
+    def block(tx, ty):
+        for ddx in (-2, -1, 0, 1, 2):
+            bx = tx - x0 + ddx
+            if bx < 0 or bx >= W:
+                continue
+            k = 2 - abs(ddx)
+            col = blocked[bx]
+            for ddy in range(-k, k + 1):
+                by = ty - y0 + ddy
+                if 0 <= by < Hh:
+                    col[by] = True
+    for tx, ty in taken:
+        if x0 - 3 < tx < x1 + 3 and y0 - 3 < ty < y1 + 3:
+            block(tx, ty)
+    need = len(members)
+    got = 0
     for idx in flat:
-        if len(taken) - n_claimed >= len(members):
+        if got >= need:
             break
         px, py = divmod(int(idx), Hh)
         if score[px, py] < -1e8:
             break
-        X, Y = px + x0, py + y0
-        if any(abs(X - tx) + abs(Y - ty) < 3 for tx, ty in taken):
+        if blocked[px][py]:
             continue
+        X, Y = px + x0, py + y0
         taken.append((X, Y))
+        got += 1
+        block(X, Y)
     # MG and snipers get the best spots
     members.sort(key=lambda mm: 0 if (mm.weapon and mm.weapon.t.cat in ("lmg", "hmg")) else 1)
     for mm, p in zip(members, taken[n_claimed:]):
@@ -781,6 +843,10 @@ def soldier_act(game, a) -> int:
     # ---- wounded
     if a.downed:
         return downed_act(game, a)
+    if a.ai.get("litter"):
+        from .medevac import bearer_act
+        update_actor_vision(game, a)
+        return bearer_act(game, a) or 100         # a stretcher-bearer on a call: to the man, and back
     vis = update_actor_vision(game, a)
     if vis:
         for e in vis:
@@ -800,8 +866,8 @@ def soldier_act(game, a) -> int:
                 a.say(game.shout(a, "contact"), game.turn)
     near_enemy = min((dist(a, e) for e in vis), default=999)
     bleed = b.bleed_rate()
-    if bleed > 1.5 and (near_enemy > 12 or bleed > 5) and a.role != "medic":
-        c = A.treat(game, a, a)
+    if bleed > 1.5 and (near_enemy > 12 or bleed > 5):
+        c = A.treat(game, a, a)                   # (a medic bleeding out patches himself first too)
         if c:
             return c
     # ---- the weather: water in the heat; a roof when freezing (if nobody's shooting)
@@ -1144,7 +1210,9 @@ def move_with_squad(game, a, sq, sstate) -> int:
         return 100
     # hold: go to the assigned position, dig in
     if sstate == "hold" or (sq.arrived and kind in ("defend", "hold", "attack", "move", "ambush", "dig")):
-        if not sq.positions:
+        if not sq.positions and game.turn - sq.__dict__.get("_pos_try", -99) > 15:
+            # (if there was nowhere to go, don't look again for every man, every second)
+            sq._pos_try = game.turn
             assign_positions(game, sq)
         pos = sq.positions.get(a.id)
         if pos is not None and (a.x, a.y) != pos:
@@ -1450,6 +1518,14 @@ def banzai_act(game, a, vis) -> int:
 def downed_act(game, a) -> int:
     b = a.body
     brain = game.brains[a.side]
+    cb = a.ai.get("carried_by")
+    if cb is not None:
+        # still being carried?  Not if the man carrying him is down, gone, or has let go
+        carrier = next((o for o in game.actors if o.id == cb), None)
+        if carrier is None or not carrier.active or carrier.downed or carrier.carrying is not a:
+            if carrier is not None and carrier.carrying is a:
+                A.put_down(game, carrier)
+            a.ai.pop("carried_by", None)
     if a.ai.get("carried_by") is not None or a.ai.get("surgery") is not None or a.ai.get("at_aid") is not None:
         return 100
     if b.bleed_rate() > 0.4:
@@ -1630,11 +1706,12 @@ def buddy_aid_act(game, a, vis) -> int | None:
             continue
         if max(abs(o.x - a.x), abs(o.y - a.y)) > 4 or o.body.bleed_rate() < 0.8 or o.ai.get("carried_by"):
             continue
-        if any(m.role in ("medic", "surgeon") and m.active for m in game.near(o.x, o.y, 6, a.side)):
+        if any(m is not o and m.role in ("medic", "surgeon") and m.active for m in game.near(o.x, o.y, 6, a.side)):
             continue
         if best is None or o.body.bleed_rate() > best.body.bleed_rate():
             best = o
     if best is None:
+        a.ai["aid_cd"] = game.turn - 19          # nobody needs him: look again in a few seconds
         return None
     if not _willing(game, best):
         a.ai["aid_cd"] = game.turn
@@ -1667,6 +1744,7 @@ def share_ammo_act(game, a, vis) -> int | None:
             best = o
             break
     if best is None:
+        a.ai["ammo_cd"] = game.turn - 30          # nobody short: look again in ten seconds
         return None
     if not _willing(game, best):
         a.ai["ammo_cd"] = game.turn
@@ -1682,10 +1760,27 @@ def share_ammo_act(game, a, vis) -> int | None:
     return path_step(game, a, best.x, best.y)
 
 
+# who'll put down his rifle to heave on a track or pass up shells when it's quiet
+HANDS = frozenset(("rifleman", "smg_gunner", "engineer", "at_soldier", "lmg_assistant", "hmg_assistant", "tank_crew",
+                   "partisan", "volkssturm"))
+
+
 def role_act(game, a, vis, sq, sstate) -> int | None:
     r = a.role
     if a.carrying is not None:
         return evacuate_act(game, a, vis)
+    if sq is not None and sq.__dict__.get("task") is not None:
+        from .tasks import act as task_act
+        c = task_act(game, a, vis, sq)            # the job his leader gave the squad: scavenging, the wounded...
+        if c:
+            return c
+    post = a.ai.get("post")
+    if post is not None and game.__dict__.get("domain") != "aboard" and not vis and \
+            game.turn - getattr(sq, "last_contact", -9999) > 60 and max(abs(a.x - post[0]), abs(a.y - post[1])) > 1:
+        # a man with a post goes back to it when nothing's happening (the clerk to his typewriter)
+        c = path_step(game, a, post[0], post[1], margin=20)
+        if c:
+            return c
     if r == "surgeon":
         return surgeon_act(game, a, vis)
     if r == "medic":
@@ -1697,6 +1792,12 @@ def role_act(game, a, vis, sq, sstate) -> int | None:
         c = buddy_aid_act(game, a, vis) or share_ammo_act(game, a, vis)
         if c:
             return c
+    if game.vehicles and r in HANDS and (a.ai.get("helping_v") is not None or game.turn % 5 == a.id % 5):
+        from .maintenance import help_act
+        c = help_act(game, a, vis, sq)
+        if c:
+            return c
+        a.ai.pop("helping_v", None)
     if r in ("officer", "radioman"):
         c = officer_act(game, a, vis, sq)
         if c:
@@ -1758,8 +1859,11 @@ def medic_act(game, a, vis) -> int | None:
         if s > bs:
             bs, best = s, o
     if best is None:
+        a.ai.pop("patient", None)
         return None
+    a.ai["patient"] = best.id                     # (pace.py: a medic with a patient runs)
     if dist(a, best) <= 1.5:
+        a.ai.pop("patient", None)
         fix_stance(game, a, 1 if a.stance == 0 else a.stance)
         c = MED.first_aid(game, a, best) if MED.can_help(game, a, best) else None
         if c:
@@ -2070,7 +2174,19 @@ def engineer_act(game, a, vis, sq) -> int | None:
     vehs = [e for e in vis if getattr(e, "vt", None) is not None and not e.dead and dist(a, e) < 12]
     tgt = None
     if vehs:
-        tgt = vehs[0].pos
+        v = vehs[0]
+        # a tank is several tiles long: go for the nearest part of the hull, not its centre
+        tgt = min(v.cells(), key=lambda c: max(abs(c[0] - a.x), abs(c[1] - a.y)))
+        if v.near(a.x, a.y) <= 1:
+            return A.place_charge(game, a, ch, tgt[0], tgt[1])
+        # walk to a free tile beside that hull cell (the hull itself can't be stood on)
+        side = next(((tgt[0] + dx, tgt[1] + dy) for dx in (-1, 0, 1) for dy in (-1, 0, 1)
+                     if m.in_bounds(tgt[0] + dx, tgt[1] + dy) and m.walk[tgt[0] + dx, tgt[1] + dy]
+                     and (tgt[0] + dx, tgt[1] + dy) not in game.vehicle_at), None)
+        c = path_step(game, a, *(side or tgt))
+        if c:
+            fix_stance(game, a, 1)
+        return c
     else:
         for e in vis:
             if getattr(e, "vt", None) is None and m.pos_cover[e.x, e.y] >= 45 and dist(a, e) < 14:
@@ -2161,6 +2277,9 @@ def vehicle_act(game, v) -> int:
     res, tgt = vehicle_gunnery(game, v, vis, sq)
     if res == "traverse":
         return 150 if not v.static else 250
+    if res == "crank":
+        from .vdamage import HAND_TRAVERSE
+        return HAND_TRAVERSE
     # ---- move: the driver, on the commander's word (yours, if you're the commander or at the wheel)
     if not v.mobile or not C.ai_manned(v, "driver"):
         return 100
@@ -2231,22 +2350,33 @@ def vehicle_gunnery(game, v, vis, sq):
     # the gunner: main gun, or the coax when the target's soft
     if tgt is not None and C.ai_manned(v, "gunner"):
         if vt.main:
+            from . import vdamage as VD
             want = octant(tgt.x - v.x, tgt.y - v.y)
-            if not vt.turret or v.static:
-                diff = (want - v.facing) % 8
+            tr = VD.traverse(v)
+            if not vt.turret or v.static or tr == "jammed":
+                gun = v.turret if tr == "jammed" else v.facing
+                diff = (want - gun) % 8
                 if diff not in (0, 1, 7):
                     # traverse the hull / gun carriage - unless you're driving and haven't turned it
                     if C.player_seat(v) == "driver":
                         if v.ai.get("asked_turn", -99) < game.turn - 20:
                             v.ai["asked_turn"] = game.turn
                             side = "left" if diff <= 4 else "right"
-                            game.msg(f"Gunner: 'Target {side}! Swing her {side}!'", "radio")
+                            game.msg(f"Gunner: 'Target {side}! Swing her {side}!'" +
+                                     (" The turret's jammed!" if tr == "jammed" else ""), "radio")
                         tgt = None
+                    elif not v.static and not (VD.can_move(v) and C.ai_manned(v, "driver")):
+                        tgt = None                  # the gun can't be brought to bear: it waits for something in its arc
                     else:
                         step = 1 if diff <= 4 else -1
-                        if game.turn_vehicle(v, v.facing + step):
+                        if game.turn_vehicle(v, v.facing + step) and tr != "jammed":
                             v.turret = v.facing
                         return "traverse", tgt
+            elif tr == "hand":
+                diff = (want - v.turret) % 8
+                if diff not in (0, 1, 7):
+                    v.turret = (v.turret + (1 if diff <= 4 else -1)) % 8     # cranking the handwheel
+                    return "crank", tgt
         if tgt is not None:
             blocked = friends_in_line(game, v, tgt.x, tgt.y, cone=0.05)
             if not blocked and vt.main and v.gun_ok and v.reload <= 0 and ammo is not None:

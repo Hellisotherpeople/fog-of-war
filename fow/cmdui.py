@@ -299,6 +299,8 @@ def unit_menu(ps, squads, title, formation=None):
     from .command import ammo_points
     if ammo_points(g, p.side):
         opts.append(("Resupply at the nearest ammunition dump", "resupply", None, can("resupply")))
+    opts.append(("Tasks... (scavenge, the wounded, prisoners, a hand for the tanks)", "tasks", (220, 200, 140),
+                 can("task")))
     roe = sq0.order.roe if single else None
     for r, label in (("free", "Fire at will"), ("return", "Return fire only"), ("hold", "Hold your fire")):
         mark = " (now)" if roe == r else ""
@@ -318,16 +320,127 @@ def unit_menu(ps, squads, title, formation=None):
     ps.open_popup(pop, lambda v: _order(ps, squads, v, label), cancel=lambda: open_command(ps))
 
 
+# ====================================================================== where: proposed targets
+TARGET_TITLE = {"move": "Advance to where?", "attack": "Attack what?", "assault": "Assault what?",
+                "flank": "Flank what?", "suppress": "Suppress what?", "defend": "Defend where?",
+                "ambush": "Ambush where?"}
+KIND_WORD = {"hmg": "heavy machine gun", "mg": "machine gun", "atgun": "anti-tank gun", "tank": "tank",
+             "vehicle": "vehicle", "sniper": "sniper", "mortar": "mortar", "officer": "officer",
+             "infantry": "enemy rifleman", "soldier": "enemy soldier"}
+
+
+def proposals(game, kind, squads, origin) -> list:
+    """Where an order could go, best first: the next objective, the enemy positions your side knows about,
+    the other objectives.  [(label, (x, y), colour)]."""
+    from .senses import direction_word
+    p = game.player
+    side = p.side
+    m = game.map
+    ox, oy = origin
+
+    def dist(x, y):
+        return math.hypot(x - ox, y - oy)
+
+    def where(x, y):
+        d = dist(x, y)
+        return "right here" if d < 4 else f"{direction_word(x - ox, y - oy)}, about {int(round(d * 2.2 / 10.0) * 10)} yards"
+
+    def state(o):
+        return "ours" if o.owner == side else "no one's" if o.owner is None else "enemy-held"
+    objs = list(m.objectives)
+    theirs = sorted([o for o in objs if o.owner != side], key=lambda o: dist(o.x, o.y))
+    ours = sorted([o for o in objs if o.owner == side], key=lambda o: dist(o.x, o.y))
+    # the next objective: the one higher command has given this unit, or the nearest that isn't ours
+    nxt = None
+    sq0 = squads[0] if squads else None
+    oi = getattr(getattr(sq0, "order", None), "obj", None)
+    if oi is not None and 0 <= oi < len(objs) and objs[oi].owner != side:
+        nxt = objs[oi]
+    elif theirs:
+        nxt = theirs[0]
+    brain = game.brains[side]
+    contacts = [c for c in brain.live_contacts(180, False) if c.kind != "sound"]
+    strong = sorted([c for c in contacts if c.kind in ("hmg", "mg", "atgun", "tank", "sniper", "mortar")],
+                    key=lambda c: dist(c.x, c.y))
+    others = sorted([c for c in contacts if c not in strong], key=lambda c: dist(c.x, c.y))
+    clusters = brain.clusters(radius=6, min_size=2, max_age=180)
+    out = []
+
+    def add(label, x, y, col=None):
+        if not m.in_bounds(x, y) or any(abs(x - q[1][0]) + abs(y - q[1][1]) < 4 for q in out):
+            return
+        out.append((label[:1].upper() + label[1:], (int(x), int(y)), col))
+
+    def seen(c):
+        a = game.turn - c.turn
+        return "just now" if a < 20 else f"{a // 60 or 1} min ago" if a < 3600 else "a while ago"
+    hot, cool, obj_col = (250, 170, 110), (230, 210, 150), (180, 220, 160)
+    if kind in ("move", "attack", "assault", "flank", "ambush") and nxt is not None:
+        add(f"{nxt.name}: the next objective ({state(nxt)}), {where(nxt.x, nxt.y)}", nxt.x, nxt.y, obj_col)
+    if kind in ("flank", "attack", "assault", "suppress"):
+        for c in strong[:5]:
+            add(f"The {KIND_WORD.get(c.kind, c.kind)}, {where(c.x, c.y)} (seen {seen(c)})", c.x, c.y, hot)
+        for _w, cx, cy, grp in clusters[:3]:
+            add(f"A group of about {len(grp)} enemy, {where(cx, cy)}", cx, cy, hot)
+        for c in others[:2]:
+            add(f"An {KIND_WORD.get(c.kind, 'enemy soldier')}, {where(c.x, c.y)} (seen {seen(c)})", c.x, c.y, cool)
+    if kind == "suppress" and nxt is not None:
+        add(f"{nxt.name}: the next objective ({state(nxt)}), {where(nxt.x, nxt.y)}", nxt.x, nxt.y, obj_col)
+    if kind in ("defend", "move"):
+        for o in ours[:4]:
+            add(f"{o.name} ({state(o)}), {where(o.x, o.y)}", o.x, o.y, obj_col)
+    for o in theirs + ours:
+        add(f"{o.name} ({state(o)}), {where(o.x, o.y)}", o.x, o.y, None)
+    if kind == "defend" and sq0 is not None:
+        a = contact_point(sq0)
+        if a is not None:
+            add("Where they are now", a[0], a[1], None)
+    return out[:10]
+
+
+def choose_target(ps, kind, squads, cb, start, label=None, cmd=False):
+    """Where the order goes: a short list of proposals (Enter takes the first - the next objective), or pick a
+    spot on the map yourself (and Tab there steps through the same proposals)."""
+    g = ps.game
+    props = proposals(g, kind, squads, start)
+    mode_data = {"cb": cb, "cmd": cmd, "label": label or ORDER_TEXT.get(kind, kind),
+                 "props": [q[1] for q in props]}
+    if not props:
+        ps.enter_mode("order_target", start, mode_data)
+        return
+    opts = [(q[0], q[1], q[2], True) for q in props] + [("Pick a spot on the map...", "pick", UI_DIM, True)]
+
+    def chosen(v):
+        if v == "pick":
+            mode_data["prop_i"] = 0                  # the cursor starts on the first; Tab goes on to the next
+            ps.enter_mode("order_target", props[0][1], mode_data)
+        else:
+            cb(v)
+    ps.open_popup(Popup(TARGET_TITLE.get(kind, "Where?"), opts, ps._screen_anchor(), width=74,
+                        lines=[("Enter takes the first. Or pick a spot yourself (Tab there steps through these).",
+                                UI_DIM)]),
+                  chosen, cancel=(lambda: open_command(ps)) if cmd else None)
+
+
 def _order(ps, squads, what, label=None):
     g = ps.game
+    if what == "tasks":
+        from . import tasks as TK
+        pt = contact_point(squads[0]) or (g.player.x, g.player.y)
+        opts = TK.menu_options(g, squads[0], pt)
+        ps.open_popup(Popup("Tasks", opts, ps._screen_anchor(), width=78,
+                            lines=[("Sent the way any order goes: voice, signal, radio, relay or runner.", UI_DIM)]),
+                      lambda k: _send(ps, squads, "task_stop" if k == "stop" else f"task_{k}", None, label=label),
+                      cancel=lambda: open_command(ps))
+        return
     if what in TARGETED:
         p = g.player
         pt = contact_point(squads[0]) if len(squads) == 1 else None
-        start = pt if pt is not None and ps.cam.on_screen(*pt) else (p.x, p.y)
+        start = pt if pt is not None else (p.x, p.y)
         kind = "ambush" if what == "ambush_at" else what
         ps.cmd_show = True
-        ps.enter_mode("order_target", start, {"cb": lambda pos: _send(ps, squads, kind, pos, label=label),
-                                              "cmd": True, "label": ORDER_TEXT.get(kind, kind)})
+        choose_target(ps, kind, squads, lambda pos: _send(ps, squads, kind, pos, label=label), start,
+                      ORDER_TEXT.get(kind, kind), cmd=True)
         return
     roe = None
     kind = what

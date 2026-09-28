@@ -653,6 +653,16 @@ melee("szabla", "szabla wz. 34", 28, ["poland"], weight=1.4, freq=0,
 melee("puukko", "puukko", 14, ["finland"], weight=0.2, desc="Finnish belt knife.")
 melee("shovel", "entrenching tool", 18, _ALL + ["canada", "newzealand"], weight=1.2,
       tool="shovel", desc="For digging foxholes, and sharpened for everything else.")
+melee("kabar", "Mark 2 knife ('Ka-Bar')", 16, ["usa"], (1942.9, 1950), weight=0.4, freq=0,
+      desc="The Marines' fighting and utility knife.")
+melee("kampfmesser", "Kampfmesser", 13, ["germany"], weight=0.3, freq=0,
+      desc="A German boot knife, carried tucked into the jackboot.")
+melee("nr40", "NR-40 knife", 14, ["ussr"], (1940, 1950), weight=0.3, freq=0,
+      desc="The Red Army's scout knife.")
+melee("clasp_knife", "clasp knife", 8, ["uk", "canada", "australia", "newzealand", "india"], weight=0.2, freq=0,
+      desc="The army clasp knife: a blade, a marlinspike and a tin opener. Issued to everyone.")
+melee("rigging_knife", "rigging knife", 9, _ALL + ["canada", "newzealand"], weight=0.2, freq=0,
+      desc="A sailor's knife, for line and canvas - and anything else at a pinch.")
 
 # ================================================================= gear
 
@@ -748,6 +758,15 @@ gear("photo", "photograph", "tool", tool="photo", weight=0.01, volume=0.01, glyp
      color=(225, 215, 180), desc="A creased photograph.")
 gear("dogtags", "identity tags", "tool", tool="dogtags", weight=0.02, volume=0.01,
      desc="Stamped with a name and number.")
+gear("shell_crate", "crate of shells", "tool", tool="shells", weight=26.0, volume=20.0, glyph="=",
+     color=(160, 140, 90), desc="A wooden crate of tank or anti-tank gun rounds, rope handles at each end. Both "
+     "arms; carry it up to the vehicle and hand the rounds up (right-click the vehicle).")
+gear("dispatches", "dispatch case", "tool", tool="dispatches", weight=0.4, volume=0.3, glyph="?",
+     color=(200, 170, 110), desc="A sealed leather case of orders and reports. Deliver it to an officer at the "
+     "headquarters it's addressed to - and if you're about to be taken, burn it.")
+gear("brassard", "Red Cross armband", "tool", tool="brassard", weight=0.02, volume=0.01, glyph="+",
+     color=(230, 60, 60), desc="The red cross on white. Most armies won't shoot a medic who wears it and "
+     "carries no weapon. Most.")
 gear("harmonica", "harmonica", "tool", tool="harmonica", weight=0.1, volume=0.05,
      desc="Play something. It might be the last thing you do.")
 gear("rosary", "rosary", "tool", tool="rosary", weight=0.02, volume=0.01,

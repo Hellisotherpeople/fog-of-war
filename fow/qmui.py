@@ -72,7 +72,7 @@ def _turn_in_menu(ps, qm):
     p = g.player
     opts = []
     for it in p.inv:
-        if it is p.weapon or it.tid in L.DOCS or it.tid in ("orders", "dogtags"):
+        if it is p.weapon or it.tid in L.DOCS or it.tid in ("orders", "dogtags", "dispatches"):
             continue
         if it.t.kind in ("corpse",) or any(it is p.invent.slots.get(s) for s in ("rig", "pack", "head", "body")):
             continue

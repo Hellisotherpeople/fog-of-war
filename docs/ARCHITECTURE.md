@@ -99,8 +99,21 @@ and a threat field built from where the enemy has been seen and heard. A soldier
 path-find; he rolls downhill on a weighted sum of these maps, with weights set by his squad's
 order (attack, hold, fall back, flank) and his own state (pinned, wounded, out of ammo). The
 flee map is the distance-to-the-enemy field multiplied by -1.2 and scanned again, so men run
-*away* and round obstacles rather than into corners. The maps are NumPy arrays scanned with
-`tcod.path.dijkstra2d`, so a whole side costs a few milliseconds.
+*away* and round obstacles rather than into corners. The maps are NumPy arrays scanned by
+`fastpath.dijkstra2d`: with numba installed, a compiled Dial's algorithm (the costs are small
+integers, so a ring of buckets replaces the heap), otherwise `tcod.path.dijkstra2d`, with
+identical results either way.
+
+What keeps a big battle quick:
+- `GameMap.refresh()` diffs the tile array against the last one and recomputes only the changed
+  rectangle (plus a margin for directional cover), and counts separately whether walking,
+  sight or only smoke changed (`walk_version`, `see_version`, `see_base_version`).
+- The brain redraws its maps when walking changes, at most every 10 turns; the cost map is cached
+  on (map, version, known mines).
+- Lines of sight are cached per map (keyed by `see_base_version`); lines through the smoke's
+  bounding box skip the cache.
+- Concealment is cached per target per turn; binoculars are looked up once a minute.
+- One distance matrix per side per turn serves every soldier's vision (`game._vis_mat`).
 
 ## The war around you
 
@@ -141,6 +154,82 @@ You aren't the ship. `aboard.py` puts you on her:
   abstractly and you feel them through the hull.
 - Bombers work the same way: the fuselage is a map, the crew are soldiers at stations, flak and
   fighter hits in `skysea` come through the skin onto them.
+- Between missions, `naval.py` decides what the force does next (`after_action`): back to a naval
+  base (`nearest_port`, designated on a friendly shore if the side has none; the map generator
+  builds the quay, piers and harbour office) or new orders (`skysea_missions.new_orders`, reusing
+  the ships you have). In port the condition is "port": a refit on timers, harbour watches, and
+  liberty. Going ashore stores the whole ship (`_store` plus the `SkySea`) in `game.ship_ashore`
+  and puts you on land; the port director's boat restores it. While you're ashore, `land_tick`
+  runs her refit and sails her at her time, with or without you.
+
+## Bases
+
+Installations on the war map (`Sector.installations`) become places on the battlefield
+(`mapgen.installation` records in `m.gen_positions`), and `base.spawn_staff` puts the people who
+run them at their posts, each marked `ai["post"]` (the AI walks them back to it when things are
+quiet) in a squad of kind `staff` that the side commander leaves alone. The records are saved with
+the sector's map; on a revisit `populate` puts the people and vehicles back (neither is saved with
+the map) but not the stores, which are, and skips installations that have been taken since. Walking into one, or right-clicking, is `base.talk`. The adjutant's orders
+live in `game.base_order` and are checked in `base.update`; `order_point` and `order_plan` give
+the arrow and the Enter action, pathing through friendly sectors to the edge when the job is
+somewhere else.
+
+## Fire support: fires.py
+
+`Fires` (on `game.fires`, reached through `game.support.fires`) holds `Battery` and `Squadron`
+objects: gun batteries from each "artillery" installation, a mortar platoon per battalion in the
+line and in your sector, ships for the attacker of a landing, squadrons at airfields (or in the rear
+when there are none). Each has a sector, guns or aircraft, ammunition or readiness, and a name.
+`Support.request_fire` / `barrage` / `launch_sortie` keep their signatures and delegate. A mission
+is `battery.mission`: a target on your map (`("map", sector, (x, y))`) or another sector
+(`("sector", ...)`). `Fires.update` fires it gun by gun at the gun's rate: the battery's guns on
+your map (placed by `place_guns` from the installation record, one piece per gun, `v.ai["battery"]`),
+the mortarmen of its squad (`link_mortars`: their own weapons and bombs), or numbers when it's
+elsewhere, with a distant report from its bearing. Rounds on another sector are added up and taken
+off the enemy there, with `Strategic._attrit`, when the mission ends, so the observer's report is
+what happened. `strategic_tick` resupplies, loses overrun batteries, and gives each free battery a
+mission at the fighting in its reach. The player's battery (`player_battery`) keeps a share of each
+mission for the player's gun (`player_left`), with `firing_data` for the orders and
+`fire_player_round` for Enter.
+
+## Vehicles: parts
+
+`vdamage.py`: every vehicle has `parts` (tracks, engine, transmission, fuel, gun, turret, optics,
+radio, one per machine gun, ammo), each 2 working / 1 damaged / 0 knocked out. The old flags
+`engine`, `tracks` and `gun_ok` are properties over them (and `__setstate__` migrates saves). A
+penetration picks one to three locations from a table for the face it came through; a location is
+a part or a crew seat. Crew seats: `crew_hit` puts the seat in `ai["seat_out"]` for 20-60 s, and
+`crew.manned` skips it until the crew has shifted across. The effects live where the work is done:
+`can_move` / `move_mult` in movement, `traverse` (power / hand / jammed / hull) in the gunnery,
+`gun_disp` and `reload_mult` in `vehicle_fire_main`, `mg_ok` in `vehicle_fire_mg`, `has_radio` via
+`command.vehicle_has_radio`, `optics_mult` in `senses.vehicle_eye`. Hatches: `v.buttoned`, set by
+`hatch_ai` (or the player commander); `exposed_hit` gives bullets and splinters a chance at an
+open-hatched commander.
+
+## Seeing
+
+`senses.daylight` works the sun's elevation from each battle's latitude, longitude and clock
+(`theatres.SUN`) and the date, with civil and nautical twilight; `moonlight` adds the moon's phase
+and height under the cloud. `base_view_range` blends night and day continuously, and the dark only
+adds flashes and lit ground on top of it. A vehicle's eye is `vehicle_eye` (commander head-out,
+buttoned, or none); the player's is `player_eye`, per seat, with cones for the gunner's sight and
+the driver's visor. Anyone up in a vehicle, or looking at one, uses `GameMap.high()`, which sees
+over crops and undergrowth (`tiles.SEE_HIGH`), with its own line-of-sight cache.
+
+## Vehicles: riders and maintenance
+
+`maintenance.tick` runs every five turns on land. A vehicle's needs are plain state: `tracks`,
+`engine`, `gun_ok`, the racks against `full_load`. `quiet` says whether the crew can climb out
+(no squad contact for a minute, not fired for 30 s, not hit for a minute, no enemy it can see
+within 40 tiles); `combat.hit_vehicle` stamps `ai["hit_turn"]`. Work is man-seconds: the crew plus
+`helpers` (friendly soldiers beside the hull who aren't fighting; the player only when he's chosen
+to help). Rearming comes from a `source`: an ammunition truck (`ai["cargo"]`) within eight tiles,
+a dump on our own ground, or a crate of shells on the ground. `call_truck` sends a truck from the
+home edge in a squad of kind `supply`, which the side commander leaves to its run; `_trucks` keeps
+it with the vehicles and takes it home when it's empty. The player's side of it (`help_with`,
+`take_crate`, `hand_up`) is on the right-click menu, and `duty.py` issues the "track" and "shells"
+tasks; `base.supply_run_order` is the motor sergeant's job. A tank with no seats carries up to
+`RIDERS` on its hull (`ai["rider"]` on the man); `combat._riders_hit` shares out what hits it.
 
 ## Drawing
 
@@ -160,7 +249,11 @@ is loaded from image files except the fonts.
 ambient battle) with NumPy and plays it positionally through SDL, mixed in channels (weapons,
 ambience, voices, effects, interface) under the Options menu's mixer. `voice.py` speaks orders,
 shouts and radio traffic in each nation's language through the operating system's speech
-engine (`say` on macOS, `espeak-ng` on Linux) if there is one, and caches the results.
+engine (`say` on macOS, `espeak-ng` on Linux) if there is one, and caches the results. With
+`piper-tts` installed and the "neural" engine chosen, `neural_voice.Piper` renders them instead:
+per-locale model lists (`MODELS`), fetched in the background by `Downloader`; many-speaker models
+are split into men and women by measuring each speaker's pitch once (`speakers.json`). Any locale
+without a model ready falls back to the system engine line by line.
 
 ## Module map
 
@@ -169,9 +262,10 @@ engine (`say` on macOS, `espeak-ng` on Linux) if there is one, and caches the re
 | `game.py` | the Game: turn loop, sound and fire, sectors and travel, saves |
 | `play.py` | the in-battle state: input, commands, targeting, popups, Enter-to-do-your-orders |
 | `ui.py` | App shell, menus, the creator, options and mixer, help, status, war map |
+| `helpdata.py` | the help's sections (keys, labels, text; `{key}` marks bold); "Right now" comes from `PlayState.help_now` |
 | `render.py`, `render_sprites.py`, `gfx.py` | drawing: text console, sprite layers, compositing |
 | `sprites.py`, `figures.py`, `fonts.py` | procedural sprites, soldier figures, font tilesets |
-| `audio.py`, `voice.py` | synthesised positional sound, spoken lines |
+| `audio.py`, `voice.py`, `neural_voice.py` | synthesised positional sound, spoken lines (system speech, or Piper neural voices) |
 | `mapgen.py`, `gamemap.py`, `tiles.py` | battlefield generation, map arrays, tile definitions |
 | `spawn.py`, `entities.py` | creating soldiers, squads, vehicles; the classes |
 | `ai.py`, `brain.py`, `commander.py` | squad/soldier/vehicle AI, Dijkstra maps, side commanders |
@@ -183,7 +277,16 @@ engine (`say` on macOS, `espeak-ng` on Linux) if there is one, and caches the re
 | `scenarios.py`, `threat.py`, `support.py` | battle types and missions, what the war does to where you are, artillery and air |
 | `duty.py`, `medical.py`, `logistics.py`, `qmui.py`, `prisoners.py`, `pow.py` | discipline, medicine, supply, the quartermaster, taking prisoners, being one |
 | `crew.py`, `footprint.py` | vehicle crew seats, vehicle sizes |
+| `maintenance.py` | field repairs, rearming, ammunition trucks, riders on the hull |
+| `vdamage.py` | vehicle parts, what breaking each costs, hatches, crew seats hit |
+| `fires.py` | real batteries, mortar platoons, ships and squadrons; fire missions; the gun line |
+| `tasks.py` | squad tasks: scavenging, the wounded, prisoners, a hand for the tanks |
+| `medevac.py` | calling stretcher-bearers, the evacuation chain, hospital time, back to duty |
+| `fastpath.py` | Dijkstra maps: numba Dial's algorithm, or tcod |
 | `skysea.py`, `skysea_missions.py`, `skyseaui.py`, `skysea_exit.py` | the war at sea and in the air, its missions, the chart/flight view, coming back to earth |
 | `aboard.py`, `shipyard.py`, `shipboard.py` | one man aboard; ships built deck by deck; shipboard life |
+| `naval.py` | the navy between battles: new orders or back to base, the refit, liberty ashore, sailing orders |
+| `base.py` | friendly bases: the staff at their posts, what they do for you, the adjutant's orders |
+| `nearby.py` | `V`: everything around you in a list |
 | `settings.py`, `constants.py` | persistent settings, layout and tuning constants |
 | `data/` | nations, ranks, items, vehicles and aircraft, ships, theatres, roles, special units, commanders, phrases, banter |
