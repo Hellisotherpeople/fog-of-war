@@ -513,6 +513,73 @@ You can also allow either side, cap the number of lives, or be offered a list to
 Each of the fallen goes in the memorial, and each new man starts with his own kit, rank and a
 clean record.
 
+**Talk to anyone.** `E` (or right-click a man) talks to whoever's beside you. Every soldier is a
+man with a life of his own: a home town (the one his letters come from), the trade he'll go back to,
+who's waiting, what he's like, whether he smokes. He has an opinion of you, and it moves with what
+you do: a cigarette, a dressing when he was bleeding, staying with him when he was hit; asking
+favours, being a danger to your own side.
+
+With a comrade you can talk about:
+- where he's from and who's waiting;
+- how he's holding up: the truth about his wounds, his nerve, his ammunition, his canteen and his feet;
+- what he's seen: he points, and it's marked where he means;
+- the latest rumour: the war's real news as it reaches a foxhole, or a latrine rumour;
+- what he makes of the sergeant.
+
+You can also ask him for a smoke, ammunition, water or covering fire; steady him when he's shaking;
+or trade. In a trade you see his face as you hold each thing up: he'd take it, or he shakes his
+head.
+
+The dying may ask you to take something home. The chaplain sees it gets there, and it goes in your
+record.
+
+A prisoner owes you his name, rank and number. For a cigarette, or when he's frightened enough, he
+may tell you where his guns are. It's sometimes the truth, and you can't tell which. Without a
+common language (your languages skill), it's gestures: a cigarette held out, a trade by pointing.
+
+**The noise of a fight, the life of a quiet hour.** In a fight, men are loud:
+- the wounded cry out, in their own language: where they're hit, the blood, the legs that won't
+  carry them, and at the end their mothers;
+- the crying goes on until a medic reaches them or they go quiet, and it wears on everyone who hears it;
+- a man's buddy shouts his name when he's hit, runs to him if he can, and takes his death hard;
+- men call "Moving!" and "Covering!", "I'm out!", "Where's it coming from?!" and "Incoming!";
+- the frightened panic and a steadier mate talks them down, and the NCOs keep them firing, spread
+  them out and get them up.
+
+When it's quiet:
+- smokers pass their cigarettes round (at night the glow can be seen);
+- men trade what they have for what they want, and real things change hands;
+- they show the photograph, read the letter, pray, and hum a song from home;
+- the sergeant makes them change their socks;
+- a man goes to his dead buddy's body and takes one of the tags;
+- a souvenir hunter goes through the enemy dead for a Luger or a watch.
+
+**Success is rewarded.** Doing well in the fight wipes out what you did wrong before, as it did for
+real soldiers:
+- killing the enemy in a fight, knocking out a tank, taking an objective, being wounded;
+- bringing a wounded man in under fire, taking prisoners, a medal.
+
+Every few points of it take a strike off your record, with the extra duty, the fine and the stopped
+leave that came with it. The charge sheet is torn up. A big deed, or enough of them, gives back a
+stripe you lost, and a Red Army penal soldier who fights well, or bleeds, is rehabilitated.
+
+**Use things where they lie.** A dressing on the ground, the dead man's morphine or his canteen, a
+letter in the mud: `a` lists what's within reach as well as what you carry. The kit screen uses
+things in a pile or on a body where they are (`e`), and patching up a wounded man offers the
+dressings lying round him. What's left goes back where it was.
+
+**Serve in a famous division.** The new-game screen's Unit line offers the regular divisions,
+brigades, regiments and battalions that fought each battle, alongside the special units:
+- US: the Big Red One, the 29th's Blue and Gray, the Screaming Eagles, the Old Breed;
+- British and Commonwealth: the Desert Rats, the 51st Highland, the Rats of Tobruk, the Red Devils;
+- Soviet: Rodimtsev's 13th Guards, the Panfilov men;
+- German: Großdeutschland, Panzer Lehr, the 352nd above Omaha;
+- the Ariete, the Sendai Division, the Carpathians at Cassino, and more.
+
+Your papers carry the regiments that really served in it, your chain of command is its real
+commanders, and veterans know their business. Every soldier of those divisions, yours and the
+enemy's, carries the right regiments too.
+
 **Bigger battlefields.** New games default to a large battlefield: 270 x 180 tiles, about 540 x 360
 metres, with roughly twice the men on each side. A sector now holds a strong company or a weak
 battalion instead of a platoon, and the staff screen's numbers grow with it. Standard (180 x 120) is
@@ -600,6 +667,14 @@ anything new. `!` (or Esc > Options) turns safe mode off.
 - **Crews.** Every vehicle has seats: driver, gunner, loader, bow gunner, commander. You do your
   own seat's job and nothing else. The men in the other seats fire their own weapons at their
   own targets. From the commander's seat you steer the driver and give the gunners targets.
+  The machine gunners pick what their rounds can hurt:
+  - men, lorries and cars;
+  - an open-topped half-track from the side, or men riding on a hull;
+  - thin plate their bullets go through;
+  - a commander with his head out of the hatch, if there's nothing better.
+
+  They don't spray a buttoned-up tank's armour, and the main gun doesn't fire AP at armour it
+  plainly can't get through. It holds the round for a flank shot.
 - **Getting in, getting on, getting out.** `e` beside a vehicle gets you in: a seat if it has
   seats (a half-track, a truck), a crew position if you're a tanker or it's empty or abandoned,
   otherwise a handhold on a tank's engine deck with up to five others. Riders are fast and

@@ -1132,7 +1132,7 @@ class PlayState:
             "v": self.cmd_vehicle_mg, "s": lambda: self.act(100), "V": self.cmd_nearby,
             "+": lambda: self.zoom(1), "=": lambda: self.zoom(1), "-": lambda: self.zoom(-1),
             "G": self.cmd_staff, "W": self.cmd_pace, "!": self.cmd_safe_mode, "'": self.cmd_ignore_danger,
-            "T": self.cmd_orders_book, "A": self.cmd_autopilot,
+            "T": self.cmd_orders_book, "A": self.cmd_autopilot, "E": self.cmd_talk,
         }.get(c)
         if handler:
             return handler()
@@ -2050,7 +2050,9 @@ class PlayState:
         return f"Enter: {plan[0]}" if plan else None
 
     def _fire_mission_round(self):
-        c = self.game.support.fires.fire_player_round(self)
+        g = self.game
+        g.player.ai["mission_fired"] = g.turn        # (where the rounds land is the observer's call: duty._justified)
+        c = g.support.fires.fire_player_round(self)
         if c:
             self.act(c)
 
@@ -2870,6 +2872,14 @@ class PlayState:
             opts.append((f"Operate (about {max(10, t // 60)} minutes)", "operate", (230, 200, 140), True))
         if who.downed and p.carrying is None and p.vehicle is None:
             opts.append(("Carry him out (to the aid station, or to cover)", "carry", None, True))
+        if who.body.wounds or who.body.effective_pain() > 50:
+            # a dressing lying there, the dead man's morphine: what's within reach will do as well as your own
+            for i, pos, h in self.within_reach():
+                if i.t.kind == "medical" and max(abs(pos[0] - who.x), abs(pos[1] - who.y)) <= 2:
+                    opts.append((f"Use the {i.name} {'on the dead man' if h is not None else 'lying there'} on him",
+                                 ("near", i, pos, h), (240, 200, 120), True))
+                    if len(opts) > 8:
+                        break
         if not opts:
             g.msg("You've nothing on you that would help him.", "warn")
             return
@@ -2881,6 +2891,9 @@ class PlayState:
         from . import medical as MED
         g = self.game
         p = g.player
+        if isinstance(what, tuple) and what[0] == "near":
+            _k, it, pos, h = what
+            return self.use_where_it_lies(it, pos, h, "other", who)
         if what == "treat":
             return self._patch_up(who)
         if what == "carry":
@@ -4192,6 +4205,63 @@ class PlayState:
             return self.act(80)
         return self.item_action(it, "wield")
 
+    # what can be used where it lies, without picking it up first: dressings, syrettes, food, water, a smoke, a
+    # letter to read (the rest - a rifle, a radio - you take up)
+    IN_PLACE = {"canteen", "flask", "cigarettes", "ration", "chocolate", "stimulant", "gum", "letter", "photo",
+                "newspaper", "document", "watch", "compass"}
+
+    def usable_here(self, it) -> bool:
+        return it.t.kind == "medical" or (it.t.kind == "tool" and it.t.tool in self.IN_PLACE)
+
+    def within_reach(self) -> list:
+        """What's lying where you can reach it - your tile and the eight round it, loose or on the dead:
+        [(item, (x, y), holder)] (entities.things_at)."""
+        from .entities import things_at
+        g = self.game
+        p = g.player
+        out = []
+        if p.vehicle is not None:
+            return out
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                x, y = p.x + dx, p.y + dy
+                if g.map.in_bounds(x, y):
+                    out += [(it, (x, y), h) for it, h in things_at(g.map, x, y)]
+        return out
+
+    def use_where_it_lies(self, it, pos, holder, act="use", target=None):
+        """Use a thing where it lies: in your hand for the moment it takes (a little longer - you bend for it,
+        or go through his pockets), and whatever's left of it back where it was."""
+        from .entities import return_thing, take_thing
+        g = self.game
+        p = g.player
+        m = g.map
+        take_thing(m, pos[0], pos[1], it, holder)
+        inv = p.invent
+        was = inv.hands
+        inv.hands, it.where = it, "hands"
+        try:
+            if act == "self":
+                c = A.treat(g, p, p, it)
+                if c is None:
+                    g.msg("That won't help right now.", "info")
+                else:
+                    self.act(c + 60)
+            elif act == "other" and target is not None:
+                c = A.treat(g, p, target, it)
+                if c is None:
+                    g.msg("That won't help him right now.", "info")
+                else:
+                    self.act(c + 60)
+            else:
+                self.use_tool(it)
+                self.act(60)
+        finally:
+            left = inv.hands is it
+            inv.hands = was
+            if left:
+                return_thing(m, pos[0], pos[1], it, holder)
+
     def cmd_apply(self):
         g = self.game
         p = g.player
@@ -4199,13 +4269,23 @@ class PlayState:
                (i.t.kind == "tool" and i.t.tool not in ("pack", "dogtags"))]
         if p.weapon is not None and p.weapon.t.tool == "shovel":
             its.append(p.weapon)
-        if not its:
+        near = [(i, pos, h) for i, pos, h in self.within_reach() if self.usable_here(i)]
+        if not its and not near:
             g.msg("You have nothing to use.", "info")
             return
-        opts = [(f"{i.name}" + (" (place it beside you)" if i.t.kind == "explosive" else ""), i, self._item_color(i),
-                 True) for i in its]
-        self.open_popup(Popup("Use", opts, self._screen_anchor()),
-                        lambda it: self.item_action(it, {"medical": "self", "explosive": "place"}.get(it.t.kind, "use")))
+        opts = [(f"{i.name}" + (" (place it beside you)" if i.t.kind == "explosive" else ""), ("own", i),
+                 self._item_color(i), True) for i in its]
+        for i, pos, h in near[:12]:
+            opts.append((f"{i.name} ({'on the dead man' if h is not None else 'on the ground'})", ("near", i, pos, h),
+                         self._item_color(i), True))
+
+        def pick(v):
+            if v[0] == "own":
+                it = v[1]
+                return self.item_action(it, {"medical": "self", "explosive": "place"}.get(it.t.kind, "use"))
+            _k, it, pos, h = v
+            return self.use_where_it_lies(it, pos, h, "self" if it.t.kind == "medical" else "use")
+        self.open_popup(Popup("Use", opts, self._screen_anchor()), pick)
 
     # ---------------------------------------------------------------- context menu (right click)
     def context_menu(self, mx, my, sx, sy):
@@ -4252,6 +4332,9 @@ class PlayState:
         if adj and who.side != p.side and who.state == "surrendered" and who.body.worst_wound() is not None and \
                 (p.medical("bandage") is not None or p.medical("tourniquet") is not None):
             opts.append(("Patch him up (he's a prisoner)", "patch_enemy", None, True))
+        if who is not None and who is not p and max(abs(mx - p.x), abs(my - p.y)) <= 2 and who.alive and \
+                (who.side == p.side or who.state == "surrendered" or who.downed) and player_can_see_actor(g, who):
+            opts.insert(0, (f"Talk to {who.him}" + (" (E)" if adj else ""), "chat", (220, 210, 170), True))
         if who is not None and who is not p and (who.side == p.side or who.state == "surrendered") and \
                 player_can_see_actor(g, who):
             opts.append(("His chain of command", "chain", None, True))
@@ -4338,6 +4421,12 @@ class PlayState:
             if who is not None:
                 from .base import talk
                 talk(self, who)
+            return
+        if v == "chat":
+            who = g.soldier_at.get((x, y))
+            if who is not None:
+                from .talk import open_talk
+                open_talk(self, who)
             return
         if v in ("qm", "intel"):
             who = g.soldier_at.get((x, y))
@@ -4579,6 +4668,11 @@ class PlayState:
         self.open_popup(Popup("Who carries on?", opts, self._screen_anchor(),
                               lines=[(f"{dead.rank_full} {dead.name} is dead. The war goes on.", UI_DIM)]),
                         lambda a: (SU.choose(g, a), self.recenter()))
+
+    def cmd_talk(self):
+        """E: talk to whoever's beside you (talk.py)."""
+        from .talk import talk_key
+        talk_key(self)
 
     def cmd_orders_book(self):
         """T: every order you hold - who, how, by when, and what follows either way."""

@@ -24,6 +24,7 @@ import fow.settings as FS  # noqa: E402
 FS.SETTINGS_PATH = os.path.join(tempfile.mkdtemp(prefix="fow_test_"), "settings.json")
 
 from fow.data.theatres import THEATRES  # noqa: E402
+from fow.data.items import ITEMS  # noqa: E402
 from fow.game import Game  # noqa: E402
 
 
@@ -501,6 +502,9 @@ def test_gun_line_and_mortars():
     fired = 0
     here = (g.sector.x, g.sector.y)
     tx = max(0, min(g.map.w - 1, p.x + 40))
+    for a in list(g.actors):                         # (nobody of ours where the rounds will land)
+        if a.side == p.side and a is not p and abs(a.x - tx) <= 15 and abs(a.y - p.y) <= 15:
+            g.remove_actor(a)
     for o in f.batteries:                            # (their guns would find ours: counter-battery is real)
         if o.side != p.side:
             o.ammo = 0
@@ -601,6 +605,10 @@ def test_orders_propose_targets_and_tasks():
     fa.states = [ps]
     p = g.player
     sq = p.squad
+    for b in g.support.fires.batteries:              # (no shells: the dressings are for counting, not using)
+        if b.side != p.side:
+            b.ammo = 0
+    g.support.next_sortie = {k: 10 ** 9 for k in g.support.next_sortie}
     _turns(g, 60)
     props = proposals(g, "flank", [sq], (p.x, p.y))
     assert props and "next objective" in props[0][0]
@@ -624,13 +632,14 @@ def test_orders_propose_targets_and_tasks():
             g.kill(a, None)
     assert TK.available(g, sq, (p.x, p.y))["medical"][0] > 0
     TK.assign(g, sq, "medical", by=p)
-    before = sum(i.count for m in sq.members for i in m.inv if i.t.kind == "medical")
+    job = sq.__dict__.get("task")
     for _ in range(90):
         _turns(g, 10)
         if sq.__dict__.get("task") is None:
             break
     assert sq.__dict__.get("task") is None
-    assert sum(i.count for m in sq.members for i in m.inv if i.t.kind == "medical") > before
+    # (what they gathered, not what's in their pouches after: they patch each other up as they go)
+    assert sum(job["found"].values()) > 0
     # a man down: carried to the aid post
     w = next(m for m in sq.members if m is not p and m.active)
     w.body.hp["l_leg"] = w.body.hp["r_leg"] = 0
@@ -684,9 +693,10 @@ def test_medevac():
     assert ok, why
     day0 = g.now()
     MV.call(ps)
-    bearers = MV._bearers(g, g.medevac)
-    assert len(bearers) == MV.TEAM and all(b in g.actors for b in bearers)
-    carried = False
+    carried = g.medevac is None                       # (they were close: it's all over by the time the call ends)
+    if not carried:
+        bearers = MV._bearers(g, g.medevac)
+        assert len(bearers) == MV.TEAM and all(b in g.actors for b in bearers)
     for _ in range(4000):
         if g.medevac is None:
             break
@@ -746,7 +756,7 @@ def test_hand_to_hand():
     from fow.play import PlayState
     from fow.spawn import free_tile_near, make_soldier
     fa = FakeApp()
-    g = Game("bocage44", "usa", seed=3, setup={"battlefield": "standard"})
+    g = Game("bocage44", "usa", role="rifleman", seed=3, setup={"battlefield": "standard"})
     ps = PlayState(fa, g)
     fa.states = [ps]
     p = g.player
@@ -796,6 +806,9 @@ def test_hand_to_hand():
     assert ML.surprised(g, e, p) and ML.moves_for(g, p, e)[0] in ("silent", "strangle")
     ML.attack(g, p, e)
     assert not e.alive or e.body.unconscious > 0 or ML.grappling(g, p) is e
+    ML._release(p, e)
+    if e in g.actors:
+        g.remove_actor(e)                            # (the man you just took: out of the way)
     # the menu
     e2 = enemy()
     ps.context_menu(e2.x, e2.y, 10, 10)
@@ -993,7 +1006,7 @@ def test_walk_through_unseen_ground():
     fa = FakeApp()
     arrived = 0
     for seed in (1, 3):
-        g = Game("bocage44", "usa", seed=seed, setup={"battlefield": "standard"})
+        g = Game("bocage44", "usa", role="rifleman", seed=seed, setup={"battlefield": "standard"})
         ps = PlayState(fa, g)
         fa.states = [ps]
         p = g.player
@@ -1002,6 +1015,10 @@ def test_walk_through_unseen_ground():
             if a.side != p.side and a.alive:
                 a.body.dead = True
                 g.kill(a, None)
+        for v in g.vehicles:                          # (and their tanks: an MG in a hull kills as surely)
+            if v.side != p.side:
+                v.crew = 0
+                v.abandoned = True
         g.waves = []
         for b in g.support.fires.batteries:
             b.ammo = 0
@@ -1253,6 +1270,158 @@ def test_interface_pictures():
         assert a is not None and a[..., 3].max() > 0, k
         n += 1
     assert n > 1000
+
+
+def test_machine_guns_pick_what_they_can_hurt():
+    """A vehicle's machine gun fires at men and at what its rounds go through - not at a buttoned-up tank."""
+    from fow import ai as AI
+    from fow.entities import Vehicle
+    g = Game("kursk43", "germany", seed=3, setup={"battlefield": "standard"})
+    mine = next(v for v in g.vehicles if v.side == g.player_side and v.vt.mgs and not v.dead)
+    idxs = [0]
+    enemy = "allies" if mine.side == "axis" else "axis"
+    nat = g.side_nation(enemy)
+    heavy = Vehicle("kv1" if nat == "ussr" else "m4_sherman", enemy, nat, mine.x + 12, mine.y)
+    heavy.buttoned = True
+    lorry = Vehicle("studebaker", enemy, nat, mine.x, mine.y + 10)
+    man = next(a for a in g.actors if a.side == enemy and a.active)
+    mg = ITEMS[mine.vt.mgs[0]]
+    if (mg.pen or 0) < 25:
+        assert AI.mg_can_hurt(mine, idxs, heavy) == 0          # sparks off the plate
+    assert AI.mg_can_hurt(mine, idxs, lorry) == 2
+    assert AI.mg_can_hurt(mine, idxs, man) == 2
+    heavy.buttoned = False
+    heavy.x, heavy.y = mine.x + 8, mine.y
+    assert AI.mg_can_hurt(mine, idxs, heavy) in (1, 2)          # a head out of the hatch, close enough
+
+
+def test_talk_trade_and_the_noise_of_war():
+    """Anyone near can be talked to - his life, his state, what he's seen, a trade; the wounded scream in their
+    own language and their mates shout their names; valour wipes out the black marks."""
+    from fow import people as PP
+    from fow import social as SO
+    from fow import talk as TK
+    from fow import base as BASE
+    from fow.combat import hit_actor
+    from fow.entities import Item
+    from fow.play import PlayState
+    fa = FakeApp()
+    g = Game("bocage44", "usa", role="rifleman", seed=5, setup={"battlefield": "standard"})
+    ps = PlayState(fa, g)
+    fa.states = [ps]
+    for b in g.support.fires.batteries:
+        b.ammo = 0
+    p = g.player
+    mate = next(m for m in p.squad.members if m is not p and m.active)
+    g.soldier_at.pop((mate.x, mate.y), None)
+    mate.x, mate.y = p.x + 1, p.y
+    g.soldier_at[(mate.x, mate.y)] = mate
+    lf = PP.life(mate)
+    assert lf["town"] and PP.life(mate) is lf                   # (the same man every time)
+
+    def choose(value):
+        pop = ps.popups[-1]
+        k = next(i for i, o in enumerate(pop.options) if o[1] == value)
+        pop.sel = k
+        ps.popup_select()
+    ps.popups = []
+    TK.open_talk(ps, mate)
+    choose("home")
+    assert any(lf["town"] in m.text for m in list(g.messages)[-40:])
+    ps.popups = []
+    TK.open_talk(ps, mate)
+    choose("state")
+    # a trade: he'll take cigarettes for a clip (a smoker's price)
+    p.add_item(Item("cigarettes"))
+    mine = p.find(lambda i: i.t.tool == "cigarettes")
+    his = next(i for i in mate.inv if PP.tradeable(mate, i))
+    assert PP.worth(g, mate, mine) > 0 and isinstance(PP.deal(g, mate, his, mine, 50), bool)
+    # the noise: a man hit in the leg cries out, and his buddy shouts his name
+    bd = PP.buddy(g, mate)
+    if bd is not None:
+        g.soldier_at.pop((bd.x, bd.y), None)
+        bd.x, bd.y = mate.x + 2, mate.y
+        g.soldier_at[(bd.x, bd.y)] = bd
+        bd.ai.pop("said", None)
+    mate.ai.pop("said", None)
+    hit_actor(g, mate, 30, "gunshot", None, "a test", part="l_leg")
+    assert mate.shout and mate.shout[0]
+    if bd is not None and bd.active:
+        assert PP.call_name(mate) in (bd.shout or ("",))[0]
+    e = next(a for a in g.actors if a.side != p.side and a.active)
+    e.ai.pop("said", None)
+    from fow.data.chatter import C, UNIVERSAL
+    from fow.data.phrases import lang
+    assert SO.say(g, e, "hit_bad", "scream", gap=0)
+    assert e.shout[0] in (C["hit_bad"].get(lang(e.nation)) or UNIVERSAL["hit_bad"])    # (in his own language)
+    # a failed order, then the objective taken: the slate is wiped
+    d = g.duty
+    for _ in range(3):
+        d.give(g, "dig", p.squad.leader)
+        t = d._tasks()[-1]
+        t["deadline"] = g.turn - 1
+        t["nagged"] = True
+        d._check_task(g, t)
+    assert d.strikes >= 3 and BASE._state(g).get("fine_days")
+    ob = g.map.objectives[0]
+    g.soldier_at.pop((p.x, p.y), None)
+    p.x, p.y = ob.x, ob.y
+    g.soldier_at[(p.x, p.y)] = p
+    g.command.on_objective(g, 0, p.side)
+    g.command.on_objective(g, 0, p.side)
+    assert d.strikes < 3 and not BASE._state(g).get("fine_days")
+
+
+def test_use_things_where_they_lie():
+    """A dressing on the ground, the dead man's morphine: used without picking them up first."""
+    from fow.combat import hit_actor
+    from fow.entities import Item
+    from fow.play import PlayState
+    fa = FakeApp()
+    g = Game("bocage44", "usa", role="rifleman", seed=5, setup={"battlefield": "standard"})
+    ps = PlayState(fa, g)
+    fa.states = [ps]
+    for b in g.support.fires.batteries:
+        b.ammo = 0
+    p = g.player
+    for i in list(p.inv):
+        if i.t.kind == "medical":
+            p.remove_item(i)
+    g.map.add_item(p.x + 1, p.y, Item("bandage"))
+    hit_actor(g, p, 30, "gunshot", None, "a test", part="l_arm")
+    assert p.body.bleed_rate() > 0
+    ps.popups = []
+    ps.cmd_apply()
+    pop = ps.popups[-1]
+    k = next(i for i, o in enumerate(pop.options) if isinstance(o[1], tuple) and o[1][0] == "near" and
+             o[1][1].tid == "bandage")
+    pop.sel = k
+    ps.popup_select()
+    assert p.body.bleed_rate() == 0
+    assert not any(i.tid == "bandage" for i in g.map.items_at(p.x + 1, p.y))    # (used up, off the ground)
+
+
+def test_notable_units():
+    """Serve in a famous division: its real regiments on your papers, its real commander above you."""
+    from fow.data.nations import unit_designation
+    from fow.data.notable import NOTABLE, division
+    from fow.data.theatres import THEATRES
+    from fow.hierarchy import Hierarchy
+    import random
+    for k, d in NOTABLE.items():
+        assert d["theatres"] and all(t in THEATRES for t in d["theatres"]), k
+        assert any(n == d["nation"] for t in d["theatres"] for side in THEATRES[t]["sides"].values()
+                   for n, _w in side), k
+    g = Game("omaha44", "usa", role="rifleman", seed=3, setup={"battlefield": "standard", "unit": "notable:us_1id"})
+    p = g.player
+    assert p.unit.endswith("1st Infantry Division") and any(r in p.unit for r in NOTABLE["us_1id"]["regiments"])
+    chain = " ".join(w for _post, w in Hierarchy().chain_lines(g, p))
+    assert "Huebner" in chain
+    rng = random.Random(1)
+    for _ in range(20):
+        u = unit_designation(rng, "ussr", ["13th Guards Rifle Division"])
+        assert any(r in u for r in NOTABLE["su_13gd"]["regiments"])
+    assert division(NOTABLE["de_gd"], "france40") == "Infanterie-Regiment Großdeutschland"
 
 
 if __name__ == "__main__":

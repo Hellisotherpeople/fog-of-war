@@ -186,6 +186,8 @@ def run(th, nat, seed, steps, app, verbose=False):
                     app.pop()
         elif r < 0.993:
             key(c='A')                                 # autopilot on / off
+        elif r < 0.996:
+            key(c='E')                                 # talk to whoever's beside you (the menus: popups above)
         else:
             key(c='.')
         if step % 25 == 0:

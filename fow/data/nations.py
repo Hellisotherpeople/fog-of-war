@@ -441,9 +441,44 @@ def ordinal(n: int) -> str:
     return f"{n}{_ORD.get(n % 10, 'th')}"
 
 
-def unit_designation(rng: random.Random, nation: str, divisions: list[str] | None = None) -> str:
-    """A plausible company/battalion/regiment/division string."""
+def notable_designation(rng: random.Random, nation: str, d: dict, theatre=None) -> str:
+    """Company, battalion, one of the regiments that really served in this division, and the division - in the
+    way its own army wrote it (data/notable.py)."""
+    from .notable import division, regiments
+    div = division(d, theatre)
+    regs = regiments(d, theatre)
+    if not regs:
+        return unit_designation(rng, nation, [div], notable=False)
+    reg = rng.choice(regs)
+    bn = rng.randint(1, 3)
+    coy = (bn - 1) * 4 + rng.randint(1, 4)
+    if reg == div or div.endswith(reg):
+        return f"{ordinal(coy)} Company, {div}" if nation != "germany" else f"{coy}. Kompanie, {div}"
+    if nation == "usa":
+        letter = "ABCDEFGHIKLM"[coy - 1]
+        if "Battalion" in reg:
+            return f"Co. {'ABCD'[coy % 4]}, {reg}, {div}"
+        return f"Co. {letter}, {ordinal(bn)} Bn, {reg}, {div}"
+    if nation in ("uk", "canada", "australia", "newzealand", "india"):
+        return f"{'ABCD'[coy % 4]} Company, {reg}, {div}"
+    if nation == "germany":
+        return f"{coy}. Kompanie, {'I II III'.split()[bn - 1]}. Bataillon, {reg}, {div}"
+    if nation == "italy":
+        return f"{coy}ª Compagnia, {ordinal(bn)} Battaglione, {reg}, {div}"
+    if nation == "france":
+        return f"{coy}e Compagnie, {bn}e Bataillon, {reg}, {div}"
+    return f"{ordinal(coy)} Company, {ordinal(bn)} Battalion, {reg}, {div}"
+
+
+def unit_designation(rng: random.Random, nation: str, divisions: list[str] | None = None, notable=True) -> str:
+    """A plausible company/battalion/regiment/division string - with the real regiments, where the division is
+    one history knows (data/notable.py)."""
     div = rng.choice(divisions) if divisions else None
+    if div and notable:
+        from .notable import by_division
+        nd = by_division(div)
+        if nd is not None and nd[0]["nation"] == nation:
+            return notable_designation(rng, nation, nd[0], nd[1])
     bn = rng.randint(1, 3)
     coy = (bn - 1) * 4 + rng.randint(1, 4)       # companies are numbered through the regiment, four a battalion
     rgt = rng.randint(2, 999)

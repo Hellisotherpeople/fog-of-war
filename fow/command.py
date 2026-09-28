@@ -1433,7 +1433,11 @@ class CommandState:
     # ------------------------------------------------------------ merit, promotion, medals
     def on_kill(self, game, victim):
         self.battle["kills"] += 1
-        self.merit += 1.0 if getattr(victim, "vt", None) is None else 3.0
+        tank = getattr(victim, "vt", None) is not None
+        self.merit += 1.0 if not tank else 3.0
+        if victim.side != game.player.side and getattr(victim, "state", "ok") == "ok":
+            game.duty.valour(game, 3.0 if tank else 0.6, f"knocking out the {victim.vt.name}" if tank else
+                             "your part in the fighting")
 
     def on_objective(self, game, i, side):
         p = game.player
@@ -1446,10 +1450,13 @@ class CommandState:
             self.battle["objectives"] += 1
             self.career["objectives"] += 1
             self.merit += 4 if near else 2
+            game.duty.valour(game, 4.0 if near else 2.0, f"taking {ob.name}" if getattr(ob, "name", "") else
+                             "taking the objective")
 
     def on_wounded(self, game):
         self.battle["wounds"] += 1
         self.merit += 1
+        game.duty.valour(game, 1.0, "wounded in action")
         if not any(m == self._medal(game, 0) for m in self.medals):
             self._award(game, 0, "for wounds received in action")
 
@@ -1458,6 +1465,7 @@ class CommandState:
             return
         self.career["sectors"] += 1
         self.merit += 5
+        game.duty.valour(game, 2.0, f"the fighting for {game.sector.name}")
         self._battle_awards(game)
         self.consider_promotion(game, "the fighting for " + game.sector.name)
 
@@ -1479,6 +1487,7 @@ class CommandState:
         self.medals.append(name)
         if not posthumous:
             game.msg(f"You are awarded the {name} {why}.", "good")
+            game.duty.valour(game, 6.0 if level > 0 else 0.5, f"the {name}")
         return name
 
     def valour_score(self):
