@@ -31,7 +31,11 @@ BARN = [("shovel", 3), ("wirecutters", 1.5), ("wire_spool", 1), ("sandbags", 2),
 CHURCH = [("bible", 3), ("rosary", 3), ("bandage", 3), ("medkit", 0.6), ("morphine", 0.6), ("letter", 1)]
 WINTER = [("winter_coat", 3), ("snow_smock", 1)]
 STYLE_TABLE = {"house": HOUSE, "farmhouse": HOUSE, "townhouse": HOUSE, "izba": HOUSE, "desert_house": HOUSE,
-               "hut": HOUSE, "barn": BARN, "shed": BARN, "church": CHURCH}
+               "hut": HOUSE, "barn": BARN, "shed": BARN, "church": CHURCH,
+               "chateau": HOUSE, "station": HOUSE, "bungalow": HOUSE, "white_house": HOUSE, "lighthouse": HOUSE,
+               "windmill": BARN, "post_mill": BARN, "kiln": BARN, "elevator": BARN, "keep": BARN, "tower": BARN,
+               "chapel": CHURCH, "white_church": CHURCH, "shrine": CHURCH, "temple": CHURCH, "pagoda": CHURCH,
+               "marabout": CHURCH}
 # a dump behind the lines
 DUMP = [("ammo_crate", 5), ("ration", 4), ("bandage", 3), ("medkit", 1), ("canteen", 2), ("plasma", 0.8),
         ("sandbags", 2), ("wire_spool", 1), ("grenade", 3), ("mag", 4), ("ammo", 4), ("morphine", 1)]

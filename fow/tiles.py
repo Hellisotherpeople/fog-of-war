@@ -141,10 +141,10 @@ T("marsh", "marsh", "\"~,\"", (105, 145, 95), (35, 60, 46), cost=240, water=1, c
   into="marsh", flam=5, sound=1)
 
 # ------------------------------------------------------------------ vegetation
-T("tree", "tree", "♣♣♣♠", (45, 135, 40), (18, 42, 16), walk=False, see=False, cover=60,
+T("tree", "tree", "♣♣♣♠", (80, 175, 62), (16, 38, 14), walk=False, see=False, cover=60,
   tall=True, hp=260, armor=35, into="stump", burnt="dead_tree", flam=12, crush=2,
   desc="A tree. The trunk stops bullets; the canopy hides you from the air.")
-variant("tree", "pine", "fir tree", fg=(35, 110, 65), bg=(12, 35, 20), glyphs="♣♣♠♣")
+variant("tree", "pine", "fir tree", fg=(50, 150, 85), bg=(12, 35, 20), glyphs="♣♣♠♣")
 variant("tree", "tree_snow", "snowy fir", fg=(60, 120, 80), bg=(150, 160, 175), glyphs="♣♣♠♣")
 variant("tree", "tree_autumn", "tree", fg=(170, 110, 40), bg=(45, 35, 15))
 variant("tree", "olive", "olive tree", fg=(130, 150, 90), bg=(55, 55, 30), hp=200, armor=30)
@@ -156,19 +156,19 @@ T("stump", "tree stump", "°•°∙", (130, 100, 60), (40, 32, 22), cost=150, c
   hp=150, armor=30, into="dirt", flam=5, crush=0, pos_cover=10)
 T("log", "fallen tree", "=-=─", (140, 100, 60), (40, 30, 20), cost=260, cover=60, hp=250,
   armor=35, into="dirt", flam=10, crush=1, pos_cover=25)
-T("bush", "undergrowth", "♠\"♠%", (60, 125, 50), (20, 48, 18), see=False, cost=190,
+T("bush", "undergrowth", "%\"%;", (60, 125, 50), (20, 48, 18), see=False, cost=190,
   cover=10, conceal=70, flam=25, hp=40, armor=2, into="grass", burnt="burnt", crush=1)
 variant("bush", "bush_snow", "snowy undergrowth", fg=(90, 130, 90), bg=(150, 160, 170))
-T("jungle", "dense jungle", "♠♣\"♠", (40, 145, 55), (14, 46, 20), see=False, cost=260,
+T("jungle", "dense jungle", "%\"%%;", (58, 118, 54), (16, 44, 20), see=False, cost=260,
   cover=18, conceal=85, flam=6, hp=60, armor=4, into="tall_grass", burnt="burnt", crush=1)
-T("bamboo", "bamboo", "║|║│", (120, 180, 70), (25, 55, 20), see=False, cost=280, cover=20,
+T("bamboo", "bamboo", "¦|¦!", (120, 180, 70), (25, 55, 20), see=False, cost=280, cover=20,
   conceal=80, flam=15, hp=50, armor=4, into="tall_grass", crush=1)
 T("scrub", "scrub", ",\"*,", (150, 140, 75), (105, 92, 58), cost=110, conceal=20, flam=30,
   cover=5, into="sand", burnt="sand")
 T("hedge", "hedgerow", "▓▓▓▒", (45, 105, 38), (30, 62, 24), walk=False, see=False, cover=92,
   tall=True, hp=520, armor=200, into="rubble_earth", flam=6, crush=2, conceal=60,
   desc="Bocage: an earth bank topped with dense hedge. Impassable except at gaps.")
-T("garden_hedge", "garden hedge", "▒▒░▒", (60, 125, 50), (26, 55, 22), see=False, cost=320,
+T("garden_hedge", "garden hedge", "%%\"%", (60, 125, 50), (26, 55, 22), see=False, cost=320,
   cover=30, conceal=60, flam=20, hp=60, armor=5, into="grass", crush=1)
 
 # ------------------------------------------------------------------ walls & buildings
@@ -459,6 +459,73 @@ T("tomb", "turtleback tomb", "∩", (175, 170, 150), (85, 82, 72), walk=False, s
   desc="An Okinawan family tomb, stone and concrete, its shape a womb or a turtle's back. The Japanese fought from "
        "them; the families' bones were inside.")
 
+# ------------------------------------------------------------------ landmarks and places (landmarks.py)
+variant("tree", "poplar", "poplar", fg=(75, 130, 55), bg=(24, 48, 20), hp=200,
+        desc="A Lombardy poplar, one of a line planted along the road so the marching columns had shade.")
+T("gravel", "gravel", "·:·∙", (190, 180, 160), (88, 84, 74), cost=95, sound=3, into="gravel", vcost=65,
+  desc="Raked gravel. Every footstep crunches.")
+T("wall_white", "whitewashed wall", "#", (232, 226, 212), (150, 145, 132), walk=False, see=False, cover=100,
+  tall=True, hp=800, armor=150, into="rubble", crush=3, sound=28, hard=True)
+T("sail", "windmill sail", "\\", (200, 185, 150), (40, 38, 30), cost=100, hp=60, armor=4, into="rubble_wood",
+  flam=40, burnt="burnt", desc="A sail of the windmill, a lattice of laths turning slowly overhead.")
+T("sail2", "windmill sail", "/", (200, 185, 150), (40, 38, 30), cost=100, hp=60, armor=4, into="rubble_wood",
+  flam=40, burnt="burnt", desc="A sail of the windmill, a lattice of laths turning slowly overhead.")
+T("platform", "railway platform", ".·", (190, 185, 175), (96, 94, 90), cost=95, hard=True, sound=3, hp=800,
+  armor=100, into="rubble_light", vcost=70, desc="The platform: a timetable, a bench, and nobody waiting.")
+T("boxcar", "goods wagon", "▬", (155, 82, 58), (62, 36, 26), walk=False, see=False, cover=80, tall=True, hp=700,
+  armor=35, into="wreck", flam=35, burnt="wreck", crush=9, hard=True,
+  desc="A goods wagon on the siding: 'Hommes 40, Chevaux 8', or the German or Russian for it.")
+T("locomotive", "locomotive", "◙", (80, 80, 84), (30, 30, 32), walk=False, see=False, cover=98, tall=True,
+  hp=4000, armor=300, into="wreck", crush=9, hard=True,
+  desc="A steam engine, strafed and dead on the rails. Its boiler stops anything short of a shell.")
+T("water_tower", "water tower", "Ŧ", (170, 160, 140), (58, 54, 48), walk=False, see=True, cover=35, tall=True,
+  hp=900, armor=60, into="rubble_heavy", crush=9, hard=True,
+  desc="A water tower on steel legs, a tank on top: the highest thing for miles, and every gunner's aiming mark.")
+T("chimney", "factory chimney", "●", (180, 95, 75), (82, 42, 34), walk=False, see=False, cover=100, tall=True,
+  hp=2500, armor=180, into="rubble_heavy", crush=9, hard=True,
+  desc="A brick chimney, a hundred feet tall. The artillery registers on it; so do the snipers.")
+T("silo", "grain silo", "Θ", (195, 192, 182), (104, 102, 96), walk=False, see=False, cover=100, tall=True,
+  hp=6000, armor=500, into="rubble_heavy", crush=9, hard=True,
+  desc="A concrete silo full of grain - it burns for weeks, and stops anything.")
+T("calvary", "wayside cross", "†", (205, 200, 185), (62, 58, 50), walk=False, see=True, cover=35, tall=True,
+  hp=400, armor=90, into="rubble", crush=3, hard=True,
+  desc="A stone cross at the roadside, flowers at its foot. Every map in the army marks it.")
+T("memorial", "war memorial", "‡", (215, 210, 195), (82, 78, 70), walk=False, see=True, cover=75, tall=True,
+  hp=1500, armor=220, into="rubble", crush=9, hard=True,
+  desc="The memorial to the last war: a stone soldier and a column of names, the same surnames as the shop signs.")
+T("fountain", "fountain", "☼", (150, 190, 230), (82, 82, 86), walk=False, see=True, cover=65, hp=1400, armor=200,
+  into="rubble", crush=9, hard=True, desc="A stone basin and a spout. The water still runs.")
+T("vault", "family vault", "⌂", (190, 186, 172), (78, 76, 70), walk=False, see=False, cover=95, tall=True, hp=1600,
+  armor=240, into="rubble_heavy", crush=9, hard=True,
+  desc="A stone family vault with an iron door. Better cover than anything the living built.")
+T("timber", "stacked timber", "≡", (175, 135, 85), (72, 52, 32), walk=False, see=False, cover=75, tall=True,
+  hp=500, armor=45, into="rubble_wood", flam=45, burnt="burnt", crush=3,
+  desc="Sawn logs stacked head-high to season.")
+T("sangar", "sangar", "∩", (180, 165, 135), (92, 82, 64), cost=260, cover=72, pos_cover=30, hp=500, armor=140,
+  into="rubble", crush=2, hard=True,
+  desc="A breastwork of piled stones, where the ground's too hard to dig. Splinters fly off it.")
+T("torii", "torii gate", "π", (215, 72, 52), (62, 42, 34), cost=100, cover=10, tall=True, hp=300, armor=40,
+  into="rubble_wood", flam=30, burnt="burnt", desc="A red gate of two posts and two beams: the way into the shrine.")
+T("stupa", "stupa", "▲", (232, 218, 172), (112, 102, 82), walk=False, see=False, cover=100, tall=True, hp=3000,
+  armor=260, into="rubble_heavy", crush=9, hard=True,
+  desc="A whitewashed stupa with a gilt spire, a relic sealed inside. The Japanese dug in under them.")
+T("oil_tank", "oil storage tank", "O", (172, 172, 166), (66, 66, 64), walk=False, see=False, cover=70, tall=True,
+  hp=500, armor=25, into="crater_big", flam=95, burnt="crater_big", crush=9, hard=True,
+  desc="A storage tank of fuel oil. One tracer round, and it goes up like the end of the world.")
+T("radar", "radar dish", "¤", (195, 200, 195), (54, 58, 54), walk=False, see=True, cover=30, tall=True, hp=350,
+  armor=15, into="rubble_light", crush=2,
+  desc="A Würzburg radar dish, twenty feet across, on a turntable. It tracks the bombers.")
+T("pole", "telegraph pole", "ǂ", (145, 115, 80), (40, 32, 22), walk=False, see=True, cover=10, tall=True, hp=90,
+  armor=15, into="dirt", flam=20, burnt="burnt", crush=1,
+  desc="A telegraph pole. Follow the wire and you'll find a road, a railway or a headquarters.")
+T("tobruk", "Tobruk pit", "Ø", (178, 178, 170), (72, 72, 68), cost=160, pos_cover=88, conceal=45, hard=True,
+  hp=3000, armor=500, into="crater",
+  desc="A Ringstand: a concrete pit for one machine gun or mortar, a round hole open to the sky.")
+T("slag", "slag heap", "^∙^·", (95, 90, 88), (36, 34, 34), cost=230, pos_cover=25, conceal=10, sound=2, into="slag",
+  desc="A black hill of mine spoil. Every step slides back half of it.")
+T("bracken", "bracken", "\";\",", (140, 150, 70), (44, 52, 24), cost=125, conceal=50, flam=45, dig=True,
+  into="grass", burnt="burnt", desc="Waist-high bracken. Lie down in it and you're gone.")
+
 NUM = len(DEFS)
 
 # ------------------------------------------------------------------ lookup arrays
@@ -504,6 +571,7 @@ EXPLODE[ID["fuel_drums"]] = (160, 3, 3)
 EXPLODE[ID["plane_parked"]] = (140, 3, 3)
 EXPLODE[ID["ammo_rack"]] = (600, 6, 2)
 EXPLODE[ID["avgas"]] = (450, 5, 5)
+EXPLODE[ID["oil_tank"]] = (260, 5, 6)
 
 
 def tid(key: str) -> int:

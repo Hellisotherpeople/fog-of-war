@@ -36,7 +36,9 @@ bigger battlefields; `oob.py` builds the formations over them).
                 hierarchy.py        your chain of command up to the head of state, by date
    │
  a sector       mapgen.py           procedural battlefield: terrain by biome, towns, forts, depots
+                landmarks.py        windmills, stations, châteaux, forts, shrines...: the named places
                 gamemap.py tiles.py the map arrays (terrain, cover, sight, cost, items, mines, fire)
+                going.py            the going in words (the look) and as a tint (X)
                 spawn.py            soldiers, squads, vehicles, the player; filling a battlefield
    │
  the fight      game.py             the Game object and its turn loop
@@ -305,6 +307,23 @@ Sprites are **painted by code** at 64 px (`sprites.py`): terrain textures per bi
 vehicles from their real footprints, and soldier figures built from what each man is actually
 wearing and carrying (`figures.py`), so a Soviet sniper in a winter smock looks like one. Nothing
 is loaded from image files except the fonts.
+
+Terrain follows one rule so the going can be read at a glance: a tile you can't walk through
+(`T.WALK` false) is painted on its own layer and stood on its ground by `Canvas.stand` - a dark rim
+round its solid shape and a cast shadow - and full-tile obstacles like hedgerows get `Canvas.bevel`,
+lit top-left and shadowed bottom-right like a wall. Walkable tiles are painted flat, with no rim or
+shadow. New tiles go on the end of `tiles.py` (saves store tile ids); `paint_place` paints the
+landmark tiles.
+
+`landmarks.py` runs inside `mapgen.Gen.run` after the ground, villages and rivers and before the
+defences. `menu()` weights about two dozen builders by biome, climate and language; `place()` builds
+`1 + 0.9 k` of them (k: how much bigger than the standard field) with `gen.rng` swapped for a private
+stream, so the rest of a sector's making is what it always was for its seed. Each builder finds a
+free rectangle (`spot`), builds with `gen.building` and the tile helpers, lays a cart track to the
+nearest road (`track`, around buildings and water), protects its ground and adds a POI. Landmarks on a
+rise or in a hole register `gen.rises`, which `relief.make` adds to the heightmap. `dress()` adds the
+calvaries, memorials, named buildings, poplars and telegraph poles; `fortify()` runs after the
+defences (Tobruk pits, sangars).
 
 The interface's pictures (`icons.py`) are painted by code too. Any screen asks for a picture over a
 rectangle of text cells with `icons.pic(x, y, w, h, key)`: a key such as `gun:rifle`,

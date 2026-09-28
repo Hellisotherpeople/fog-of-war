@@ -109,6 +109,14 @@ def draw_sprite_layers(bank, game, cam, frame=0, ui=None):
             return tuple(int(v) for v in light_rgb[sx, sy]) + (255,)
         return (255, 255, 255, 255)
 
+    # ---------------------------------------------------------------- reading the ground (X)
+    if ui is not None and getattr(ui, "going_on", lambda: False)():
+        from .going import tint
+        gcol, ga = tint(game, S[0], S[1])
+        ga = np.where(exp, ga, 0.0)
+        deco.rgba["bg"][ox:ox + w, oy:oy + h, :3] = gcol.astype(np.uint8)
+        deco.rgba["bg"][ox:ox + w, oy:oy + h, 3] = np.clip(ga * 235, 0, 255).astype(np.uint8)
+
     # ---------------------------------------------------------------- decals
     blood = m.blood[S]
     scorch = m.scorch[S]

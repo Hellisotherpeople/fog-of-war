@@ -190,7 +190,7 @@ def _view(con):
     return con.width, con.height
 
 
-def draw_map(con, game, cam, frame=0):
+def draw_map(con, game, cam, frame=0, going=False):
     m = game.map
     VW, VH = _view(con)
     x0, y0, ox, oy, w, h = view_window(m, cam, VW, VH)
@@ -267,6 +267,13 @@ def draw_map(con, game, cam, frame=0):
     fg = np.where(mem[..., None], gray * 0.38 + np.array([6, 8, 14]), fg)
     bgg = bg.mean(axis=2, keepdims=True)
     bg = np.where(mem[..., None], bgg * 0.22, bg)
+    if going:
+        # reading the ground (X): red where there's no way through, amber where it's slow
+        from .going import tint
+        gcol, ga = tint(game, slice(x0, x0 + w), slice(y0, y0 + h))
+        ga = np.where(ga >= 0.5, 0.75, ga * 1.3)[..., None]      # the glyphs are small: tint the cell hard
+        bg = bg * (1 - ga) + gcol * ga * 0.85
+        fg = fg * (1 - ga * 0.3) + gcol * ga * 0.3
     unk = ~exp
     glyph[unk] = ord(" ")
     fg[unk] = 0

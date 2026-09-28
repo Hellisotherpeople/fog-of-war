@@ -41,7 +41,11 @@ def floor_word(game, a) -> str:
     b = game.map.building_at(a.x, a.y)
     if b is not None and z >= b[1] - 1:
         style = next((bb[4] for bb in game.map.buildings if tuple(bb[:4]) == b[0]), "")
-        top = {"church": "the bell tower", "desert_house": "the flat roof", "barn": "the hayloft"}.get(style)
+        top = {"church": "the bell tower", "desert_house": "the flat roof", "barn": "the hayloft",
+               "white_church": "the bell tower", "tower": "the top of the tower", "keep": "the battlements",
+               "lighthouse": "the lantern gallery", "pagoda": "the top of the pagoda",
+               "elevator": "the top of the elevator", "marabout": "the roof", "white_house": "the flat roof",
+               "windmill": "the cap of the mill", "post_mill": "the cap of the mill"}.get(style)
         if top:
             return top
     return FLOOR_WORD.get(z, f"floor {z}")

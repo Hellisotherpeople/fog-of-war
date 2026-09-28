@@ -57,6 +57,50 @@ districts, steppe, desert, forests, jungle, marsh, mountains (with a ruined abbe
 and beaches with a sea, surf, obstacles and bluffs. Rivers get bridges. Weather and day/night
 follow the real date.
 
+**Reading the ground.** Whether you can get through something is shown three ways:
+- *How it's drawn.* Anything you can't walk through stands up out of the ground: a dark rim round it
+  and a shadow cast down and to the right (trees, palms, mangroves, boulders, wagons, stacks), or a
+  raised, bevelled block (walls, bocage hedgerows). Anything you can walk through lies flat, ground
+  showing between: undergrowth, dense jungle, bamboo, garden hedges, crops, reeds, rubble. In ASCII
+  the trees are `♣` `♠` `τ` and walkable greenery is `%` `"` `;` `!`.
+- *The look.* Rest the mouse on a tile (or `x`) and it says the going, from the same costs the
+  pathing uses, slope included: "No way through on foot - a tank could push through it", "Very slow
+  going - you can't see into it". With *Hit chances as numbers* on, it gives the multiple:
+  "(x2.6 the time)". In a vehicle it's the vehicle's going: what it can smash through, what's too deep.
+- *X, reading the ground.* Tints the battlefield: red where there's no way through (for you on foot,
+  or for the vehicle you're in), amber where it's slow, deeper the slower. `X` again turns it off; it's
+  also in Options.
+
+**Landmarks.** Every sector has a few places men steered by and fought over, chosen by its country,
+climate and ground (`landmarks.py`). They're candidate objectives, preferred over a nameless field, and
+they're real terrain:
+- *France, the Low Countries, Germany, Italy:* a windmill on its rise (a stone tower mill, or a wooden
+  post mill in the north and east); a railway right across the sector with its station or halt, the
+  platform, goods wagons and sometimes a strafed locomotive on the siding, the water tower and the
+  telegraph poles; a château behind its park wall, a poplar-lined gravel drive, a fountain in the
+  forecourt and cellars under it all; the village cemetery - high stone walls in France and Italy,
+  family vaults better cover than any house, a chapel, cypresses; a brickworks with its kilns, clay pit
+  and chimney; a quarry (a hole in the ground, cliffs round it); a slag heap with its pithead in the
+  mining country; a castle on its hill, its curtain wall breached, towers and a keep you can climb; a
+  Würzburg radar station behind its wire, with bunkers and Tobruk pits; a landing strip; a tank farm
+  of oil tanks in their earth bunds, which go up like the end of the world when hit.
+- *Russia and the Ukraine:* the grain elevator (Stalingrad's was fought over for days), its silos
+  concrete that stops anything; the kolkhoz with its long barns, silos and dead tractors; wooden
+  windmills; birch-shaded cemeteries of wooden crosses.
+- *The desert:* a fort with corner towers and a whitewashed barracks; the marabout, a holy man's tomb
+  (Sidi Rezegh is one); the landing ground, its edges marked with painted drums; an oasis.
+- *The Pacific and Asia:* a coconut plantation in rows (Guadalcanal's were Lever Brothers'), the
+  manager's bungalow and the copra sheds; a mission church; a shrine behind its torii; a pagoda - a
+  cluster of stupas in Burma, a brick tower in China; an airstrip.
+- *Coasts:* a lighthouse on the bluff above the beach.
+- *Where the fighting's been heavy:* the burnt-out tanks of the last attack, in their shell holes.
+
+Smaller touches: a calvary at the crossroads, the memorial to the last war in a village with a church,
+named buildings (the mairie, the café, the Gasthaus, the osteria, the kolkhoz office, the teahouse),
+poplars along French and Italian roads, telegraph poles across the steppe and the desert, Tobruk pits in
+a German line and stone sangars where the ground's rock. Towers, keeps, lighthouses, pagodas and the
+elevator have open tops: a sniper up there sees over everything, as in a church tower.
+
 **Everything breaks.**
 - Shells crater the ground and knock down walls, and buildings turn to rubble.
 - Bridges collapse, trees become stumps, and tanks crush hedgerows and walls.

@@ -190,7 +190,11 @@ def bitmap_tileset() -> tcod.tileset.Tileset:
             ts.remap(BOLD_BASE + cp, index[cp] % 16, index[cp] // 16)
     for cp, sub in ((0x25AE, "█"), (0x2014, "-"), (0x2013, "-"), (0x2018, "'"), (0x2019, "'"),
                     (0x201C, '"'), (0x201D, '"'), (0x2026, "."), (0x2605, "*"), (0x2196, "▲"), (0x2197, "▲"),
-                    (0x2198, "▼"), (0x2199, "▼")):
+                    (0x2198, "▼"), (0x2199, "▼"),
+                    # map glyphs the sheet lacks (tiles.py): water tower, telegraph pole, bamboo, radar dish,
+                    # Tobruk pit, wayside cross, war memorial
+                    (0x0166, "T"), (0x01C2, "┼"), (0x00A6, "|"), (0x00A4, "o"), (0x00D8, "Φ"), (0x2020, "+"),
+                    (0x2021, "╪")):
         i = index.get(ord(sub))
         if i is not None:
             ts.remap(cp, i % 16, i // 16)
