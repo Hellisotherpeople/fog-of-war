@@ -13,7 +13,8 @@ upstairs when a battle starts, as they were - a sniper in the church tower is th
 """
 from __future__ import annotations
 
-OPEN_TOP = {"church", "desert_house", "barn"}
+OPEN_TOP = {"church", "desert_house", "barn", "white_church", "tower", "keep", "lighthouse", "pagoda", "elevator",
+            "marabout", "white_house"}
 
 
 def open_top(game, a):

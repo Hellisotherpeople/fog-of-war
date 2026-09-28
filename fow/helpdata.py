@@ -58,6 +58,10 @@ SECTIONS = [
         ("t", "With the enemy in sight or rounds coming in, a step stops with a warning. Step again to go anyway."),
         ("k", "!", "safe mode off / on"),
         ("k", "'", "ignore the dangers you can see now"),
+        ("h", "The going"),
+        ("t", "What you can't walk through stands up with a dark rim and a shadow; what lies flat, you can push "
+              "through - slowly. The look says how slow."),
+        ("k", "X", "read the ground: red is no way through, amber is slow going"),
     ]),
     ("Fighting", [
         ("k", "f|Tab", "aim and fire: the cursor jumps to a target (an empty gun reloads instead)"),

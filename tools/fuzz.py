@@ -188,6 +188,8 @@ def run(th, nat, seed, steps, app, verbose=False):
             key(c='A')                                 # autopilot on / off
         elif r < 0.996:
             key(c='E')                                 # talk to whoever's beside you (the menus: popups above)
+        elif r < 0.998:
+            key(c='X')                                 # read the ground (the going tint) on / off
         else:
             key(c='.')
         if step % 25 == 0:

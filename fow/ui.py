@@ -1542,6 +1542,9 @@ class OptionsState:
              None),
             ("Safe mode", "safe_mode", "toggle", "With the enemy in sight or rounds coming in, a step stops with a "
              "warning; step again to go anyway. (! in play; ' ignores what you can see.)", None),
+            ("Read the ground", "going", "toggle", "Tint the battlefield by the going: red where there's no way "
+             "through (for you on foot, or the vehicle you're in), amber where it's slow - the deeper the amber, "
+             "the slower. X in play.", None),
             ("Battlefield size (new games)", "battlefield", "cycle",
              "standard: 180 x 120 tiles.  large: 270 x 180, about twice the men on each side (the default).  "
              "huge: 360 x 240, three times the men - slow on most machines. Takes effect when you start a new "

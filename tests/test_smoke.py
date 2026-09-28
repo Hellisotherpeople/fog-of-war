@@ -111,15 +111,20 @@ def test_carrier_battle_goes_somewhere():
     fa.states = [ps]
     ss, me = g.skysea, AB.ship_of(g)
     hp0 = {s.id: s.hp for s in ss.ships if s.side != me.side}
+    scratched = False
     for _ in range(4 * 360):                       # four hours in 10-second steps
         SB.fast_step(g, 10)
         g.aboard["task"] = None
+        # (hit at any time: a damaged ship may be patched up, or sunk and gone, by the end)
+        scratched = scratched or any(s.hp < hp0.get(s.id, 0) for s in ss.ships if s.side != me.side) or \
+            any(sid not in {s.id for s in ss.ships} for sid in hp0)
         if ss.over or not me.alive:
             break
     enemy = [s for s in ss.ships if s.side != me.side]
-    assert any(s.hp < hp0[s.id] for s in enemy), "four hours and not a scratch on the enemy"
-    near = min(math.hypot(s.x - me.x, s.y - me.y) for s in enemy)
-    assert near < 400, f"the carrier wandered {near:.0f} tiles from the enemy"
+    assert scratched, "four hours and not a scratch on the enemy"
+    if enemy:                                      # (none left: sunk, every one)
+        near = min(math.hypot(s.x - me.x, s.y - me.y) for s in enemy)
+        assert near < 400, f"the carrier wandered {near:.0f} tiles from the enemy"
 
 
 def test_fast_forward_stops_for_the_watch():
@@ -326,6 +331,7 @@ def test_tanks_are_repaired_rearmed_and_ridden():
     sup = next(a for a in g.actors if a.side == p.side and a.alive and a is not p and a.rank > p.rank)
     g.duty.task = None
     g.duty.give(g, "shells", sup, (v.x, v.y), vid=v.id, base=v.ai.get("handed_by_player", 0))
+    uid = g.duty._tasks()[-1]["uid"]
     it = Item("shell_crate")
     it.data = dict(rounds=MT.CRATE_ROUNDS)
     p.invent.hands = it
@@ -335,7 +341,7 @@ def test_tanks_are_repaired_rearmed_and_ridden():
     plan[1]()
     assert v.ai["handed_by_player"] == before + MT.CRATE_ROUNDS and p.invent.hands is None
     g.duty.update(g)
-    assert g.duty.task is None
+    assert all(t["uid"] != uid for t in g.duty._tasks())      # done (he may want more: a new order)
 
 
 def test_supply_run():
@@ -1332,8 +1338,7 @@ def test_talk_trade_and_the_noise_of_war():
     TK.open_talk(ps, mate)
     choose("state")
     # a trade: he'll take cigarettes for a clip (a smoker's price)
-    p.add_item(Item("cigarettes"))
-    mine = p.find(lambda i: i.t.tool == "cigarettes")
+    mine = p.add_item(Item("cigarettes")) or p.find(lambda i: i.t.tool == "cigarettes") or Item("cigarettes")
     his = next(i for i in mate.inv if PP.tradeable(mate, i))
     assert PP.worth(g, mate, mine) > 0 and isinstance(PP.deal(g, mate, his, mine, 50), bool)
     # the noise: a man hit in the leg cries out, and his buddy shouts his name
@@ -1422,6 +1427,83 @@ def test_notable_units():
         u = unit_designation(rng, "ussr", ["13th Guards Rifle Division"])
         assert any(r in u for r in NOTABLE["su_13gd"]["regiments"])
     assert division(NOTABLE["de_gd"], "france40") == "Infanterie-Regiment Großdeutschland"
+
+
+def test_landmarks_and_the_going():
+    """What you can't get through looks it (a rim and a shadow), what's slow says so, X tints the lot; and every
+    country has its landmarks to fight over - windmills, stations, châteaux, forts, shrines, lighthouses."""
+    import random
+    import numpy as np
+    from fow import floors, going, landmarks as L, sprites as S, tiles as T
+    from fow.mapgen import Gen
+    from fow.play import PlayState
+    from fow.render import draw_map, Camera
+    # every tile paints, and a tree stands out of the ground with a dark rim where the jungle lies flat
+    for tid in range(T.NUM):
+        assert S.paint_terrain(tid, tid % 4).shape == (64, 64, 4)
+
+    def rim(key):
+        a = S.paint_terrain(T.ID[key], 0).astype(int)
+        return int(((a[..., :3].sum(axis=2) < 70) & (a[..., 3] > 200)).sum())
+    assert rim("tree") > 3 * max(1, rim("jungle")) and rim("palm") > rim("bamboo")
+    # the words, from the real costs
+    fa = FakeApp()
+    g = Game("kohima44", "uk", role="rifleman", seed=1, setup={"battlefield": "standard"})
+    ps = PlayState(fa, g)
+    fa.states = [ps]
+    m = g.map
+
+    def first(key):
+        pts = np.argwhere(m.t == T.ID[key])
+        return (int(pts[0][0]), int(pts[0][1])) if len(pts) else None
+    for key, word in (("tree", "No way through"), ("jungle", "slow going"), ("cliff", "No way through")):
+        at = first(key)
+        if at is not None:
+            text, _col = going.words(g, *at)
+            assert word.lower() in text.lower() and (key != "jungle" or "can't see" in text), (key, text)
+    at = first("jungle")
+    if at is not None:
+        m.explored[at] = m.visible[at] = True
+        fa.show_numbers = True
+        assert any("\u00d7" in ln for ln, _c in ps.describe_tile(*at)[0])
+    col, a = going.tint(g, slice(0, m.w), slice(0, m.h))
+    assert (a[~m.walk] >= 0.5).all() and a[m.walk & (m.cost_foot <= 100)].max() == 0
+    ps.cmd_going()
+    assert ps.going_on()
+    import tcod
+    con = tcod.console.Console(80, 50, order="F")
+    draw_map(con, g, Camera(), 0, going=True)
+    ps.cmd_going()
+    assert not ps.going_on()
+    # landmarks by country: each map gets a few, and they're the objectives
+    want = {("farmland", "summer", "fr"): ("the windmill", "the station", "the halt", "the château", "the cemetery",
+                                           "the water tower", "the brickworks", "the radar station",
+                                           "the landing strip", "the railway line", "the railway cutting"),
+            ("desert", "desert", "ar"): ("the fort", "the marabout", "the landing ground", "the oasis", "the tomb"),
+            ("jungle", "tropical", "mel"): ("the coconut plantation", "the plantation", "the mission", "the airstrip"),
+            ("hills", "tropical", "ja"): ("the shrine",),
+            ("steppe", "summer", "ru"): ("the grain elevator", "the kolkhoz", "the collective farm", "the windmill")}
+    for (b, cl, lang), names in want.items():
+        found = 0
+        for seed in range(1, 5):
+            spec = dict(w=180, h=120, biome=b, climate=cl, seed=seed, attacker_edge="N", defender_side="axis",
+                        fort=1, lang=lang, east=lang == "ru", theatre="x", roads=["N", "S"], installations=[])
+            gen = Gen(spec)
+            mp = gen.run()
+            pois = [p[0] for p in gen.poi]
+            found += any(any(n in q for n in names) for q in pois)
+            assert mp.objectives
+        assert found >= 3, (b, lang)
+    # a lighthouse on the bluff above a beach; towers you climb have open tops
+    spec = dict(w=180, h=120, biome="bocage", climate="summer", seed=3, attacker_edge="S", defender_side="axis",
+                fort=1, lang="fr", sea_edge="N", inland="bocage", roads=["S"], installations=[])
+    gen = Gen(spec)
+    gen.base_ground()
+    gen.beach("N")
+    gen.rng = random.Random(1)
+    assert L.lighthouse(gen) and any(bb[4] == "lighthouse" for bb in gen.m.buildings)
+    assert {"lighthouse", "tower", "keep"} <= floors.OPEN_TOP
+    assert T.ID["oil_tank"] in T.EXPLODE and not T.WALK[T.ID["boxcar"]] and T.WALK[T.ID["platform"]]
 
 
 if __name__ == "__main__":

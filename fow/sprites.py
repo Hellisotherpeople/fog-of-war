@@ -112,6 +112,36 @@ class Canvas:
         self.img = Image.alpha_composite(self.img, other.img)
         self.d = ImageDraw.Draw(self.img)
 
+    def bevel(self, light=70, dark=150, w=6):
+        """Raised: lit along the top and left edges, shadowed along the bottom and right, like a wall."""
+        sh = Image.new("RGBA", (M, M), (0, 0, 0, 0))
+        d = ImageDraw.Draw(sh)
+        for k in range(w):
+            f = 1 - k / w
+            d.line([(0, M - 1 - k), (M, M - 1 - k)], fill=(5, 10, 5, int(dark * f)))
+            d.line([(M - 1 - k, 0), (M - 1 - k, M)], fill=(5, 10, 5, int(dark * f)))
+            d.line([(0, k), (M - k, k)], fill=(255, 255, 220, int(light * f)))
+            d.line([(k, 0), (k, M - k)], fill=(255, 255, 220, int(light * f)))
+        self.img = Image.alpha_composite(self.img, sh)
+        self.d = ImageDraw.Draw(self.img)
+
+    def stand(self, thing, rim=(10, 14, 8), width=4, drop=(4, 5)):
+        """Put something you can't walk through on this ground: a dark rim round its solid shape and a
+        shadow cast down and to the right, so it reads as standing up out of the ground (walkable things -
+        undergrowth, crops, rubble - are painted flat, without either)."""
+        a = np.asarray(thing.img)[..., 3]
+        solid = Image.fromarray(np.where(a > 180, 255, 0).astype(np.uint8), "L")
+        cast = solid.transform((M, M), Image.AFFINE, (1, 0, -drop[0], 0, 1, -drop[1]))
+        cast = cast.filter(ImageFilter.GaussianBlur(2)).point(lambda v: int(v * 0.5))
+        sh = Image.new("RGBA", (M, M), (0, 0, 0, 255))
+        sh.putalpha(cast)
+        ring = solid.filter(ImageFilter.MaxFilter(width * 2 + 1)).point(lambda v: int(v * 0.9))
+        edge = Image.new("RGBA", (M, M), tuple(rim) + (255,))
+        edge.putalpha(ring)
+        self.img = Image.alpha_composite(Image.alpha_composite(Image.alpha_composite(self.img, sh), edge),
+                                         thing.img)
+        self.d = ImageDraw.Draw(self.img)
+
     def array(self):
         return np.asarray(self.img, np.uint8)
 
@@ -330,6 +360,32 @@ def paint_ground(c: Canvas, key: str, tid: int):
         for _ in range(4):
             x, y = c.rng.uniform(0, M), c.rng.uniform(0, M)
             c.line([(x, y), (x + c.rng.uniform(-20, 20), y + c.rng.uniform(-20, 20))], fill=(235, 245, 255, 220), width=1)
+    elif key == "gravel":
+        c.texture(lighten(base, 0.12), 0.06, fine=0.12)
+        for _ in range(90):
+            x, y = c.rng.uniform(0, M), c.rng.uniform(0, M)
+            rr = c.rng.uniform(0.8, 1.8)
+            col = mix((170, 162, 145), (215, 208, 190), c.rng.random())
+            c.ellipse((x - rr, y - rr, x + rr, y + rr), fill=col + (255,))
+    elif key == "platform":
+        c.texture(base, 0.04, fine=0.08)
+        for k in (0, 32):
+            c.line([(0, k), (M, k)], fill=shade(base, 0.72) + (255,), width=1)
+            c.line([(k, 0), (k, M)], fill=shade(base, 0.78) + (255,), width=1)
+        c.speckle(lighten(base, 0.2), 12, (0.4, 1.0))
+    elif key == "slag":
+        c.texture(lighten(base, 0.1), 0.2, fine=0.15)
+        for _ in range(26):
+            x, y = c.rng.uniform(0, M), c.rng.uniform(0, M)
+            rr = c.rng.uniform(1.5, 4)
+            col = mix((30, 28, 28), (85, 80, 78), c.rng.random())
+            c.ellipse((x - rr, y - rr, x + rr, y + rr * 0.8), fill=col + (255,))
+    elif key == "bracken":
+        c.texture(lighten(base, 0.15), 0.12)
+        c.blades(shade(fg, 0.8), 30, (3, 6))
+        for _ in range(7):
+            x, y = c.rng.uniform(4, M - 4), c.rng.uniform(4, M - 4)
+            _fern(c, x, y, c.rng.uniform(0, math.tau), c.rng.uniform(8, 12), mix(fg, (160, 120, 60), c.rng.random() * 0.5))
     else:
         c.texture(lighten(base, 0.1), 0.1)
 
@@ -338,6 +394,37 @@ def ground_under(key, tid, climate_hint=None):
     """What ground to paint beneath an object tile."""
     bg = ground_color(tid)
     return bg
+
+
+def _sprays(c, x, y, col, n=5, length=(5, 9), width=2, alpha=255, narrow=False):
+    """Leaves radiating from a point: undergrowth seen from above."""
+    r = c.rng
+    for _ in range(n):
+        a = r.uniform(0, math.tau)
+        L = r.uniform(*length)
+        tip = (x + math.cos(a) * L, y + math.sin(a) * L)
+        k = mix(col, (255, 255, 255), r.uniform(-0.15, 0.2))
+        if narrow:
+            c.line([(x, y), tip], fill=k + (alpha,), width=width)
+        else:
+            side = 2.2
+            c.poly([(x, y), (x + math.cos(a) * L * 0.5 + math.cos(a + 1.57) * side,
+                             y + math.sin(a) * L * 0.5 + math.sin(a + 1.57) * side), tip,
+                    (x + math.cos(a) * L * 0.5 + math.cos(a - 1.57) * side,
+                     y + math.sin(a) * L * 0.5 + math.sin(a - 1.57) * side)], fill=k + (alpha,))
+
+
+def _fern(c, x, y, a, L, col):
+    """A fern frond: a rib with leaflets down both sides."""
+    tx, ty = x + math.cos(a) * L, y + math.sin(a) * L
+    c.line([(x, y), (tx, ty)], fill=shade(col, 0.7) + (230,), width=1)
+    for k in range(1, 6):
+        t = k / 6
+        px, py = x + (tx - x) * t, y + (ty - y) * t
+        ll = (1 - t) * 6 + 2
+        for sgn in (1, -1):
+            b = a + sgn * 1.1
+            c.line([(px, py), (px + math.cos(b) * ll, py + math.sin(b) * ll)], fill=col + (235,), width=2)
 
 
 def paint_object(c: Canvas, key: str, tid: int):
@@ -350,9 +437,15 @@ def paint_object(c: Canvas, key: str, tid: int):
     c.texture(under, 0.12)
     if snowy:
         c.texture((215, 220, 232), 0.05)
-    elif key in ("tree", "tree_autumn", "olive", "bush", "hedge", "garden_hedge", "jungle", "bamboo", "palm",
-                 "dead_tree", "stump", "log", "grave", "wire", "fence", "fence_h", "sign"):
+    elif key in ("tree", "tree_autumn", "olive", "bush", "hedge", "garden_hedge", "palm", "poplar",
+                 "dead_tree", "stump", "log", "grave", "wire", "fence", "fence_h", "sign", "calvary", "pole",
+                 "radar", "water_tower", "torii", "sail", "sail2"):
         c.blades(shade(bg, 1.4), 35, (3, 6))
+    solid = not T.DEFS[tid].walk
+    if solid:
+        # you can't walk through it: painted on its own, then stood on the ground with a rim and a shadow
+        ground, c = c, Canvas(seed=tid * 131 + 5)
+        c.rng, c.nrng = ground.rng, ground.nrng
 
     if key in ("tree", "tree_autumn", "tree_snow", "olive"):
         c.shadow((12, 18, 60, 62), 110, 4)
@@ -360,12 +453,12 @@ def paint_object(c: Canvas, key: str, tid: int):
                 "tree_autumn": [(150, 80, 25), (190, 110, 35), (220, 160, 60)],
                 "tree_snow": [(35, 80, 50), (50, 100, 60), (230, 235, 245)],
                 "olive": [(110, 125, 85), (140, 150, 105), (175, 180, 140)]}[key]
-        big = 0.8 if key == "olive" else 1.0
+        big = 0.72 if key == "olive" else 0.88
         for i, col in enumerate(cols):
             for _ in range(5 - i):
-                x = 32 + r.uniform(-11, 11) * big - i * 2
-                y = 30 + r.uniform(-11, 11) * big - i * 3
-                rr = r.uniform(9, 14) * big - i * 2
+                x = 32 + r.uniform(-10, 10) * big - i * 2
+                y = 30 + r.uniform(-10, 10) * big - i * 3
+                rr = r.uniform(9, 13) * big - i * 2
                 c.ellipse((x - rr, y - rr, x + rr, y + rr), fill=col + (255,))
     elif key == "pine":
         c.shadow((14, 18, 60, 62), 110, 4)
@@ -406,39 +499,55 @@ def paint_object(c: Canvas, key: str, tid: int):
         c.lines_h((90, 60, 35), 5)
         c.ellipse((48, 22, 60, 40), fill=(150, 110, 65, 255), outline=(80, 55, 30, 255), width=2)
     elif key in ("bush", "bush_snow", "scrub"):
-        cols = [(50, 110, 40), (70, 135, 50)] if key == "bush" else [(60, 100, 60), (235, 238, 245)] if key == "bush_snow" else [(130, 120, 65), (160, 145, 80)]
-        for _ in range(4 if key != "scrub" else 3):
-            x, y = r.uniform(10, 54), r.uniform(10, 54)
-            c.shadow((x - 8, y - 4, x + 10, y + 10), 70, 2)
+        # undergrowth you push through: loose sprays of leaves, ground between, flat - no shadow, no rim
+        cols = [(60, 118, 44), (88, 148, 58)] if key == "bush" else [(70, 108, 70), (235, 238, 245)] \
+            if key == "bush_snow" else [(130, 120, 65), (160, 145, 80)]
+        for _ in range(5 if key != "scrub" else 3):
+            x, y = r.uniform(8, 56), r.uniform(8, 56)
             for col in cols:
-                for _k in range(4):
-                    xx, yy, rr = x + r.uniform(-5, 5), y + r.uniform(-5, 5), r.uniform(3, 7)
-                    c.ellipse((xx - rr, yy - rr, xx + rr, yy + rr), fill=col + (255,))
+                _sprays(c, x, y, col, n=5, length=(5, 9), width=2, alpha=225)
     elif key in ("jungle",):
-        c.texture((25, 70, 30), 0.2)
-        for _ in range(40):
-            x, y = r.uniform(0, M), r.uniform(0, M)
-            a = r.uniform(0, math.tau)
-            col = mix((40, 120, 45), (110, 180, 70), r.random())
-            pts = [(x, y), (x + math.cos(a) * 12 + math.cos(a + 1.5) * 4, y + math.sin(a) * 12 + math.sin(a + 1.5) * 4),
-                   (x + math.cos(a) * 16, y + math.sin(a) * 16),
-                   (x + math.cos(a) * 12 + math.cos(a - 1.5) * 4, y + math.sin(a) * 12 + math.sin(a - 1.5) * 4)]
-            c.poly(pts, fill=col + (255,))
+        # dense undergrowth: ferns and leaf sprays over a floor of dead leaves - thick, but a man goes through
+        c.texture(mix(bg, (58, 46, 26), 0.45), 0.18)
+        c.speckle(mix(bg, (95, 70, 40), 0.5), 30, (0.8, 2.0))
+        for _ in range(8):
+            x, y = r.uniform(4, M - 4), r.uniform(4, M - 4)
+            _sprays(c, x, y, (45, 100, 42), n=6, length=(6, 11), width=2, alpha=200)
+        for _ in range(12):
+            x, y = r.uniform(4, M - 4), r.uniform(4, M - 4)
+            col = mix((48, 112, 46), (98, 150, 62), r.random())
+            _fern(c, x, y, r.uniform(0, math.tau), r.uniform(10, 15), col)
+        for _ in range(3):
+            x = r.uniform(0, M)
+            c.line([(x, 0), (x + r.uniform(-14, 14), M / 2), (x + r.uniform(-10, 10), M)],
+                   fill=(70, 95, 40, 150), width=1)
     elif key == "bamboo":
-        c.texture((50, 80, 35), 0.15)
-        for x in range(4, M, 9):
-            xx = x + r.uniform(-2, 2)
-            c.line([(xx, 0), (xx, M)], fill=(130, 185, 80, 255), width=4)
-            for y in range(4, M, 12):
-                c.line([(xx - 2, y), (xx + 2, y)], fill=(90, 130, 55, 255), width=2)
-    elif key in ("hedge", "garden_hedge"):
+        # clumps of cane with sprays of narrow leaves, the floor showing between
+        c.texture(mix(bg, (70, 60, 30), 0.4), 0.14)
+        for _ in range(4):
+            x, y = r.uniform(10, 54), r.uniform(10, 54)
+            for _k in range(5):
+                xx, yy = x + r.uniform(-4, 4), y + r.uniform(-4, 4)
+                c.ellipse((xx - 2, yy - 2, xx + 2, yy + 2), fill=(150, 190, 90, 255), outline=(80, 110, 50, 255))
+            _sprays(c, x, y, (140, 190, 80), n=8, length=(8, 14), width=2, alpha=215, narrow=True)
+    elif key == "hedge":
         c.texture((75, 60, 40), 0.15)     # earth bank
-        dense = 60 if key == "hedge" else 35
-        for _ in range(dense):
-            x, y = r.uniform(0, M), r.uniform(0, M)
+        for _ in range(60):
+            x, y = r.uniform(4, M - 4), r.uniform(4, M - 4)
             rr = r.uniform(4, 9)
-            col = mix((30, 80, 28), (70, 130, 50), r.random())
+            col = mix((26, 72, 24), (62, 120, 46), r.random())
             c.ellipse((x - rr, y - rr, x + rr, y + rr), fill=col + (255,))
+        c.bevel()
+    elif key == "garden_hedge":
+        # a clipped garden hedge, knee to chest high, gaps in it: slow to push through, not a wall
+        for gx in (14, 32, 50):
+            for gy in (14, 32, 50):
+                if r.random() < 0.2:
+                    continue
+                rr = r.uniform(6, 8)
+                col = mix((70, 130, 55), (100, 155, 70), r.random())
+                c.ellipse((gx - rr, gy - rr, gx + rr, gy + rr), fill=col + (235,))
+                c.ellipse((gx - rr + 2, gy - rr + 1, gx, gy - 1), fill=lighten(col, 0.2) + (220,))
     elif key in ("wall_brick", "wall_factory"):
         base = (150, 70, 55) if key == "wall_brick" else (120, 85, 70)
         c.texture(base, 0.08)
@@ -790,9 +899,144 @@ def paint_object(c: Canvas, key: str, tid: int):
     elif key == "fire_curtain":
         c.texture((98, 101, 108), 0.05)
         c.rect((0, 26, M, 38), fill=(170, 90, 70, 255))
-    else:
+    elif not paint_place(c, key, tid, r):
         # fallback: painted glyph on its ground
         c.texture(lighten(bg, 0.1), 0.08)
+    if solid:
+        ground.stand(c)
+        return ground
+    return c
+
+
+def paint_place(c: Canvas, key: str, tid: int, r) -> bool:
+    """The landmarks and places (landmarks.py). False if the key isn't one of them."""
+    fg = fg_color(tid)
+    if key == "poplar":
+        for i, col in enumerate((shade(fg, 0.75), fg, lighten(fg, 0.2))):
+            for _ in range(4 - i):
+                x, y = 32 + r.uniform(-4, 4) - i, 30 + r.uniform(-8, 8) - i * 2
+                c.ellipse((x - 9 + i * 2, y - 16 + i * 3, x + 9 - i * 2, y + 16 - i * 3), fill=col + (255,))
+    elif key == "wall_white":
+        c.texture((222, 216, 200), 0.05, fine=0.06)
+        for _ in range(4):
+            x, y = r.uniform(0, M), r.uniform(0, M)
+            c.line([(x, y), (x + r.uniform(-9, 9), y + r.uniform(4, 12))], fill=(160, 150, 135, 200), width=1)
+        c.speckle((190, 180, 160), 10, (1, 2.5))
+        c.rect((0, 0, M - 1, 3), fill=(245, 242, 232, 160))
+        c.rect((0, M - 4, M - 1, M - 1), fill=(170, 162, 146, 160))
+    elif key in ("sail", "sail2"):
+        flip = key == "sail2"
+
+        def P(x, y):
+            return (M - x, y) if flip else (x, y)
+        c.poly([P(-4, 6), P(6, -4), P(68, 58), P(58, 68)], fill=(120, 100, 70, 90))
+        for t in range(-4, 70, 7):
+            c.line([P(t - 5, t + 5), P(t + 5, t - 5)], fill=(210, 195, 160, 255), width=2)
+        c.line([P(-4, 6), P(58, 68)], fill=(150, 120, 80, 255), width=3)
+        c.line([P(6, -4), P(68, 58)], fill=(150, 120, 80, 255), width=3)
+    elif key == "boxcar":
+        c.rect((4, 12, 60, 52), fill=(150, 78, 55, 255), outline=(70, 36, 24, 255), width=2)
+        for x in range(8, 60, 6):
+            c.line([(x, 14), (x, 50)], fill=(120, 60, 42, 255), width=1)
+        c.line([(4, 32), (60, 32)], fill=(185, 110, 80, 255), width=3)
+    elif key == "locomotive":
+        c.rect((6, 16, 58, 48), fill=(40, 40, 44, 255), outline=(15, 15, 16, 255), width=2)
+        c.rect((10, 22, 40, 42), fill=(62, 62, 68, 255))
+        c.ellipse((14, 26, 24, 38), fill=(20, 20, 20, 255), outline=(110, 110, 115, 255), width=2)
+        c.rect((44, 12, 60, 52), fill=(55, 30, 26, 255), outline=(20, 12, 10, 255), width=2)
+        c.line([(6, 32), (58, 32)], fill=(170, 40, 35, 255), width=1)
+    elif key == "water_tower":
+        for x, y in ((10, 10), (54, 10), (10, 54), (54, 54)):
+            c.line([(32, 32), (x, y)], fill=(90, 85, 75, 255), width=3)
+            c.ellipse((x - 3, y - 3, x + 3, y + 3), fill=(70, 66, 60, 255))
+        c.ellipse((14, 14, 50, 50), fill=(150, 140, 120, 255), outline=(80, 74, 64, 255), width=3)
+        c.ellipse((22, 20, 36, 30), fill=(185, 175, 155, 255))
+        c.line([(32, 14), (32, 4)], fill=(60, 56, 50, 255), width=2)
+    elif key == "chimney":
+        c.ellipse((10, 10, 54, 54), fill=(165, 85, 65, 255), outline=(90, 45, 35, 255), width=3)
+        for rr in (17, 13):
+            c.ellipse((32 - rr, 32 - rr, 32 + rr, 32 + rr), outline=(130, 65, 50, 255), width=1)
+        c.ellipse((22, 22, 42, 42), fill=(25, 20, 18, 255))
+        c.speckle((40, 36, 34), 10, (1, 2.5))
+    elif key == "silo":
+        c.ellipse((3, 3, 61, 61), fill=(185, 182, 170, 255), outline=(115, 112, 104, 255), width=3)
+        c.ellipse((16, 16, 48, 48), fill=(200, 198, 188, 255), outline=(150, 148, 140, 255), width=2)
+        c.ellipse((27, 27, 37, 37), fill=(120, 118, 110, 255))
+        c.ellipse((10, 8, 30, 20), fill=(225, 224, 215, 120))
+    elif key == "calvary":
+        c.rect((18, 18, 46, 46), fill=(150, 146, 134, 255), outline=(100, 96, 88, 255), width=2)
+        c.rect((29, 8, 35, 56), fill=(210, 205, 190, 255), outline=(120, 116, 106, 255))
+        c.rect((18, 20, 46, 26), fill=(210, 205, 190, 255), outline=(120, 116, 106, 255))
+        for _ in range(5):
+            x, y = r.uniform(20, 44), r.uniform(46, 54)
+            c.ellipse((x - 2, y - 2, x + 2, y + 2), fill=(200, 40, 50, 255))
+    elif key == "memorial":
+        for i, col in enumerate(((150, 146, 136), (180, 176, 164), (205, 200, 188))):
+            k = 6 + i * 8
+            c.rect((k, k, M - k, M - k), fill=col + (255,), outline=shade(col, 0.7) + (255,), width=2)
+        c.ellipse((26, 26, 38, 38), fill=(60, 110, 50, 255), outline=(180, 40, 45, 255), width=2)
+    elif key == "fountain":
+        c.ellipse((4, 4, 60, 60), fill=(160, 156, 146, 255), outline=(100, 96, 88, 255), width=3)
+        c.ellipse((11, 11, 53, 53), fill=(70, 110, 160, 255))
+        c.ellipse((27, 27, 37, 37), fill=(170, 166, 156, 255), outline=(110, 106, 98, 255), width=2)
+        for a in range(0, 360, 45):
+            x, y = 32 + 14 * math.cos(math.radians(a)), 32 + 14 * math.sin(math.radians(a))
+            c.ellipse((x - 1.5, y - 1.5, x + 1.5, y + 1.5), fill=(210, 230, 250, 255))
+    elif key == "vault":
+        c.rect((8, 6, 56, 58), fill=(175, 170, 158, 255), outline=(105, 102, 94, 255), width=2)
+        c.poly([(8, 6), (32, 18), (56, 6)], fill=(150, 146, 136, 255))
+        c.line([(32, 18), (32, 58)], fill=(120, 116, 108, 255), width=2)
+        c.rect((26, 44, 38, 58), fill=(50, 50, 55, 255))
+        c.rect((29, 26, 35, 30), fill=(200, 196, 184, 255))
+    elif key == "timber":
+        for row, y in enumerate((10, 26, 42)):
+            c.rect((4, y, 60, y + 13), fill=(150, 110, 70, 255), outline=(90, 62, 38, 255))
+            for x in range(8 + (row % 2) * 6, 60, 12):
+                c.ellipse((x - 5, y + 1, x + 5, y + 12), fill=(200, 160, 105, 255), outline=(120, 85, 50, 255))
+    elif key == "sangar":
+        c.shadow((6, 22, 60, 58), 90, 3)
+        for k in range(9):
+            a = math.pi * (0.1 + 0.8 * k / 8)
+            x, y = 32 - math.cos(a) * 22, 44 - math.sin(a) * 22
+            col = mix((150, 138, 112), (195, 182, 150), r.random())
+            rr = r.uniform(5, 7)
+            c.ellipse((x - rr, y - rr * 0.8, x + rr, y + rr * 0.8), fill=col + (255,), outline=(110, 100, 80, 255))
+    elif key == "torii":
+        c.shadow((6, 18, 62, 48), 80, 3)
+        c.rect((2, 14, 62, 22), fill=(40, 30, 28, 255))
+        c.rect((6, 24, 58, 30), fill=(205, 65, 48, 255))
+        for x in (14, 50):
+            c.ellipse((x - 5, 22, x + 5, 32), fill=(175, 50, 38, 255), outline=(90, 25, 20, 255))
+    elif key == "stupa":
+        for rr, col in ((30, (220, 208, 168)), (22, (236, 226, 190)), (13, (246, 238, 208)), (6, (215, 175, 60))):
+            c.ellipse((32 - rr, 32 - rr, 32 + rr, 32 + rr), fill=col + (255,), outline=shade(col, 0.75) + (255,))
+        c.ellipse((30, 30, 34, 34), fill=(250, 215, 90, 255))
+    elif key == "oil_tank":
+        c.ellipse((2, 2, 62, 62), fill=(165, 165, 160, 255), outline=(90, 90, 88, 255), width=3)
+        for a in range(0, 360, 30):
+            x, y = 32 + 28 * math.cos(math.radians(a)), 32 + 28 * math.sin(math.radians(a))
+            c.line([(32, 32), (x, y)], fill=(135, 135, 130, 255), width=1)
+        c.ellipse((26, 26, 38, 38), fill=(120, 120, 116, 255))
+    elif key == "radar":
+        c.ellipse((20, 20, 44, 44), fill=(80, 84, 80, 255))
+        c.ellipse((6, 6, 58, 58), outline=(200, 205, 200, 255), width=3)
+        for k in range(-20, 24, 8):
+            c.line([(32 + k, 32 - math.sqrt(max(0, 26 * 26 - k * k))), (32 + k, 32 + math.sqrt(max(0, 26 * 26 - k * k)))],
+                   fill=(170, 176, 170, 200), width=1)
+            c.line([(32 - math.sqrt(max(0, 26 * 26 - k * k)), 32 + k), (32 + math.sqrt(max(0, 26 * 26 - k * k)), 32 + k)],
+                   fill=(170, 176, 170, 200), width=1)
+        c.line([(32, 32), (32, 14)], fill=(60, 60, 60, 255), width=3)
+    elif key == "pole":
+        c.line([(14, 30), (50, 30)], fill=(110, 85, 55, 255), width=4)
+        for x in (16, 26, 38, 48):
+            c.ellipse((x - 2, 27, x + 2, 33), fill=(220, 225, 230, 255))
+        c.ellipse((27, 25, 37, 35), fill=(125, 95, 60, 255), outline=(70, 52, 32, 255))
+    elif key == "tobruk":
+        c.rect((8, 8, 56, 56), fill=(160, 160, 152, 255), outline=(110, 110, 104, 255), width=3)
+        c.ellipse((18, 18, 46, 46), fill=(30, 30, 30, 255), outline=(190, 190, 184, 255), width=3)
+    else:
+        return False
+    return True
 
 
 OBJECT_KEYS = None
@@ -812,7 +1056,9 @@ def is_object(key: str) -> bool:
                "avgas", "ready_locker", "repair_locker", "life_ring", "life_raft", "radar_scope", "radio_set",
                "torpedo_rack", "steering_gear", "fuselage", "fuselage_holed", "wing", "engine_nacelle", "helm",
                "chart_table", "periscope", "lookout_post", "station", "hatch_exit", "fire_curtain", "railing",
-               "bollard"):
+               "bollard", "poplar", "wall_white", "sail", "sail2", "boxcar", "locomotive", "water_tower",
+               "chimney", "silo", "calvary", "memorial", "fountain", "vault", "timber", "sangar", "torii", "stupa",
+               "oil_tank", "radar", "pole", "tobruk"):
         return True
     if key.startswith("wall") or key.startswith("tree") or key in ("pine", "olive", "palm", "dead_tree",
                                                                     "bush", "bush_snow", "jungle", "bamboo",
@@ -835,7 +1081,7 @@ def paint_terrain(tid: int, variant: int) -> np.ndarray:
     if key == "void":
         return np.zeros((M, M, 4), np.uint8)
     if is_object(key):
-        paint_object(c, key, tid)
+        c = paint_object(c, key, tid) or c
     else:
         paint_ground(c, key, tid)
     return c.array()

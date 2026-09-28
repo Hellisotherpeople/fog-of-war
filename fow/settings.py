@@ -25,6 +25,7 @@ DEFAULTS = {
     "edge_scroll": False,     # the mouse at the edge of the battlefield scrolls it
     "shake": True,            # the view jolts when shells land close
     "safe_mode": True,        # stop and warn before a step while the enemy's in sight or you're under fire
+    "going": False,           # X: the ground tinted by the going (red: no way through; amber: slow)
     "hints": True,            # a line under your orders with the keys for what's beside you
     # the sound mixer (each 0..1, on top of the master volume)
     "vol_weapons": 0.9,       # gunfire, shells, explosions, ricochets

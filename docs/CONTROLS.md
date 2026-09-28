@@ -57,6 +57,7 @@ direction keys.
 | `A` | autopilot: your soldier acts on his training and his orders, the same AI as every man on the field; `A` or Esc takes him back (looking, the map, the books and help still work meanwhile) |
 | `!` | safe mode off / on |
 | `'` | ignore the dangers you can see now (safe mode won't stop you for them) |
+| `X` | read the ground: red where there's no way through, amber where it's slow (for you, or the vehicle you're in); `X` again to stop |
 
 Moving into things:
 - **An enemy:** you fight hand to hand - the obvious blow for what's in your hands. Right-click an enemy

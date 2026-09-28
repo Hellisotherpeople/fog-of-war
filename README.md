@@ -175,6 +175,18 @@ name, traits, weapon and kit. Leave any of it to chance.</td>
   named, a volcano on Iwo Jima), so crests hide men and high ground sees over the hedges. Buildings
   have floors: snipers in church towers, machine guns at upstairs windows, cellars against the
   shelling.
+- **Places worth fighting over**: every sector has its landmarks, by country - a windmill on its rise,
+  a railway halt with goods wagons on the siding, a château behind its park wall, the village cemetery,
+  a brickworks chimney, a quarry, a slag heap, the grain elevator and the kolkhoz on the steppe, a
+  coconut plantation and a mission church in the Solomons, a shrine behind its torii on Okinawa, a
+  pagoda, a desert fort and a marabout's tomb, a castle on its hill, a lighthouse above the beach, a
+  Würzburg radar station, a landing ground, an oasis, a sawmill, a tank farm that goes up in flames.
+  Calvaries stand at the crossroads, the memorial to the last war in the square. They're real terrain
+  and they're the objectives.
+- **Ground you can read**: what you can't walk through stands up out of the ground with a dark rim and
+  a shadow (trees, palms, hedgerows, walls, wagons); undergrowth, crops and rubble lie flat. The look
+  says the going ("Very slow going (x2.6 the time) - you can't see into it"), and `X` tints the ground:
+  red for no way through, amber for slow.
 - **Command at every level.** Orders travel by voice, hand signal, radio, relay or runner, and
   arrive late or not at all. When your leader falls, the next man takes over, and sometimes that's
   you. Promotion, battlefield commissions, and each nation's medals.

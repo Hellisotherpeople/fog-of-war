@@ -47,9 +47,13 @@ PALETTES = {
 
 # how many storeys (a church: its tower; a flat-roofed house: its roof; a barn: the hayloft)
 STOREYS = {"farmhouse": 2, "house": 2, "townhouse": 3, "barn": 2, "church": 4, "factory": 2, "desert_house": 2,
-           "abbey": 3, "izba": 1, "hut": 1, "shed": 1, "bunker": 1, "log_bunker": 1}
+           "abbey": 3, "izba": 1, "hut": 1, "shed": 1, "bunker": 1, "log_bunker": 1,
+           # the landmarks (landmarks.py)
+           "windmill": 3, "post_mill": 3, "chateau": 3, "station": 2, "chapel": 1, "kiln": 1, "elevator": 4,
+           "bungalow": 1, "white_church": 3, "shrine": 1, "temple": 1, "pagoda": 5, "tower": 2, "white_house": 2,
+           "marabout": 2, "keep": 3, "lighthouse": 4}
 CELLARS = {"farmhouse": 0.7, "house": 0.6, "townhouse": 0.8, "church": 0.5, "abbey": 0.8, "izba": 0.4,
-           "desert_house": 0.2, "factory": 0.4}
+           "desert_house": 0.2, "factory": 0.4, "chateau": 0.95, "station": 0.3, "keep": 0.8, "white_house": 0.3}
 
 STYLE = {
     # style: (wall, floor, window chance, furniture)
@@ -66,6 +70,24 @@ STYLE = {
     "desert_house": ("wall_stone", "floor_stone", 0.15, "house"),
     "abbey": ("wall_stone", "floor_stone", 0.25, "church"),
     "log_bunker": ("wall_log", "dirt", 0.0, "bunker"),
+    # the landmarks (landmarks.py)
+    "windmill": ("wall_stone", "floor_wood", 0.25, "mill"),
+    "post_mill": ("wall_wood", "floor_wood", 0.2, "mill"),
+    "chateau": ("wall_stone", "floor_wood", 0.55, "house"),
+    "station": ("wall_brick", "floor_wood", 0.5, "station"),
+    "chapel": ("wall_stone", "floor_stone", 0.2, "shrine"),
+    "kiln": ("wall_brick", "dirt", 0.0, "none"),
+    "elevator": ("wall_concrete", "floor_concrete", 0.12, "factory"),
+    "bungalow": ("wall_wood", "floor_wood", 0.5, "house"),
+    "white_church": ("wall_white", "floor_stone", 0.3, "church"),
+    "shrine": ("wall_wood", "floor_wood", 0.15, "shrine"),
+    "temple": ("wall_brick", "floor_stone", 0.2, "shrine"),
+    "pagoda": ("wall_brick", "floor_wood", 0.3, "none"),
+    "tower": ("wall_stone", "floor_stone", 0.3, "none"),
+    "white_house": ("wall_white", "floor_stone", 0.2, "house"),
+    "marabout": ("wall_white", "floor_stone", 0.0, "shrine"),
+    "keep": ("wall_stone", "floor_stone", 0.25, "none"),
+    "lighthouse": ("wall_white", "floor_stone", 0.2, "none"),
 }
 
 
@@ -432,6 +454,15 @@ class Gen:
             if r.random() < 0.5:
                 x, y = r.choice(inner)
                 m.t[x, y] = T.ID["crates"]
+        elif furn == "mill":
+            m.t[x0 + bw // 2, y0 + bh // 2] = T.ID["machinery"]        # the millstones and the gearing
+        elif furn == "station":
+            for _ in range(max(2, len(inner) // 10)):
+                x, y = r.choice(inner)
+                if self._against_wall(x, y):
+                    m.t[x, y] = T.ID[r.choice(["pew", "pew", "table", "crates"])]
+        elif furn == "shrine":
+            m.t[x0 + bw // 2, y0 + 1] = T.ID["altar"]
 
     def _against_wall(self, x, y):
         for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
@@ -1770,7 +1801,12 @@ class Gen:
             pr = 0
             if any(k in name for k in ("battery", "depot", "command post", "flak", "airfield", "fortress",
                                        "church", "bunker", "casemate", "strongpoint", "bridge", "abbey",
-                                       "hall", "foundry", "square")):
+                                       "hall", "foundry", "square", "windmill", "station", "château", "cemetery",
+                                       "castle", "fort", "lighthouse", "radar", "elevator", "kolkhoz",
+                                       "collective", "brickworks", "quarry", "slag", "plantation", "mission",
+                                       "shrine", "pagoda", "marabout", "tomb", "oasis", "landing", "airstrip",
+                                       "sawmill", "oil tanks", "tank farm", "water tower", "calvary", "tanks",
+                                       "graveyard", "halt", "railway")):
                 pr -= 1
             return (pr, -self.depth_coord(p[1], p[2]) * 0.5 + self.rng.random() * 0.6)
 
@@ -1832,7 +1868,11 @@ class Gen:
             pos = spec.get("river_pos", self.rng.uniform(0.35, 0.65))
             self.river(orient, pos)
             self.bridge_over(orient, pos)
+        from . import landmarks
+        if b != "sea":
+            landmarks.place(self)                 # windmills, stations, châteaux, cemeteries... (landmarks.py)
         self.defences(self.fort)
+        landmarks.fortify(self)
         for kind, side in spec.get("installations", []):
             try:
                 self.installation(kind, side)

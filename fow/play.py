@@ -200,7 +200,7 @@ class PlayState:
             mapcon = con
             if layered:
                 mapcon = tcod.console.Console(vw + 1, vh + 1, order="F")   # (the camera's spare row and column)
-            draw_map(mapcon, g, self.cam, self.anim)
+            draw_map(mapcon, g, self.cam, self.anim, going=self.going_on())
             draw_entities(mapcon, g, self.cam, self.anim)
             if self.anim > 0:
                 draw_effects(mapcon, g, self.cam, 4 - self.anim)
@@ -737,9 +737,14 @@ class PlayState:
             title = None
             desc = m.describe(x, y) if vis else m.tile(x, y).name + " (remembered)"
             lines.append((desc[0].upper() + desc[1:], UI_TEXT if vis else UI_DIM))
+            from .going import words as going_words
+            gw = going_words(g, x, y, self.app.show_numbers)
+            if gw is not None and not brief:
+                lines.append(gw)
             tdesc = m.tile(x, y).desc
             if tdesc and not brief:
-                lines.append((tdesc[:70], UI_DIM))
+                import textwrap
+                lines += [(ln, UI_DIM) for ln in textwrap.wrap(tdesc, 58)[:4]]
             from .relief import words as height_words
             hw = height_words(g, x, y)
             if hw:
@@ -1060,7 +1065,7 @@ class PlayState:
             # on autopilot: A or Esc takes him back; looking, the map, the books and the help still work
             if key.char == "A" or key.sym == E.KeySym.ESCAPE:
                 return self.cmd_autopilot()
-            if key.char not in ("?", "m", "x", ";", "T", "@", "P", "V", "G", "C", "+", "-", "=") and \
+            if key.char not in ("?", "m", "x", ";", "T", "@", "P", "V", "G", "C", "+", "-", "=", "X") and \
                     key.sym not in (E.KeySym.F1, E.KeySym.F2, E.KeySym.F3, E.KeySym.F4, E.KeySym.F5, E.KeySym.HOME):
                 g.msg("Your soldier's on autopilot. (A to take over)", "info")
                 return
@@ -1132,7 +1137,7 @@ class PlayState:
             "v": self.cmd_vehicle_mg, "s": lambda: self.act(100), "V": self.cmd_nearby,
             "+": lambda: self.zoom(1), "=": lambda: self.zoom(1), "-": lambda: self.zoom(-1),
             "G": self.cmd_staff, "W": self.cmd_pace, "!": self.cmd_safe_mode, "'": self.cmd_ignore_danger,
-            "T": self.cmd_orders_book, "A": self.cmd_autopilot, "E": self.cmd_talk,
+            "T": self.cmd_orders_book, "A": self.cmd_autopilot, "E": self.cmd_talk, "X": self.cmd_going,
         }.get(c)
         if handler:
             return handler()
@@ -1780,6 +1785,25 @@ class PlayState:
             pass
         self.game.msg("Safe mode " + ("on: you'll be warned before stepping out under the enemy's eyes."
                                       if st["safe_mode"] else "off. Watch yourself."), "info")
+
+    def cmd_going(self):
+        """Read the ground: tint what you can't get through red, and slow going amber (X)."""
+        st = getattr(self.app, "settings", None)
+        if st is None:
+            return
+        st["going"] = not st.get("going", False)
+        try:
+            st.save()
+        except Exception:
+            pass
+        who = "the vehicle" if self.game.player.vehicle is not None else "you"
+        self.game.msg("You read the ground: red is no way through for " + who + ", amber is slow going - the "
+                      "deeper, the slower. (X again to stop)" if st["going"] else "You stop reading the ground.",
+                      "info")
+
+    def going_on(self) -> bool:
+        st = getattr(self.app, "settings", None)
+        return bool(st is not None and st.get("going", False))
 
     def cmd_ignore_danger(self):
         found = self.dangers()

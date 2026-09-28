@@ -97,6 +97,10 @@ def make(gen):
         if any(k in o.name.lower() for k in HILL_NAMES):
             d = np.hypot(xs - o.x, ys - o.y)
             elev += max(12.0, amp * 0.6) * np.exp(-(d / (0.12 * w)) ** 2)
+    # the landmarks that stand on a rise (a windmill, a castle, a slag heap) or in a hole (a quarry)
+    for (rx, ry, hgt, rad) in gen.__dict__.get("rises", ()):
+        d = np.hypot(xs - rx, ys - ry)
+        elev += hgt * np.exp(-(d / max(2.0, rad)) ** 2)
     # rivers and lakes lie in their valleys; the cliffs stand up
     water = T.WATER[m.t] >= 1
     if water.any():
