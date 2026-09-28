@@ -612,17 +612,9 @@ def deck_flight(d, fr, ship, rng):
         for x in range(fr.at(0.86), fr.at(0.97)):
             if m.t[x, y] == T.ID["deck_wood"]:
                 m.t[x, y] = T.ID["catapult"]
-    # aircraft spotted aft, folded wings, ready to fly
-    n = min(36, sum(ship.air) if ship.air else 12)
-    k = 0
-    for x in range(fr.at(0.16), fr.at(0.4), 3):
-        for y in range(top + 2, bot - 5, 3):
-            if k >= n:
-                break
-            if m.t[x, y] == T.ID["deck_wood"]:
-                m.t[x, y] = T.ID["plane_parked"]
-                d.slot(x + 1, y + 1, "plane_handler", gq=True, watch=False)
-                k += 1
+    # aircraft spotted aft, wings folded, ready to fly - at their real size
+    ok_ids = (T.ID["deck_wood"], T.ID["arrest_wire"])
+    _spot_aircraft(d, ship, rng, fr.at(0.4), fr.at(0.1), top + 2, bot - 1, ok_ids, "plane_handler", 36)
     d.stations["spot"] = (fr.at(0.28), cy)
     for k in range(3):
         d.slot(fr.at(0.5 + 0.1 * k), top + 2, "plane_handler", gq=True, watch=True)
@@ -634,6 +626,48 @@ def deck_flight(d, fr, ship, rng):
     _aa_mounts(d, fr, ship, rng, cells, cy, top, bot, deck_ids=(T.ID["catwalk"],))
 
 
+CARRIER_YEAR = {"usa": 1944.0, "japan": 1942.4, "uk": 1942.0}
+
+
+def _spot_aircraft(d, ship, rng, x_fore, x_aft, y0, y1, ok_ids, crew_kind, most):
+    """Park the air group, wings folded, in columns from forward to aft: fighters, then the dive bombers, then
+    the torpedo bombers (as many as her air group has and the deck holds); a handler beside each."""
+    from . import parked as PK
+    m = d.map
+    year = getattr(ship, "year", None) or CARRIER_YEAR.get(ship.nation, 1943.0)
+    counts = (list(ship.air) if ship.air else [4, 4, 4]) + [0, 0]
+    tot = max(1, sum(counts[:3]))
+    share = [int(round(min(most, tot) * c / tot)) for c in counts[:3]]
+    kinds = [0] * share[0] + [1] * share[1] + [2] * share[2]      # fighters forward, then bombers, torpedo aft
+    queue = [PK.carrier_model(ship.nation, year, k, rng) for k in kinds]
+    sch = PK.scheme(ship.nation, year, "", naval=True)
+
+    def ok(cx, cy):
+        return 0 <= cx < m.w and 0 <= cy < m.h and int(m.t[cx, cy]) in ok_ids
+    col_x = x_fore
+    n = 0
+    while queue and col_x > x_aft:
+        col_w = 0
+        y = y0
+        while queue and y < y1:
+            model = queue[0]
+            bw, bh = PK.box(model, 1, True)
+            ax = col_x - bw + 1
+            if PK.fits(m, model, ax, y, 1, True, ok=ok):
+                PK.place(m, model, ax, y, 1, ship.nation, folded=True, scheme=sch)
+                queue.pop(0)
+                col_w = max(col_w, bw)
+                hx, hy = ax - 1, y + bh // 2
+                if ok(hx, hy) and n % (1 if crew_kind == "plane_handler" else 3) == 0:
+                    d.slot(hx, hy, crew_kind, gq=True, watch=crew_kind != "plane_handler" and n % 6 == 0)
+                n += 1
+                y += bh + 1
+            else:
+                y += 1
+        col_x -= (col_w + 2) if col_w else 2
+    return n
+
+
 def deck_hangar(d, fr, ship, rng):
     """The hangar deck: the aircraft below, the elevator wells, the fire curtains - and the fuel."""
     rooms = [("fantail", "store", 0.06), ("after hangar bay", "hangar", 0.28), ("midships hangar bay", "hangar", 0.24),
@@ -642,29 +676,20 @@ def deck_hangar(d, fr, ship, rng):
     m = d.map
     cy = int(round(fr.cy))
     fs = [c for c in d.cells if m.t[c] == T.ID["deck_inside"]]
-    k = 0
-    n = min(40, sum(ship.air) if ship.air else 20)
-    for x in range(fr.at(0.12), fr.at(0.8), 3):
-        for y in range(min(y for _, y in fs) + 1, max(y for _, y in fs), 3):
-            if k >= n:
-                break
-            if m.t[x, y] == T.ID["deck_inside"] and abs(y - cy) >= 2:
-                m.t[x, y] = T.ID["plane_parked"]
-                if k % 3 == 0:
-                    d.slot(x + 1, y, "hangar_crew", gq=True, watch=k % 6 == 0)
-                k += 1
+    for ef in (0.72, 0.42):                        # the elevator wells first: nothing parks on them
+        ex = fr.at(ef)
+        for x in range(ex - 2, ex + 3):
+            for y in range(cy - 2, cy + 3):
+                if m.t[x, y] == T.ID["deck_inside"]:
+                    m.t[x, y] = T.ID["elevator"]
+    _spot_aircraft(d, ship, rng, fr.at(0.8), fr.at(0.12), min(y for _, y in fs) + 1, max(y for _, y in fs),
+                   (T.ID["deck_inside"],), "hangar_crew", 40)
     for r in d.rooms:
         if r["kind"] == "hangar":
             xb = r["rect"][2] + 1
             for y in range(r["rect"][1], r["rect"][3] + 1):
                 if m.t[xb, y] in (T.ID["wall_steel"], T.ID["door"]):
                     m.t[xb, y] = T.ID["fire_curtain"]
-    for ef in (0.72, 0.42):
-        ex = fr.at(ef)
-        for x in range(ex - 2, ex + 3):
-            for y in range(cy - 2, cy + 3):
-                if m.t[x, y] in (T.ID["deck_inside"], T.ID["plane_parked"]):
-                    m.t[x, y] = T.ID["elevator"]
     # repair party and a battle dressing station in the hangar
     r0 = next(r for r in d.rooms if r["kind"] == "hangar")
     x, y = r0["rect"][0] + 1, r0["rect"][1]

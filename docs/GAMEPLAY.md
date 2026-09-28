@@ -95,6 +95,22 @@ they're real terrain:
 - *Coasts:* a lighthouse on the bluff above the beach.
 - *Where the fighting's been heavy:* the burnt-out tanks of the last attack, in their shell holes.
 
+**Aircraft on the ground are their real size**, at about two metres a tile (`parked.py`): a Bf 109 or a
+Spitfire five tiles by five, a Stuka seven by six, a He 111 eleven by eight, a Ju 52 fifteen by nine, a B-17
+seventeen by eleven. They're drawn whole, in their air force's paint and markings for the year and the
+climate (desert sand, naval blue, American bare metal from 1944), and each tile under one is the part it
+is:
+- the fuselage: no way through; it hides you but stops little;
+- an engine: the one part that stops a bullet;
+- a wing: you can duck under it, slowly, but there's fuel in it;
+- the tailplane.
+Hit the fuselage or a wing hard enough and it burns and blows up, leaving a burnt-out wreck in the
+aircraft's shape. Airfields have them dispersed beside the runway, the fighters in earth revetments;
+landing strips have a few, mostly burnt where they stood. A carrier spots her air group on the flight deck
+and in the hangar with the wings folded, fighters forward, then dive bombers, then torpedo bombers. Look
+at one and you're told what it is and whose it is ("the fuselage of a parked Bf 109, with Luftwaffe
+crosses"). Carrier types appear ashore only in the Pacific.
+
 Smaller touches: a calvary at the crossroads, the memorial to the last war in a village with a church,
 named buildings (the mairie, the café, the Gasthaus, the osteria, the kolkhoz office, the teahouse),
 poplars along French and Italian roads, telegraph poles across the steppe and the desert, Tobruk pits in

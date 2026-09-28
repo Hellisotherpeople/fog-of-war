@@ -1655,23 +1655,70 @@ class Gen:
             rec["spots"].append(("tank_parked", x0 + 5 + i * 7, y0 + sh - 5))
         rec["spots"].append(("crate", x0 + sw - 4, y0 + 4))
 
+    def side_nation(self, side):
+        """The main air force / army of a side in this theatre, and the year (for which aircraft)."""
+        from .data.theatres import THEATRES
+        th = THEATRES.get(self.spec.get("theatre") or "")
+        if th is None:
+            return ("germany" if side == "axis" else "usa"), 1943.5
+        dt = th.get("date", (1943, 6))
+        try:
+            nat = th["sides"][side][0][0]
+        except (KeyError, IndexError, TypeError):
+            nat = "germany" if side == "axis" else "usa"
+        return nat, dt[0] + (dt[1] - 1) / 12.0
+
     def _inst_airfield(self, rec, x0, y0, sw, sh):
+        from . import parked as PK
         r = self.rng
-        ry = y0 + sh // 2 - 3
+        ry = y0 + sh // 2 - 4
         self.m.t[x0:x0 + sw, ry:ry + 6] = T.ID["runway"]
-        # hangars and parked aircraft
+        # hangars along the top
         for i in range(r.randint(2, 3)):
             hx = x0 + 10 + i * (sw // 3)
             self.building(hx, y0 + 1, 18, 9, "factory")
         self.protected[x0:x0 + sw, y0:y0 + sh] = False
-        for i in range(r.randint(4, 9)):
-            px, py = x0 + r.randint(5, sw - 5), ry + r.choice((-3, 8))
-            if 0 < py < self.h - 1:
-                self.m.t[px, py] = T.ID["plane_parked"]
-                if r.random() < 0.5:
-                    self.m.t[px, py + 1] = T.ID["camo_net"]
+        # the dispersal below the runway: aircraft at their real size, noses to the runway, the fighters in
+        # earth revetments
+        nat, year = self.side_nation(rec.get("side"))
+        sch = PK.scheme(nat, year, self.m.climate)
+        dy0 = ry + 7
+        x = x0 + 8
+        want = r.randint(4, 8)
+        placed = 0
+        while x < x0 + sw - 12 and placed < want:
+            roles = ("fighter", "fighterbomber") if r.random() < 0.65 else \
+                ("bomber", "divebomber", "attacker", "transport", "torpedo")
+            pac = self.m.climate == "tropical" or self.spec.get("lang") in ("ja", "mel")
+            model = PK.pick(nat, year, roles, r, pacific=pac)
+            if model is None:
+                break
+            w, h = PK.box(model, 0)
+            if dy0 + h >= y0 + sh - 1 or not PK.fits(self.m, model, x, dy0, 0):
+                model = PK.pick(nat, year, ("fighter", "fighterbomber"), r, pacific=pac)
+                if model is None:
+                    break
+                w, h = PK.box(model, 0)
+                if dy0 + h >= y0 + sh - 1 or not PK.fits(self.m, model, x, dy0, 0):
+                    x += 3
+                    continue
+            PK.place(self.m, model, x, dy0, 0, nat, scheme=sch)
+            placed += 1
+            if w <= 9:
+                for yy in range(dy0 + 1, dy0 + h + 1):
+                    for xx in (x - 1, x + w):
+                        if T.WALK[self.m.t[xx, yy]] and self.m.t[xx, yy] not in PK.ids():
+                            self.m.t[xx, yy] = T.ID["rubble_earth"]
+                for xx in range(x - 1, x + w + 1):
+                    if T.WALK[self.m.t[xx, dy0 + h]] and self.m.t[xx, dy0 + h] not in PK.ids():
+                        self.m.t[xx, dy0 + h] = T.ID["rubble_earth"]
+            elif r.random() < 0.5:
+                for xx in range(x, x + w, 2):
+                    if T.WALK[self.m.t[xx, dy0 + h]] and self.m.t[xx, dy0 + h] not in PK.ids():
+                        self.m.t[xx, dy0 + h] = T.ID["camo_net"]
+            x += w + r.randint(3, 5)
         for _ in range(12):
-            x, y = x0 + r.randint(2, sw - 3), y0 + sh - r.randint(2, 5)
+            x, y = x0 + r.randint(2, sw - 3), y0 + sh - r.randint(1, 3)
             if 0 < y < self.h - 1 and self.get(x, y) in (self.key("ground"), "dirt"):
                 self.m.t[x, y] = T.ID["fuel_drums" if r.random() < 0.6 else "ammo_stack"]
         for gx, gy in ((x0 + 4, y0 + sh - 4), (x0 + sw - 5, y0 + sh - 4)):

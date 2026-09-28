@@ -526,6 +526,22 @@ T("slag", "slag heap", "^∙^·", (95, 90, 88), (36, 34, 34), cost=230, pos_cove
 T("bracken", "bracken", "\";\",", (140, 150, 70), (44, 52, 24), cost=125, conceal=50, flam=45, dig=True,
   into="grass", burnt="burnt", desc="Waist-high bracken. Lie down in it and you're gone.")
 
+# ------------------------------------------------------------------ parked aircraft, at their real size (parked.py)
+T("ac_body", "aircraft fuselage", "█", (150, 155, 140), (60, 62, 56), walk=False, see=False, cover=25, tall=True,
+  hp=160, armor=6, into="ac_wreck", burnt="ac_wreck", flam=60, crush=2,
+  desc="The fuselage of a parked aircraft: thin alloy skin over the frames. A bullet goes in one side and out the "
+       "other.")
+T("ac_engine", "aircraft engine", "◘", (120, 120, 118), (50, 50, 48), walk=False, see=False, cover=70, tall=True,
+  hp=320, armor=25, into="ac_wreck", burnt="ac_wreck", flam=60, crush=3,
+  desc="An engine in its cowling, a ton of steel and alloy: the one part of an aircraft that stops a bullet.")
+T("ac_wing", "aircraft wing", "▒", (165, 168, 155), (58, 60, 54), cost=260, see=True, cover=10, conceal=20,
+  hp=120, armor=3, into="ac_wreck", burnt="ac_wreck", flam=70, crush=1,
+  desc="A wing, with the fuel tanks in it. You can duck under it, slowly.")
+T("ac_tail", "tailplane", "▬", (160, 162, 150), (58, 60, 54), cost=200, see=True, cover=5, hp=70, armor=2,
+  into="ac_wreck", burnt="ac_wreck", flam=30, crush=1, desc="The tailplane and the fin, chest-high.")
+T("ac_wreck", "burnt-out aircraft", "%&%;", (100, 95, 88), (34, 32, 30), cost=240, see=True, cover=25, pos_cover=15,
+  conceal=10, into="ac_wreck", desc="Twisted, blackened alloy and a melted engine - what's left of an aircraft.")
+
 NUM = len(DEFS)
 
 # ------------------------------------------------------------------ lookup arrays
@@ -572,6 +588,8 @@ EXPLODE[ID["plane_parked"]] = (140, 3, 3)
 EXPLODE[ID["ammo_rack"]] = (600, 6, 2)
 EXPLODE[ID["avgas"]] = (450, 5, 5)
 EXPLODE[ID["oil_tank"]] = (260, 5, 6)
+EXPLODE[ID["ac_body"]] = (90, 2, 4)            # fuel, ammunition, sometimes the bombs
+EXPLODE[ID["ac_wing"]] = (60, 2, 5)            # the fuel tanks
 
 
 def tid(key: str) -> int:

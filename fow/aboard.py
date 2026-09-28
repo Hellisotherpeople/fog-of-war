@@ -417,7 +417,9 @@ def on_hit(game, s, dmg, flood, what, fire, deck_=False):
     # a heavy bomb goes down through a deck or two before it bursts
     name = names[0] if rng.random() < 0.55 else rng.choice(names)
     d = deck(game, name)
-    cells = [c for c in d.cells if T.WALK[d.map.t[c]] or d.map.t[c] in (T.ID["plane_parked"], T.ID["bunk"])]
+    from .parked import ids as ac_ids
+    struck = ac_ids() | {T.ID["plane_parked"], T.ID["bunk"]}
+    cells = [c for c in d.cells if T.WALK[d.map.t[c]] or int(d.map.t[c]) in struck]
     if not cells:
         cells = list(d.cells)
     if kind == "torpedo":

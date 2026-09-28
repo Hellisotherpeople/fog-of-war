@@ -163,6 +163,34 @@ def draw_sprite_layers(bank, game, cam, frame=0, ui=None):
             deco.rgba["ch"][x - x0, y - y0] = cp_mine
             deco.rgba["fg"][x - x0, y - y0] = (230, 70, 60, 255)
 
+    # ---------------------------------------------------------------- aircraft parked on the ground (parked.py)
+    parked = m.__dict__.get("parked")
+    if parked:
+        from .parked import ids as ac_ids
+        acs = ac_ids()
+        body_id = T.ID["ac_body"]
+        for rec in parked:
+            rx, ry, rw, rh = rec["x"], rec["y"], rec["w"], rec["h"]
+            if rx + rw < x0 or rx > x0 + vw or ry + rh < y0 or ry > y0 + vh:
+                continue
+            box = m.t[max(0, rx):rx + rw, max(0, ry):ry + rh]
+            if not (box == body_id).any():
+                continue                                  # burnt out: the wreck tiles show what's left
+            gcp = 0xE000 + int(rec.get("ground", T.ID["grass"])) * 4
+            for dx, dy, cp in bank.parked_pieces(rec["model"], rec.get("scheme", rec["nation"]), rec["nation"],
+                                                 rec["facing"], rec.get("folded", False)):
+                wx, wy = rx + dx, ry + dy
+                sx, sy = wx - x0, wy - y0
+                if not (0 <= sx < vw and 0 <= sy < vh) or not m.in_bounds(wx, wy) or not m.explored[wx, wy]:
+                    continue
+                tid = int(m.t[wx, wy])
+                if tid in acs:
+                    terr.rgba["ch"][sx, sy] = gcp + int(m.var[wx, wy]) % 4      # the ground it stands on
+                elif not T.WALK[tid] or T.DEFS[tid].key == "ac_wreck":
+                    continue                              # a wreck, or something built there since
+                hulls.rgba["ch"][sx, sy] = cp
+                hulls.rgba["fg"][sx, sy] = tint_at(sx, sy)
+
     winter = m.climate == "winter"
     # ---------------------------------------------------------------- vehicles (as big as they are)
     vw, vh = cam.vw, cam.vh
