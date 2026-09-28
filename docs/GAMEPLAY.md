@@ -1001,10 +1001,24 @@ What you know is what your soldier knows.
   `crack`, `brrrt` or `BOOM`. Veterans can tell a Garand from a Kar98k.
 - **Speech bubbles**: soldiers shout in their own languages ("Handgranate!", "Sanitar!",
   "Tennōheika banzai!").
-- **Your gear gates your knowledge.** Without a watch you only know the time of day. Without a
-  compass or map, sound directions are vague. Without a map you don't see the objectives or the
-  front; you follow your squad leader, who points: "there, NE, 250 yards".
-- **Ammo is estimated** ("about half") unless you count it.
+- **Your gear gates your knowledge.** Without a watch you only know the time of day: orders say
+  "within the half hour", not "14 min", and a wait reports "a while". Without a compass or map,
+  sound directions are vague. Without a map you don't see the objectives or the front (on the
+  minimap either); the X of your orders marks the exact spot only if you have a map or can see the
+  place he pointed at, otherwise it's just the way; you follow your squad leader, who points:
+  "there, NE, 250 yards".
+- **Ammo is estimated** ("about half") unless you count it. A burst from a big magazine loses
+  you the count; a magazine off the ground or off the dead is anyone's guess until you check it
+  (`c` in the kit screen, `r` on a full gun).
+- **At a distance you see a soldier or a tank, not his job or its mark**: past about 130 yards a
+  man is "German soldier" and past about 150 a vehicle is "Enemy tank", unless you use binoculars.
+  Your own vehicles tell you their crew and their troubles when you're within shouting distance,
+  aboard, or on their net.
+- **Remembered ground is as you last saw it.** Out of sight, the map keeps showing the house that
+  stood there, until you see the rubble.
+- **The order of battle is an officer's business.** On the war map, a private with a map sees his
+  side's strength as rumour ("a lot of ours, they say"); exact counts are for officers, radios
+  and commanders.
 - **Hit chances are words** ("a long shot"). You can switch them to numbers in Options.
 - **Everything around you** (`V`, as in Cataclysm): a list of the men and vehicles you can see,
   the sounds you've just heard (placed where you think they came from), and whatever's lying on

@@ -118,7 +118,7 @@ def notice(game, viewer, target, dist, fr) -> bool:
     if target.is_player:
         w = game.__dict__.get("_watch_lvl", (0.0, -99))
         if w[1] < t or lvl > w[0]:
-            game.__dict__["_watch_lvl"] = (lvl, t)
+            game.__dict__["_watch_lvl"] = (lvl, t, viewer.x, viewer.y)
     return False
 
 
@@ -137,8 +137,12 @@ def exposure_word(game, p):
     lvl = game.__dict__.get("_watch_lvl", (0.0, -99))
     if seen and p.hit_turn >= t - 10:
         return "They've seen you!", (255, 90, 70)
-    if lvl[1] >= t - 3 and lvl[0] >= 0.5:
-        return "You feel eyes on you", (250, 170, 90)
+    if lvl[1] >= t - 3 and lvl[0] >= 0.5 and len(lvl) >= 4:
+        # (only from something you could have caught: movement where you can see, or close enough to hear)
+        wx, wy = lvl[2], lvl[3]
+        m = game.map
+        if (m.in_bounds(wx, wy) and m.visible[wx, wy]) or max(abs(wx - p.x), abs(wy - p.y)) <= 8:
+            return "You feel eyes on you", (250, 170, 90)
     if f < 0.3:
         return "Well hidden", (130, 200, 130)
     if f < 0.55:
