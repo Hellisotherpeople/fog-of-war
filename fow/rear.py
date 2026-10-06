@@ -24,12 +24,14 @@ OPP = {"N": "S", "S": "N", "E": "W", "W": "E"}
 
 # what goes up the road, and how often (weights)
 KINDS = {"ammunition": 5, "fuel": 2, "rations": 2, "troops": 3, "wounded": 3, "armour": 1, "march": 2,
-         "prisoners": 1, "dispatch": 2, "staff": 1}
+         "prisoners": 1, "dispatch": 2, "staff": 1, "medical": 2, "spares": 2}
 CARGO = {"ammunition": ["artillery shells", "small-arms ammunition and grenades", "mortar bombs", "tank rounds"],
          "fuel": ["petrol in jerrycans", "fuel drums"], "rations": ["rations and water", "bread and tinned meat"],
          "troops": ["replacements"], "wounded": ["wounded from the front"], "armour": ["tanks going up"],
          "march": ["replacements on foot"], "prisoners": ["prisoners going back"], "dispatch": ["dispatches"],
-         "staff": ["staff officers"]}
+         "staff": ["staff officers"], "medical": ["dressings, plasma and surgical stores"],
+         "spares": ["vehicle spares and workshop tools"]}
+RESOURCE = {"ammunition": "ammo", "fuel": "fuel", "rations": "food", "medical": "medical", "spares": "parts"}
 TRUCKS = {"usa": ["gmc"], "france": ["gmc", "laffly"], "uk": ["bedford"], "canada": ["bedford"], "australia": ["bedford"],
           "newzealand": ["bedford"], "india": ["bedford"], "poland": ["bedford", "pf621"], "ussr": ["zis5", "studebaker"],
           "germany": ["opel_blitz"], "hungary": ["opel_blitz"], "romania": ["opel_blitz"], "italy": ["fiat626"],
@@ -104,6 +106,8 @@ def tick(game):
         nxt = st["next"].get(side)
         cut = game.strategic.cut_of(side, game.sector)
         gap = int(max(200, min(1600, 900 / (0.4 + traffic * 0.35))) * (1 + 2.5 * cut))
+        from .weather import road_factor
+        gap = int(gap / road_factor(game))
         if nxt is None:
             st["next"][side] = game.turn + game.rng.randint(30, gap)
             continue
@@ -138,6 +142,11 @@ def _launch(game, side, e_in, e_out):
         sq = _vehicles(game, side, nat, kind, x, y, tx, ty, info)
     if sq is None:
         return None
+    if kind in RESOURCE:
+        from .sustain import stores, take
+        resource = RESOURCE[kind]
+        info["payload"] = min(stores(game.sector, side)[resource], max(1, info["n"]) * 12)
+        take(game.sector, side, resource, info["payload"])
     sq.order = Order("move", target=(tx, ty), radius=3, issued=game.turn)
     sq.no_count = True
     sq.__dict__["convoy"] = info
@@ -250,6 +259,10 @@ def _arrivals(game):
         gone_any = False
         for v in left:
             if game._edge_gap(e, v.x, v.y) <= 6:       # (the lead lorry turning onto the road out: the next moves up)
+                dest = strat.at(game.sector.x + EDGE_VEC[e][0], game.sector.y + EDGE_VEC[e][1])
+                if dest is not None and dest.control == info["side"] and info["kind"] in RESOURCE:
+                    from .sustain import deliver
+                    deliver(dest, info["side"], RESOURCE[info["kind"]], info.get("payload", 0) / max(1, info["n"]))
                 for a in list(v.passengers):
                     game.remove_actor(a)
                     a.state = "departed"

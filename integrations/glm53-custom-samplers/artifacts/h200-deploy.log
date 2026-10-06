@@ -1,0 +1,333 @@
+bun test v1.3.14 (0d9b296a)
+
+tokens.test.ts:
+(pass) readGgufTokenizer > reads the tokenizer block past a large skipped array [1.82ms]
+(pass) readGgufTokenizer > rejects a file that is not a gguf [0.27ms]
+(pass) readGgufTokenizer > rejects a truncated file instead of returning half a vocabulary [0.52ms]
+(pass) specialTokensFromGguf > keeps control and user-defined tokens and drops ordinary text [0.27ms]
+(pass) specialTokensFromGguf > hides unused placeholder slots unless asked for [0.05ms]
+(pass) specialTokensFromGguf > keeps a token the converter typed NORMAL but named as an id [0.03ms]
+(pass) classifyTokenRole > </think> is think_close [0.01ms]
+(pass) classifyTokenRole > </thinking> is think_close
+(pass) classifyTokenRole > </thought> is think_close
+(pass) classifyTokenRole > </reasoning> is think_close
+(pass) classifyTokenRole > </seed:think> is think_close
+(pass) classifyTokenRole > <|end_thinking|> is think_close
+(pass) classifyTokenRole > <|END_THINKING|> is think_close
+(pass) classifyTokenRole > ◁/think▷ is think_close [0.04ms]
+(pass) classifyTokenRole > [/think] is think_close
+(pass) classifyTokenRole > <think> is think_open
+(pass) classifyTokenRole > <|start_thinking|> is think_open
+(pass) classifyTokenRole > ◁think▷ is think_open [0.02ms]
+(pass) classifyTokenRole > <|im_start|> is turn_start
+(pass) classifyTokenRole > <|im_end|> is eot
+(pass) classifyTokenRole > <|eot_id|> is eot
+(pass) classifyTokenRole > <end_of_turn> is eot
+(pass) classifyTokenRole > <|endoftext|> is eos
+(pass) classifyTokenRole > <tool_call> is tool_call_start
+(pass) classifyTokenRole > </tool_call> is tool_call_end
+(pass) classifyTokenRole > <tool_response> is tool_response_start
+(pass) classifyTokenRole > <|vision_start|> is vision
+(pass) classifyTokenRole > <|audio_pad|> is audio
+(pass) classifyTokenRole > <|fim_prefix|> is fim
+(pass) classifyTokenRole > <unk> is unk
+(pass) classifyTokenRole > [PAD248260] is unused
+(pass) classifyTokenRole > <|reserved_special_token_3|> is unused
+(pass) classifyTokenRole > an opening tag is never mistaken for a closing one [0.02ms]
+(pass) classifyTokenRole > falls back to the server's named bos and eos [0.01ms]
+(pass) classifyTokenRole > a structural match beats the server's naming
+(pass) looksLikeSpecialToken > <|im_end|> -> true [0.03ms]
+(pass) looksLikeSpecialToken > </think> -> true
+(pass) looksLikeSpecialToken > [INST] -> true
+(pass) looksLikeSpecialToken > ◁/think▷ -> true [0.02ms]
+(pass) looksLikeSpecialToken > <｜end▁of▁sentence｜> -> true
+(pass) looksLikeSpecialToken > hello -> false
+(pass) looksLikeSpecialToken > <a -> false
+(pass) looksLikeSpecialToken > <| spaced |> -> false
+(pass) looksLikeSpecialToken > <> -> false
+(pass) harvestTemplateCandidates > pulls token literals out of a chat template [0.14ms]
+(pass) probeSpecialTokens > keeps single-token candidates and drops the rest [0.19ms]
+(pass) probeSpecialTokens > a token that merges without special parsing is kept, not filtered [0.04ms]
+(pass) probeSpecialTokens > does not ask about the same candidate twice [0.03ms]
+(pass) detectSpecialTokens > prefers the model file and spot-checks it against the server [1.13ms]
+(pass) detectSpecialTokens > falls back to probing when the file disagrees with the server [0.60ms]
+(pass) detectSpecialTokens > falls back to probing when there is no readable file [0.16ms]
+(pass) detectSpecialTokens > throws when there is nothing at all to inspect [0.04ms]
+(pass) resolveTokenReference > resolves exact text, case-insensitive text, ids and roles [0.08ms]
+(pass) resolveTokenReference > accepts a raw id that is not in the detected set
+(pass) resolveTokenReference > returns nothing for an unknown name [0.01ms]
+(pass) resolveTokenReference > matches a token whose own text carries whitespace [0.02ms]
+(pass) resolveTokenReference > never trims a reference into a neighbouring token [0.02ms]
+(pass) TokenSetCache > round-trips a detection result through disk [0.39ms]
+(pass) TokenSetCache > survives a corrupt cache file [0.15ms]
+
+commands.test.ts:
+(pass) detection through the extension > finds the stub's special tokens by probing [0.08ms]
+(pass) detection through the extension > caches the result so a later session does not re-probe [0.09ms]
+(pass) /think-less > biases the model's own end-of-thinking token [0.52ms]
+(pass) /think-less > takes a bare number [0.13ms]
+(pass) /think-less > refuses a negative amount, since that means thinking more [0.06ms]
+(pass) /think-less > off removes just that bias [0.40ms]
+(pass) /logit-bias > set resolves a token name to its id [0.25ms]
+(pass) /logit-bias > set accepts a role name [0.19ms]
+(pass) /logit-bias > ban stores a hard ban [0.19ms]
+(pass) /logit-bias > multi-token text is reported rather than silently collapsed [0.89ms]
+(pass) /logit-bias > biases an ordinary word that detection never saw [0.50ms]
+(pass) /logit-bias > a quoted leading space survives to the tokenizer [0.61ms]
+(pass) /logit-bias > clear finds a key whose leading space was quoted [0.15ms]
+(pass) /logit-bias > suggests the leading-space form when the bare word is two tokens [0.28ms]
+(pass) /logit-bias > an added word is listed apart from the vocabulary's own markup [0.23ms]
+(pass) /logit-bias > an added word survives a re-scan [10.90ms]
+(pass) /logit-bias > parts biases every token of a multi-token string [1.10ms]
+(pass) /logit-bias > tokenize shows the breakdown without changing anything [0.50ms]
+(pass) /logit-bias > rejects an id past the vocabulary [0.11ms]
+(pass) /logit-bias > rejects a bias that is not a number [0.08ms]
+(pass) /logit-bias > reports an unknown subcommand [0.02ms]
+(pass) /logit-bias > show reports the effect after the final temperature [0.23ms]
+(pass) /logit-bias > measure declines cleanly when the confirmation is refused [0.42ms]
+(pass) /logit-bias > off stops sending logit_bias without forgetting the entries [0.26ms]
+(pass) /think-cap > sets a token budget [0.35ms]
+(pass) /think-cap > 1 means no reasoning at all [0.17ms]
+(pass) /think-cap > rejects 0, which llama.cpp would silently ignore [0.13ms]
+(pass) /think-cap > off clears it [0.09ms]
+(pass) /think-cap > rejects a nonsense budget [0.05ms]
+(pass) runaway guidance > a large bias on the close tag is applied but flagged [0.19ms]
+(pass) runaway guidance > /think-less warns past the usable range [0.12ms]
+(pass) runaway guidance > an ordinary large bias on some other token is not flagged [0.20ms]
+(pass) before_provider_request > stamps the resolved id onto the outgoing body [0.63ms]
+(pass) before_provider_request > KL presets survive persistence and reach the request with the correct order [0.72ms]
+(pass) before_provider_request > auto routing supports both KL methods and enforces the final KL-budget stage [0.29ms]
+(pass) before_provider_request > sends nothing once bias is switched off [0.15ms]
+(pass) before_provider_request > a ban goes out as false, which llama.cpp reads as -infinity [0.18ms]
+(pass) before_provider_request > applies with the sampler override off, since bias is a separate axis [0.40ms]
+(pass) before_provider_request > the think cap rides along as thinking_budget_tokens [0.32ms]
+(pass) before_provider_request > cap and bias are independent and compose [0.24ms]
+(pass) before_provider_request > leaves a non-llama provider alone [0.06ms]
+
+vllm.test.ts:
+(pass) vLLM sampler translation > a min-p-only profile ignores every inactive saved knob [0.13ms]
+(pass) vLLM sampler translation > only selected native stages translate, including the penalty spelling [0.03ms]
+(pass) vLLM sampler translation > unsupported custom samplers fail explicitly [0.03ms]
+(pass) vLLM sampler translation > backend identity does not depend on the proxy port or model family [0.02ms]
+(pass) custom sampler chain and exact infinity survive JSON serialization [0.13ms]
+
+vllm-extension.test.ts:
+(pass) vLLM extension commands, authenticated telemetry, and native request settings [13.08ms]
+
+router.test.ts:
+(pass) sampler router schema > contains every sampler and knob in one compact ordered-item schema [0.03ms]
+(pass) sampler router schema > omits rationale entirely when disabled [0.01ms]
+(pass) parseSamplerRoute > preserves order and extracts only the selected settings [0.03ms]
+(pass) parseSamplerRoute > accepts JSON-string arguments and fills a missing knob from its catalog default [0.02ms]
+(pass) parseSamplerRoute > rejects duplicates, hallucinated settings, and out-of-range values [0.05ms]
+(pass) parseSamplerRoute > does not require or retain a rationale when disabled [0.01ms]
+(pass) parseSamplerRoute > rejects positional setting counts that do not match the sampler [0.01ms]
+(pass) parseSamplerRoute > fills omitted trailing positional settings from defaults [0.02ms]
+(pass) applySamplerRoute propagates the chain and settings without dropping request fields [0.02ms]
+(pass) prepareSamplerRouterRequest isolates and forces the routing tool [0.09ms]
+(pass) removeSamplerRouterTool keeps ordinary tools and clears a stale force [0.02ms]
+(pass) prepareSamplerRouterRequest respects the provider's output-token field [0.02ms]
+(pass) prepareSamplerRouterRequest isolates the current turn from agent history [0.10ms]
+(pass) buildSamplerRouterTaskEnvelope quotes prompt injection and omits image bytes [0.02ms]
+(pass) buildSamplerRouterTaskEnvelope bounds large tasks while keeping both ends [0.02ms]
+
+bias.test.ts:
+(pass) parseBiasAmount > 3 -> 3 [0.01ms]
+(pass) parseBiasAmount > -2.5 -> -2.5
+(pass) parseBiasAmount > +4 -> 4
+(pass) parseBiasAmount > ban -> "ban"
+(pass) parseBiasAmount > never -> "ban"
+(pass) parseBiasAmount > -inf -> "ban"
+(pass) parseBiasAmount > false -> "ban"
+(pass) parseBiasAmount > BAN -> "ban"
+(pass) parseBiasAmount > rejects ""
+(pass) parseBiasAmount > rejects "   "
+(pass) parseBiasAmount > rejects "abc"
+(pass) parseBiasAmount > rejects "NaN"
+(pass) parseBiasAmount > rejects "Infinity"
+(pass) parseBiasAmount > rejects "3,4"
+(pass) parseBiasAmount > negative infinity is a ban, which is the one form the wire has
+(pass) parseBiasAmount > accepts any finite value, however large [0.02ms]
+(pass) splitReferenceAndAmount > splits on the last field [0.01ms]
+(pass) splitReferenceAndAmount > keeps whitespace inside quotes, which is part of the token [0.01ms]
+(pass) splitReferenceAndAmount > an unquoted multi-word reference keeps its inner spaces
+(pass) splitReferenceAndAmount > rejects input with nothing to split [0.01ms]
+(pass) unquote > strips one matching pair and leaves everything else alone [0.01ms]
+(pass) formatBiasAmount > 3 -> +3
+(pass) formatBiasAmount > -2 -> -2
+(pass) formatBiasAmount > 1.5 -> +1.50
+(pass) formatBiasAmount > 0 -> 0
+(pass) formatBiasAmount > "ban" -> banned
+(pass) biasOddsMultiplier > a bias is worth exp(bias/T) after a final temperature T [0.01ms]
+(pass) biasOddsMultiplier > a ban is a multiplier of zero and temp 0 is undefined
+(pass) loadBiasConfig > defaults to off and empty for junk [0.02ms]
+(pass) loadBiasConfig > keeps valid entries and drops the rest [0.03ms]
+(pass) setBias and clearBias > clear is forgiving about case [0.01ms]
+(pass) setBias and clearBias > clear reports when there was nothing to remove
+(pass) biasKeyFor > prefers the token text and falls back to an id literal [0.01ms]
+(pass) resolveBiasEntries > resolves stored text keys to ids [0.03ms]
+(pass) resolveBiasEntries > reports a key this model has no token for instead of guessing [0.02ms]
+(pass) resolveBiasEntries > rejects a raw id outside the vocabulary [0.01ms]
+(pass) resolveBiasEntries > everything is unresolved before detection has run
+(pass) applyLogitBias > writes integer id pairs, never strings [0.04ms]
+(pass) applyLogitBias > removes the field entirely when nothing is biased [0.02ms]
+(pass) applyLogitBias > merges with an existing logit_bias, winning per id [0.02ms]
+(pass) applyLogitBias > the last resolved entry for an id wins [0.01ms]
+(pass) diffAppliedBias > accepts an echo that matches [0.05ms]
+(pass) diffAppliedBias > reports a bias the server dropped [0.02ms]
+(pass) diffAppliedBias > reports a bias the server changed [0.01ms]
+(pass) diffAppliedBias > an absent echo is not evidence of anything [0.01ms]
+(pass) loadBiasConfig keeps large values > a stored bias is not clamped on the way back in
+(pass) loadBiasConfig keeps large values > but a non-finite stored value is dropped, since it cannot be sent
+(pass) applyLogitBias with extreme values > a huge finite bias goes out unchanged
+(pass) applyLogitBias with extreme values > a non-finite bias is dropped rather than serialized to null [0.01ms]
+(pass) countCloseTags > counts non-overlapping occurrences [0.02ms]
+(pass) countCloseTags > more than one is the over-biased signature
+(pass) parseThinkCap > 1 -> 1
+(pass) parseThinkCap > 64 -> 64
+(pass) parseThinkCap > 512 -> 512
+(pass) parseThinkCap > 128.9 -> 128
+(pass) parseThinkCap > off means no cap
+(pass) parseThinkCap > none means no cap
+(pass) parseThinkCap > -1 means no cap
+(pass) parseThinkCap > OFF means no cap
+(pass) parseThinkCap > rejects ""
+(pass) parseThinkCap > rejects "abc"
+(pass) parseThinkCap > rejects "-5"
+(pass) parseThinkCap > rejects "NaN"
+(pass) parseThinkCap > rejects 0 with the reason, since llama.cpp ignores it [0.02ms]
+(pass) applyThinkCap > sets the field llama.cpp's OAI endpoint reads
+(pass) applyThinkCap > 1 is the smallest budget that does anything
+(pass) applyThinkCap > never puts a no-op 0 on the wire
+(pass) applyThinkCap > no cap removes the field instead of sending -1
+(pass) thinkLessLevel > maps every level name to its amount [0.02ms]
+(pass) thinkLessLevel > every level is a positive bias, since the point is to think less [0.01ms]
+(pass) thinkLessLevel > returns nothing for an unknown name
+(pass) summarizeBias > reads off when disabled
+(pass) summarizeBias > names the biased tokens and counts what did not resolve [0.01ms]
+(pass) summarizeBias > says so when it is on with nothing in it
+
+vllm-commands.test.ts:
+(pass) real extension command handlers preserve infinity and ordered custom controls without network [2.54ms]
+
+scope/metrics.test.ts:
+(pass) entropy > a uniform distribution over 4 tokens is 2 bits [0.03ms]
+(pass) entropy > a deterministic distribution is 0 bits
+(pass) entropy > zero probabilities are skipped rather than producing NaN
+(pass) entropy > perplexity inverts entropy into an effective choice count
+(pass) entropy > varentropy is zero when every listed token is equally surprising [0.03ms]
+(pass) entropy > varentropy grows when a confident head sits above a flat tail
+(pass) entropy > tail mass reports what a truncated top-K does not cover [0.01ms]
+(pass) compareStep > width is the survivor count and kept mass sums their raw probability [0.11ms]
+(pass) compareStep > dropping the raw argmax is flagged — the xtc signature [0.02ms]
+(pass) compareStep > truncation lowers entropy and KL measures the reshaping [0.02ms]
+(pass) compareStep > an identity chain reshapes nothing [0.01ms]
+(pass) compareStep > saturation is only reported when the survivor list hits n_probs [0.02ms]
+(pass) compareStep > survivors missing from the raw top-K are counted, not silently dropped [0.02ms]
+(pass) compareStep > the sampled token's raw rank is reported [0.04ms]
+(pass) summaries > quantiles use nearest rank on a sorted array [0.01ms]
+(pass) summaries > summarize reports the whole spread [0.02ms]
+(pass) summaries > summarize returns undefined rather than NaN for no data
+(pass) summaries > width bucketing is log-spaced and totals the input [0.04ms]
+
+scope/probe.test.ts:
+(pass) runProbe > generates, then re-measures each position with raw probabilities [0.59ms]
+(pass) runProbe > teacher-forces supplied tokens and measures survivors per position [0.13ms]
+(pass) runProbe > the funnel walks chain prefixes and flags history-dependent stages [0.18ms]
+(pass) runProbe > saturated widths are called out rather than reported as exact [0.07ms]
+(pass) runProbe > progress is reported for every request [0.06ms]
+(pass) estimateProbeRequests > counts one generation plus a raw pass per step [0.02ms]
+(pass) estimateProbeRequests > forced replay costs a survivor request per step
+(pass) estimateProbeRequests > the funnel multiplies by chain length
+(pass) probeSamplerSupport > trusts the server's echo of the parsed chain [0.11ms]
+(pass) probeSamplerSupport > a failing request counts as unsupported instead of throwing [0.07ms]
+
+scope/charts.test.ts:
+(pass) sparkline > maps the range onto the block ramp [0.05ms]
+(pass) sparkline > a flat series renders flat rather than dividing by zero
+(pass) sparkline > an explicit scale keeps several sparklines comparable [0.01ms]
+(pass) sparkline > empty input produces no output
+(pass) bar > clamps out-of-range fractions [0.03ms]
+(pass) bar > always fills exactly `width` cells [0.02ms]
+(pass) formatting > non-finite numbers render as a dash [0.02ms]
+(pass) formatting > token pieces stay legible and bounded [0.03ms]
+(pass) formatting > clip never exceeds the requested width
+(pass) composite charts > the funnel marks how many candidates each stage removed [0.08ms]
+(pass) composite charts > saturated stages are marked with a plus [0.01ms]
+(pass) composite charts > the before/after table marks cut candidates and the sampled token [0.10ms]
+(pass) composite charts > survivors outside the raw top-K are disclosed, not hidden [0.02ms]
+(pass) composite charts > histogram rows carry counts and shares [0.06ms]
+(pass) composite charts > tables align on the widest cell [0.06ms]
+
+scope/proxy.test.ts:
+(pass) recording proxy > forwards a streamed response verbatim while capturing every payload [6.04ms]
+(pass) recording proxy > exposes the parsed request body to the recorder [5.54ms]
+(pass) recording proxy > a recording hook that throws never breaks the response [5.47ms]
+(pass) recording proxy > upstream failures surface as a readable 502 instead of a hang [3.07ms]
+(pass) recording proxy > upstream status and headers are preserved [5.48ms]
+
+scope/capture.test.ts:
+(pass) SseSplitter > reassembles payloads across arbitrary chunk boundaries [0.11ms]
+(pass) SseSplitter > handles CRLF framing [0.01ms]
+(pass) SseSplitter > ignores comment and event lines [0.01ms]
+(pass) SseSplitter > flush surfaces a frame that never got its blank line [0.02ms]
+(pass) parseChunk > reads post-sampling survivors from a chat chunk [0.09ms]
+(pass) parseChunk > converts raw logprobs back into probabilities [0.03ms]
+(pass) parseChunk > reads the native /completion shape [0.05ms]
+(pass) parseChunk > recognizes the stream terminator and ignores junk [0.06ms]
+(pass) parseChunk > distinguishes an explicit empty sampler echo from missing or malformed settings [0.04ms]
+(pass) parseChunk > a chunk with no logprobs yields no steps [0.02ms]
+(pass) parseProbEntries > drops malformed candidates instead of throwing [0.02ms]
+(pass) parseProbEntries > non-array input is tolerated
+(pass) GenerationBuilder > stamps arrival times and marks saturation at the n_probs ceiling [0.07ms]
+(pass) GenerationBuilder > timings and usage from later chunks are merged in [0.03ms]
+(pass) GenerationStore > keeps a bounded history and only reports generations with tokens [0.03ms]
+(pass) GenerationStore > replay bodies are pruned from all but the newest records [0.03ms]
+
+scope/rank.test.ts:
+(pass) selected-token ranks > preserves exact ranks outside the candidate window in streaming and native responses [0.35ms]
+(pass) selected-token ranks > 4th and 6th average to 5, with missing values excluded and coverage disclosed [0.44ms]
+(pass) selected-token ranks > fallback ranks count higher probabilities, with shared ranks for ties [0.02ms]
+(pass) selected-token ranks > IDs distinguish tokens that decode to the same text [0.01ms]
+(pass) selected-token ranks > invalid server ranks are not counted [0.04ms]
+(pass) selected-token ranks > session means weight tokens, and separate knob settings and routing [0.22ms]
+
+scope/integration.test.ts:
+(pass) scope over a stand-in llama.cpp server > a streamed answer is captured as per-token truncation widths [28.68ms]
+(pass) scope over a stand-in llama.cpp server > raw mode captures the model's own distribution and reports no width [5.49ms]
+(pass) scope over a stand-in llama.cpp server > an unrelated slot (processing=%s) cannot imply dropped samplers [29.70ms]
+(pass) scope over a stand-in llama.cpp server > an unrelated slot (processing=%s) cannot imply dropped samplers [27.43ms]
+(pass) scope over a stand-in llama.cpp server > only a response's own sampler echo can confirm a drop, and later success clears it [49.47ms]
+(pass) scope over a stand-in llama.cpp server > a new request without an applied-chain echo clears the previous request's warning [6.15ms]
+(pass) scope over a stand-in llama.cpp server > changing servers clears capability warnings and snapshots [4.97ms]
+(pass) scope over a stand-in llama.cpp server > /props tells us which samplers this build implements [0.06ms]
+(pass) scope over a stand-in llama.cpp server > a probe drives the native endpoint with cached prefixes [2.64ms]
+(pass) scope over a stand-in llama.cpp server > chain diffs report drops, additions and reordering [0.03ms]
+
+scope/width.test.ts:
+(pass) full-distribution telemetry > width %s is independent of the 20-token preview [0.13ms]
+(pass) full-distribution telemetry > width %s is independent of the 20-token preview [0.03ms]
+(pass) full-distribution telemetry > width %s is independent of the 20-token preview [0.02ms]
+(pass) full-distribution telemetry > width %s is independent of the 20-token preview [0.01ms]
+(pass) full-distribution telemetry > width %s is independent of the 20-token preview [0.02ms]
+(pass) full-distribution telemetry > raw capture also carries the full post-chain width [0.03ms]
+(pass) full-distribution telemetry > reports and aggregates use measured widths and full entropy [0.43ms]
+(pass) full-distribution telemetry > old capped previews cannot masquerade as exact width or entropy [0.17ms]
+(pass) full-distribution telemetry > probes and each funnel stage use full counts (teacher-forced=%s) [0.13ms]
+(pass) full-distribution telemetry > probes and each funnel stage use full counts (teacher-forced=%s) [0.04ms]
+
+ 286 pass
+ 0 fail
+ 705 expect() calls
+Ran 286 tests across 15 files. [282.00ms]
+$ tsc --noEmit
+Processor import OK
+Restarting vllm-glm53; current generations will disconnect.
+{"passed": true, "cases": 8, "result": "/home/ubuntu/glm53-vllm/custom-samplers-releases/20261002-041738/server-validation.json"}
+{"installed": true, "release": "/home/ubuntu/glm53-vllm/custom-samplers-releases/20261002-041738", "backup": "/home/ubuntu/glm53-vllm/sampler-backups/20261002-041751", "validation": "/home/ubuntu/glm53-vllm/custom-samplers-releases/20261002-041738/server-validation.json"}
+{
+  "deployed": true,
+  "server_release": "/home/ubuntu/glm53-vllm/custom-samplers-releases/20261002-041738",
+  "extension_backup": "/Users/lain/glm53-vllm-client/sampler-backup-20261002-041738",
+  "next": "Restart oh-my-pi with omp-glm53 --continue; saved sampler profile is preserved"
+}

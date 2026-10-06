@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "glm53-omp-samplers"
+version = "0.1.0"
+description = "Ordered llama.cpp samplers for the GLM-5.3 vLLM 0.30 service"
+requires-python = ">=3.12"
+dependencies = []
+
+# Explicit --logits-processors activation; installing does not affect other services.
+# torch and numpy come from the existing vLLM environment. Never replace them.
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

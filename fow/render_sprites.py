@@ -15,7 +15,7 @@ from .senses import daylight, player_can_see_actor
 from .sprites import vehicle_camo, vehicle_class
 
 SQUAD_RING = (140, 255, 230)
-N_LAYERS = 8   # terrain, decals, rings, hulls, units, top (turrets/aircraft), effects, filter
+N_LAYERS = 10   # terrain, decals, rings, hulls, units, top, occupants, smoke, effects, filter
 
 
 def _layer(vw, vh, opaque=False):
@@ -56,7 +56,7 @@ def draw_sprite_layers(bank, game, cam, frame=0, ui=None):
     S = (slice(sx0, sx0 + w), slice(sy0, sy0 + h))       # this map's part of the view...
     D = (slice(ox, ox + w), slice(oy, oy + h))           # ...and where it goes on screen
     L = [_layer(vw, vh, opaque=True)] + [_layer(vw, vh) for _ in range(N_LAYERS - 1)]
-    terr, deco, rings, hulls, units, top, fx, filt = L
+    terr, deco, rings, hulls, units, top, occupants_layer, smoke_layer, fx, filt = L
 
     # ---------------------------------------------------------------- the ground next door
     d = daylight(game)
@@ -73,8 +73,8 @@ def draw_sprite_layers(bank, game, cam, frame=0, ui=None):
         night = game.is_night()
         for mk in marks:
             if cam.on_screen(mk["x"], mk["y"]):
-                top.rgba["ch"][mk["x"] - x0, mk["y"] - y0] = bank.effect("smoke", 0)
-                top.rgba["fg"][mk["x"] - x0, mk["y"] - y0] = (240, 140, 70, 200) if night else (190, 186, 180, 170)
+                smoke_layer.rgba["ch"][mk["x"] - x0, mk["y"] - y0] = bank.effect("smoke", 0)
+                smoke_layer.rgba["fg"][mk["x"] - x0, mk["y"] - y0] = (240, 140, 70, 200) if night else (190, 186, 180, 170)
 
     # ---------------------------------------------------------------- terrain + light
     t = m.seen_t(S[0], S[1])                     # (out of sight: the ground as you last saw it)
@@ -137,8 +137,8 @@ def draw_sprite_layers(bank, game, cam, frame=0, ui=None):
     smoke = m.smoke[S]
     smask = (smoke > 0.25) & exp
     if smask.any():
-        top.rgba["ch"][D][smask] = bank.effect("smoke", 0)
-        top.rgba["fg"][ox:ox + w, oy:oy + h, 3][smask] = np.clip(smoke * 90, 40, 235).astype(np.uint8)[smask]
+        smoke_layer.rgba["ch"][D][smask] = bank.effect("smoke", 0)
+        smoke_layer.rgba["fg"][ox:ox + w, oy:oy + h, 3][smask] = np.clip(smoke * 90, 40, 235).astype(np.uint8)[smask]
     # items
     for (x, y), items in m.items.items():
         if not items or not cam.on_screen(x, y) or not m.visible[x, y]:
@@ -227,14 +227,23 @@ def draw_sprite_layers(bank, game, cam, frame=0, ui=None):
             rc = tuple(int(c * 0.45) for c in rc)
         vlen, vwid = v.size
         hf = v.body_facing if v.static else v.facing
-        gun_face = v.facing if v.static else hf
         if cam.on_screen(v.x, v.y):
             rings.rgba["ch"][v.x - x0, v.y - y0] = bank.ring("bracket")
             rings.rgba["fg"][v.x - x0, v.y - y0] = rc + (200,)
-        lay(hulls, bank.vehicle_pieces(vc, camo, vlen, vwid, hf if not v.static else gun_face, 0, "hull",
-                                       v.burning > 0), v.x, v.y)
-        if vc in ("tank", "heavy", "ltank", "armcar", "tankette") and v.vt.turret:
-            lay(top, bank.vehicle_pieces(vc, camo, vlen, vwid, hf, v.turret, "turret"), v.x, v.y)
+        lay(hulls, bank.vehicle_pieces(vc, camo, vlen, vwid, hf, 0, "hull",
+                                       v.burning > 0, v.vt.open_top), v.x, v.y)
+        if v.static or (vc in ("tank", "heavy", "ltank", "armcar", "tankette", "open_td", "aa_halftrack") and v.vt.turret):
+            lay(top, bank.vehicle_pieces(vc, camo, vlen, vwid, hf, v.facing if v.static else v.turret,
+                                         "turret", open_top=v.vt.open_top), v.x, v.y)
+        from .vehicle_figures import occupants
+        figures = occupants(v, m.climate, game.turn)
+        for dx, dy, cp in bank.vehicle_crew_pieces(figures) if figures else ():
+            wx, wy = v.x + dx, v.y + dy
+            qx, qy = wx - x0, wy - y0
+            if 0 <= qx < vw and 0 <= qy < vh and m.in_bounds(wx, wy) and \
+                    (p.vehicle is v or m.visible[wx, wy]):
+                occupants_layer.rgba["ch"][qx, qy] = cp
+                occupants_layer.rgba["fg"][qx, qy] = tint_at(qx, qy)
         if v.burning and (frame + game.turn) % 2 == 0:
             for k, (cx, cy) in enumerate(cells):
                 if k % 2 == (game.turn + frame) % 2 and cam.on_screen(cx, cy):
@@ -261,6 +270,8 @@ def draw_sprite_layers(bank, game, cam, frame=0, ui=None):
         units.rgba["fg"][sx, sy] = tint_at(sx, sy)
         if a is p:
             rc = PLAYER_COLOR
+        elif a.ai.get("civilian"):
+            rc = (220, 200, 155)
         elif a.side == p.side:
             rc = SQUAD_RING if (p.squad is not None and a.squad is p.squad) else FRIEND_COLOR
         else:
@@ -280,6 +291,11 @@ def draw_sprite_layers(bank, game, cam, frame=0, ui=None):
             rings.rgba["ch"][shx - x0, shy - y0] = bank.aircraft(ac.nation, o, shadow=True)
 
     # ---------------------------------------------------------------- effects
+    from .weather import particles
+    for x, y, ch, col in particles(game, cam):
+        kind = "snow" if game.weather in ("snow", "blizzard") else "dust" if game.weather == "sandstorm" else "rain"
+        fx.rgba["ch"][x - x0, y - y0] = bank.effect(kind, int(ch == "/"))
+        fx.rgba["fg"][x - x0, y - y0] = (255, 255, 255, 190)
     if ui is not None and ui.anim > 0:
         f = 4 - ui.anim
         for e in game.effects:

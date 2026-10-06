@@ -11,7 +11,7 @@ def update_objectives(game, interval: int):
         present = {s: 0 for s in SIDES}
         r2 = o.radius * o.radius
         for a in game.actors:
-            if not a.active or a.downed or a.vehicle is not None:
+            if not a.active or a.downed or a.vehicle is not None or a.ai.get("civilian"):
                 continue
             if (a.x - o.x) ** 2 + (a.y - o.y) ** 2 <= r2:
                 present[a.side] += 1

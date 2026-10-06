@@ -1,0 +1,53 @@
+{
+  "host": "alpha-h200",
+  "vllm": "0.30.0",
+  "config": {
+    "model": "/home/ubuntu/models/GLM-5.3-UNCENSORED-FP8",
+    "served-model-name": [
+      "dealignai/GLM-5.3-UNCENSORED-FP8",
+      "glm53"
+    ],
+    "host": "192.168.200.207",
+    "port": 8000,
+    "tensor-parallel-size": 2,
+    "gpu-memory-utilization": 0.9,
+    "enforce-eager": true,
+    "disable-custom-all-reduce": true,
+    "enable-prefix-caching": true,
+    "max-num-seqs": 8,
+    "max-model-len": 1048576,
+    "reasoning-parser": "glm45",
+    "tool-call-parser": "glm47",
+    "enable-auto-tool-choice": true,
+    "generation-config": "vllm",
+    "override-generation-config": {
+      "temperature": 1,
+      "min_p": 0.05,
+      "top_p": 1,
+      "top_k": -1,
+      "repetition_penalty": 1,
+      "presence_penalty": 0,
+      "frequency_penalty": 0
+    },
+    "pipeline-parallel-size": 4,
+    "max-num-batched-tokens": 4096,
+    "logits-processors": [
+      "glm53_samplers.processor:OrderedSamplers"
+    ]
+  },
+  "unit": "[Unit]\nDescription=GLM-5.3 UNCENSORED FP8 on vLLM\nAfter=network-online.target\nWants=network-online.target\nStartLimitIntervalSec=600\nStartLimitBurst=3\n\n[Service]\nType=simple\nUser=ubuntu\nGroup=ubuntu\nWorkingDirectory=/home/ubuntu/glm53-vllm\nEnvironmentFile=/home/ubuntu/glm53-vllm/api.env\nEnvironment=HF_HUB_OFFLINE=1\nEnvironment=TOKENIZERS_PARALLELISM=false\nEnvironment=OMP_NUM_THREADS=8\nEnvironment=NCCL_NVLS_ENABLE=0\nEnvironment=VLLM_PP_LAYER_PARTITION=18,20,20,20\nExecStart=/home/ubuntu/glm53-vllm/serve.sh\nRestart=on-failure\nRestartSec=15\nTimeoutStopSec=120\nLimitNOFILE=1048576\nLimitMEMLOCK=infinity\n\n[Install]\nWantedBy=multi-user.target\n",
+  "launcher": "#!/usr/bin/env bash\nset -euo pipefail\nexport PATH=\"/home/ubuntu/glm53-vllm/.venv/bin:/home/ubuntu/.local/bin:$PATH\"\nexport NCCL_NVLS_ENABLE=0\ncd /home/ubuntu/glm53-vllm\nexport PYTHONPATH=/home/ubuntu/glm53-vllm/custom-samplers-releases/20261002-041738/src${PYTHONPATH:+:$PYTHONPATH} # glm53-ordered-samplers\nexec /home/ubuntu/glm53-vllm/.venv/bin/vllm serve --config /home/ubuntu/glm53-vllm/server.yaml\n",
+  "gpus": [
+    "NVIDIA H200, 143771 MiB",
+    "NVIDIA H200, 143771 MiB",
+    "NVIDIA H200, 143771 MiB",
+    "NVIDIA H200, 143771 MiB",
+    "NVIDIA H200, 143771 MiB",
+    "NVIDIA H200, 143771 MiB",
+    "NVIDIA H200, 143771 MiB",
+    "NVIDIA H200, 143771 MiB"
+  ],
+  "service_state": "active",
+  "enabled": "enabled",
+  "verified_kv_cache_tokens": 1152320
+}

@@ -18,6 +18,21 @@ SHIP_DIRS = {"E": "fwd", "W": "aft", "N": "port", "S": "stbd", "NE": "p.bow", "S
              "SW": "s.qtr"}
 NEUTRAL = (200, 190, 150)
 HEARD = (170, 170, 200)
+AMMO_PRIMARY = (130, 225, 150)
+AMMO_SECONDARY = (115, 185, 255)
+AMMO_BOTH = (225, 175, 255)
+
+
+def ammo_match(player, item):
+    """Check actual feed compatibility, including empty magazines; calibre alone isn't enough."""
+    from .ammo import compatible
+    slots = player.invent.slots
+    matches = list(dict.fromkeys("secondary" if slot == "holster" else slot
+                   for slot in ("primary", "secondary", "holster")
+                   if slots.get(slot) is not None and slots[slot].t.kind == "gun" and compatible(item, slots[slot])))
+    return ("P/S", AMMO_BOTH) if len(matches) == 2 else \
+        ("P", AMMO_PRIMARY) if matches == ["primary"] else \
+        ("S", AMMO_SECONDARY) if matches else ("", NEUTRAL)
 
 
 def _dir(game, dx, dy):
@@ -35,6 +50,8 @@ def _yd(d):
 def _who(game, a, d):
     """What you'd call him from here: a name if he's one of yours, otherwise what he looks like."""
     p = game.player
+    if a.ai.get("civilian"):
+        return a.ai.get("occupation", "civilian")
     if a.side == p.side and a.squad is not None and a.squad is p.squad:
         return a.name.split()[-1] if a.name else a.role_name
     nat = NATIONS.get(a.nation, {}).get("adj", "")
@@ -66,14 +83,20 @@ def gather(game):
             continue
         d = math.hypot(a.x - ox, a.y - oy)
         friend = a.side == p.side
-        if a.state == "surrendered" and not friend:
+        if a.ai.get("civilian"):
+            group, col = "Civilians", NEUTRAL
+        elif a.state == "surrendered" and not friend:
             group, col = "Prisoners and the surrendering", NEUTRAL
         else:
             group, col = ("Friendly", FRIEND_COLOR) if friend else ("Enemy", ENEMY_COLOR)
         st = _state(a)
-        men.append(dict(x=a.x, y=a.y, label=_who(game, a, d) + (f" ({st})" if st else ""),
+        job = a.ai.get("support_job")
+        label = _who(game, a, d) + (f" ({st})" if st else "")
+        if friend and not st and job and job["target"] == p.id and job["until"] > game.turn:
+            label = ("Ammo for you: " if job["kind"] == "ammo" else "Aid for you: ") + a.last_name
+        men.append(dict(x=a.x, y=a.y, label=label,
                         right=f"{_yd(d)} {_dir(game, a.x - ox, a.y - oy)}", color=col, d=d, group=group,
-                        enemy=not friend and a.state != "surrendered"))
+                        enemy=not friend and a.state != "surrendered" and not a.ai.get("civilian")))
     for v in game.vehicles:
         if v.dead and not v.burning:
             continue
@@ -110,22 +133,49 @@ def gather(game):
         if d > 60:
             continue                             # a rifle in the grass at 130 yards is just grass
         names = []
+        item_colors = []
+        matches = set()
+        first_match = None
         for it in pile:
             if it.t.kind == "corpse" and it.data:
                 ours = it.data.get("side") == p.side
                 nat = NATIONS.get(it.data.get("nation"), {}).get("adj", "")
                 n = f"dead {nat}" + ("" if not ours else " (ours)")
+                from .entities import visible_body_items
+                for kit, loc in visible_body_items(it, d):
+                    tag, color = ammo_match(p, kit)
+                    label = (f"[{tag}] " if tag else "") + kit.name
+                    source = f"{n}: {loc}"
+                    items.append(dict(x=x, y=y, label=label, right=f"{_yd(d)} {_dir(game, x - ox, y - oy)}",
+                                      color=color, d=d, group="On bodies", body=it,
+                                      names=[label, source, "Enter: approach and open this body's kit."],
+                                      item_colors=[color, UI_DIM, UI_DIM]))
+                if d <= 8 and not it.data.get("searched"):
+                    n += " (pockets / closed pack unsearched)"
             else:
                 n = it.name
+            tag, col = ammo_match(p, it)
+            if tag:
+                matches.update(tag.split("/"))
+                n = f"[{tag}] {n}"
+                if first_match is None:
+                    first_match = n
             if it.data and it.data.get("live") is not None:
                 n = "LIVE " + n
+                col = (255, 90, 70)
             names.append(n)
-        label = names[0] + (f" +{len(names) - 1}" if len(names) > 1 else "")
+            item_colors.append(col)
+        label = (first_match or names[0]) + (f" +{len(names) - 1}" if len(names) > 1 else "")
         danger = any(it.data and it.data.get("live") is not None for it in pile)
+        col = AMMO_BOTH if len(matches) == 2 else AMMO_PRIMARY if "P" in matches else \
+            AMMO_SECONDARY if matches else NEUTRAL
         items.append(dict(x=x, y=y, label=label, right=f"{_yd(d)} {_dir(game, x - ox, y - oy)}",
-                          color=(255, 90, 70) if danger else (200, 190, 150), d=d,
-                          group="Here" if d < 1 else "On the ground", names=names))
-    items.sort(key=lambda e: e["d"])
+                          color=(255, 90, 70) if danger else col, d=d,
+                          group="Here" if d < 1 else "On the ground", names=names, item_colors=item_colors))
+    for entry in items:
+        if entry["d"] < 1:
+            entry["right"] = "here"
+    items.sort(key=lambda e: (e["d"], e["group"]))
     return {"Soldiers": men, "Items": items}
 
 
@@ -148,7 +198,12 @@ def draw(con, ps):
     entries = st["lists"][tab]
     head = "  ".join(f"[{t}]" if t == tab else t for t in TABS)
     con.print(x0 + 1, 0, head[:w - 2], fg=UI_HI, bg=UI_BG)
-    con.print(x0 + 1, 1, ("binoculars up" if g.player_binoculars else "by eye")[:w - 2], fg=UI_DIM, bg=UI_BG)
+    if tab == "Items":
+        for offset, row, label, col in ((1, 1, "P primary", AMMO_PRIMARY), (12, 1, "S secondary", AMMO_SECONDARY),
+                                        (1, 2, "P/S both", AMMO_BOTH)):
+            con.print(x0 + offset, row, label[:max(0, w - offset - 1)], fg=col, bg=UI_BG)
+    else:
+        con.print(x0 + 1, 1, ("binoculars up" if g.player_binoculars else "by eye")[:w - 2], fg=UI_DIM, bg=UI_BG)
     if not entries:
         con.print(x0 + 1, 3, "Nothing." if tab == "Items" else "Nobody in sight.", fg=UI_DIM, bg=UI_BG)
     rows = SCREEN_H - 8

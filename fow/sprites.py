@@ -645,6 +645,12 @@ def paint_object(c: Canvas, key: str, tid: int):
         c.ellipse((14, 14, 34, 34), fill=(70, 70, 76, 255), outline=(140, 140, 150, 255), width=3)
         c.rect((38, 12, 54, 52), fill=(120, 110, 90, 255))
         c.line([(10, 48), (54, 48)], fill=(160, 140, 60, 255), width=3)
+    elif key == "arms_rack":
+        c.rect((6, 14, 58, 20), fill=(115, 78, 43, 255))
+        c.rect((6, 45, 58, 51), fill=(115, 78, 43, 255))
+        for x in range(12, 57, 9):
+            c.line([(x, 7), (x - 3, 41)], fill=(70, 76, 72, 255), width=3)
+            c.line([(x - 3, 35), (x - 4, 55)], fill=(160, 110, 63, 255), width=5)
     elif key in ("crates", "ammo_stack"):
         for i, (x, y) in enumerate(((6, 6), (32, 8), (8, 32), (33, 33))):
             col = (150, 110, 65) if key == "crates" else (95, 100, 60)
@@ -1059,7 +1065,7 @@ def is_object(key: str) -> bool:
         return False
     if key in ("window", "window_broken", "embrasure", "door", "door_open", "fence", "fence_h", "low_wall",
                "wire", "sandbags", "trench", "trench_snow", "foxhole", "crater", "crater_big", "atditch",
-               "hedgehog", "teeth", "sign", "canvas", "camo_net", "ammo_stack", "fuel_drums", "antenna",
+               "hedgehog", "teeth", "sign", "canvas", "camo_net", "ammo_stack", "arms_rack", "fuel_drums", "antenna",
                "redcross", "plane_parked", "bridge", "rail", "rubble", "rubble_light", "rubble_heavy",
                "rubble_wood", "stump", "log", "grave", "well", "hay", "wreck", "machinery", "crates",
                "table", "pew", "altar", "bed", "stove", "boulder", "cliff", "hull", "funnel", "gun_turret",
@@ -1083,7 +1089,11 @@ SPRITE_ALIAS = {"ac_body": "dirt", "ac_engine": "dirt", "ac_wing": "dirt", "ac_t
                 "birch": "tree", "cypress": "pine", "fir": "pine", "apple_tree": "tree", "mangrove": "tree",
                 "vineyard": "corn", "sugarcane": "corn", "drystone": "low_wall", "camelthorn": "scrub",
                 "reeds": "tall_grass", "scree": "rock_ground", "outcrop": "boulder", "dune": "sand", "wadi": "sand",
-                "tomb": "wall_stone", "stairs": "floor_wood", "trapdoor": "floor_wood"}
+                "tomb": "wall_stone", "stairs": "floor_wood", "trapdoor": "floor_wood",
+                "waterlogged": "mud", "flooded_trench": "trench", "snow_drift": "deep_snow",
+                "food_store": "crates", "medical_store": "crates", "spares_store": "crates",
+                "transformer": "machinery", "hospital_bed": "bed", "market_stall": "table",
+                "checkpoint": "sandbags", "shelter_floor": "floor_concrete", "supply_cache": "crates"}
 
 
 def paint_terrain(tid: int, variant: int) -> np.ndarray:
@@ -1268,7 +1278,7 @@ CAMO = {
 }
 
 
-def paint_vehicle(vclass: str, camo: str, facing: int, part: str = "hull", burning=False) -> np.ndarray:
+def paint_vehicle(vclass: str, camo: str, facing: int, part: str = "hull", burning=False, open_top=False) -> np.ndarray:
     """vclass: tank, heavy, ltank, tankette, td, spg, halftrack, truck, car, armcar, lc, amtrac,
     atgun, aagun, fieldgun.  part: hull or turret."""
     col = CAMO.get(camo, (90, 95, 70))
@@ -1282,16 +1292,37 @@ def paint_vehicle(vclass: str, camo: str, facing: int, part: str = "hull", burni
         return rot(pts, ang)
 
     if part == "turret":
-        if vclass in ("tank", "heavy", "ltank", "armcar", "tankette"):
-            r = {"tank": 11, "heavy": 13, "ltank": 8, "armcar": 7, "tankette": 5}[vclass]
-            L = {"tank": 26, "heavy": 30, "ltank": 18, "armcar": 16, "tankette": 12}[vclass]
+        if vclass in ("tank", "heavy", "ltank", "armcar", "tankette", "open_td"):
+            r = {"tank": 11, "heavy": 13, "ltank": 8, "armcar": 7, "tankette": 5, "open_td": 14}[vclass]
+            L = {"tank": 26, "heavy": 30, "ltank": 18, "armcar": 16, "tankette": 12, "open_td": 29}[vclass]
             c.poly(P([(32 - r, 32 - r * 0.9), (32 + r * 0.8, 32 - r * 0.9), (32 + r, 32), (32 + r * 0.8, 32 + r * 0.9),
                       (32 - r, 32 + r * 0.9)]), fill=col + (255,), outline=dark + (255,))
             c.line(P([(32 + r - 1, 32), (32 + L, 32)]), fill=dark + (255,), width=3 if vclass != "heavy" else 4)
-            c.ellipse((28, 26, 34, 32), fill=light + (255,))
+            if open_top or vclass == "open_td":
+                c.poly(P([(32 - r + 3, 32 - r * .7), (32 + r - 3, 32 - r * .6),
+                          (32 + r - 3, 32 + r * .6), (32 - r + 3, 32 + r * .7)]),
+                       fill=shade(col, .28) + (255,), outline=light + (255,))
+            else:
+                c.ellipse((28, 26, 34, 32), fill=light + (255,))
+        elif vclass == "aa_halftrack":
+            c.ellipse((25, 25, 39, 39), fill=dark + (255,), outline=light + (255,))
+            for dy in (-5, -2, 2, 5):
+                c.line(P([(30, 32 + dy), (51, 32 + dy)]), fill=(40, 43, 39, 255), width=2)
+            for dy in (-8, 6):
+                c.poly(P([(30, 32 + dy), (36, 32 + dy), (36, 34 + dy), (30, 34 + dy)]),
+                       fill=col + (255,), outline=light + (255,))
+        elif vclass in ("atgun", "fieldgun", "aagun"):
+            c.ellipse((25, 25, 39, 39), fill=light + (255,), outline=dark + (255,))
+            if vclass == "aagun":
+                for dy in (-3, 3):
+                    c.line(P([(29, 32 + dy), (58, 32 + dy)]), fill=dark + (255,), width=3)
+            else:
+                c.poly(P([(34, 18), (40, 18), (40, 46), (34, 46)]), fill=col + (255,), outline=dark + (255,))
+                end = 58 if vclass == "atgun" else 54
+                c.line(P([(26, 32), (end, 32)]), fill=dark + (255,), width=4 if vclass == "fieldgun" else 3)
         return c.array()
-    if vclass in ("tank", "heavy", "ltank", "tankette", "td", "spg"):
-        size = {"tank": 1.0, "heavy": 1.12, "ltank": 0.82, "tankette": 0.6, "td": 1.0, "spg": 0.92}[vclass]
+    if vclass in ("tank", "heavy", "ltank", "tankette", "td", "spg", "open_td"):
+        size = {"tank": 1.0, "heavy": 1.12, "ltank": 0.82, "tankette": 0.6, "td": 1.0, "spg": 0.92, "open_td": 1.0}[vclass]
         hl, hw = 26 * size, 15 * size
         c.shadow((32 - hl, 32 - hw + 6, 32 + hl, 32 + hw + 8), 110, 3)
         # tracks
@@ -1309,11 +1340,13 @@ def paint_vehicle(vclass: str, camo: str, facing: int, part: str = "hull", burni
                   (32 - hl + 4, 32 + hw * 0.45)]), fill=shade(col, 0.8) + (255,))   # engine deck
         if vclass in ("td", "spg"):
             # casemate and gun on the hull
-            c.poly(P([(32 - 4, 32 - hw * 0.6), (32 + hl * 0.55, 32 - hw * 0.6), (32 + hl * 0.7, 32),
-                      (32 + hl * 0.55, 32 + hw * 0.6), (32 - 4, 32 + hw * 0.6)]), fill=light + (255,), outline=dark + (255,))
+            rear = 32 - hl * .6 if open_top else 32 - 4
+            c.poly(P([(rear, 32 - hw * 0.6), (32 + hl * 0.55, 32 - hw * 0.6), (32 + hl * 0.7, 32),
+                      (32 + hl * 0.55, 32 + hw * 0.6), (rear, 32 + hw * 0.6)]),
+                   fill=(shade(col, .28) if open_top else light) + (255,), outline=light + (255,) if open_top else dark + (255,))
             L = 30 if vclass == "td" else 20
             c.line(P([(32 + hl * 0.6, 32), (32 + hl * 0.6 + L * 0.6, 32)]), fill=dark + (255,), width=4 if vclass == "spg" else 3)
-    elif vclass in ("halftrack",):
+    elif vclass in ("halftrack", "aa_halftrack"):
         hl, hw = 25, 11
         c.shadow((32 - hl, 32 - hw + 6, 32 + hl, 32 + hw + 8), 100, 3)
         for s in (-1, 1):
@@ -1380,14 +1413,11 @@ def paint_vehicle(vclass: str, camo: str, facing: int, part: str = "hull", burni
         c.shadow((12, 22, 56, 50), 80, 3)
         if vclass == "aagun":
             c.ellipse((16, 16, 48, 48), fill=col + (255,), outline=dark + (255,), width=2)
-            for dy in (-3, 3):
-                c.line(P([(32, 32 + dy), (58, 32 + dy)]), fill=dark + (255,), width=3)
+            c.line(P([(10, 32), (54, 32)]), fill=dark + (255,), width=3)
+            c.line(P([(32, 10), (32, 54)]), fill=dark + (255,), width=3)
         else:
             c.line(P([(32, 32), (8, 18)]), fill=dark + (255,), width=3)
             c.line(P([(32, 32), (8, 46)]), fill=dark + (255,), width=3)
-            c.poly(P([(34, 18), (40, 18), (40, 46), (34, 46)]), fill=col + (255,), outline=dark + (255,))
-            L = 58 if vclass == "atgun" else 54
-            c.line(P([(30, 32), (L, 32)]), fill=dark + (255,), width=4 if vclass == "fieldgun" else 3)
             c.ellipse(rot_box(32, 20, 4, 5, ang), fill=(30, 30, 30, 255))
             c.ellipse(rot_box(32, 44, 4, 5, ang), fill=(30, 30, 30, 255))
     if burning:
@@ -1404,22 +1434,26 @@ def _alpha_box(img, thresh=140):
     return (int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1)
 
 
-def paint_vehicle_pieces(vclass, camo, L, W, hull_facing, facing, part="hull", burning=False) -> dict:
+def paint_vehicle_pieces(vclass, camo, L, W, hull_facing, facing, part="hull", burning=False, open_top=False) -> dict:
     """A vehicle drawn at the size of its footprint, rotated, and cut into tile-sized pieces.
 
     Returns {(dx, dy): 64x64 RGBA array}, offsets from the pivot tile."""
     from .footprint import rect_center
-    base = Image.fromarray(paint_vehicle(vclass, camo, 0, "hull", burning), "RGBA")
-    bx0, by0, bx1, by1 = _alpha_box(base)
+    base = Image.fromarray(paint_vehicle(vclass, camo, 0, "hull", burning, open_top), "RGBA")
+    static = vclass in ("atgun", "fieldgun", "aagun")
+    tur = Image.fromarray(paint_vehicle(vclass, camo, 0, "turret", open_top=open_top), "RGBA")
+    bx0, by0, bx1, by1 = _alpha_box(Image.alpha_composite(base, tur) if static else base)
     sx = (L * M - 8) / max(1, bx1 - bx0)
     sy = (W * M - 8) / max(1, by1 - by0)
     if part == "hull":
         img = base.crop((bx0, by0, bx1, by1)).resize((max(1, int(round((bx1 - bx0) * sx))),
                                                       max(1, int(round((by1 - by0) * sy)))), Image.LANCZOS)
         ang = hull_facing
+    elif static:
+        img = tur.crop((bx0, by0, bx1, by1)).resize((round((bx1 - bx0) * sx), round((by1 - by0) * sy)), Image.LANCZOS)
+        ang = facing
     else:
         s = (sx + sy) / 2 * 0.95
-        tur = Image.fromarray(paint_vehicle(vclass, camo, 0, "turret"), "RGBA")
         img = tur.resize((max(1, int(M * s)), max(1, int(M * s))), Image.LANCZOS)
         ang = facing
     img = img.rotate(45 * (ang % 8), resample=Image.BICUBIC, expand=True)      # facings count anticlockwise
@@ -1692,7 +1726,17 @@ def paint_item(kind: str, side_color=None) -> np.ndarray:
 def paint_effect(kind: str, frame: int = 0) -> np.ndarray:
     c = Canvas(seed=hash((kind, frame)) & 0xFFFF)
     r = c.rng
-    if kind == "explosion":
+    if kind == "rain":
+        slant = -8 if frame else 8
+        for x, y in ((18, 10), (44, 30)):
+            c.line([(x, y), (x + slant, y + 22)], fill=(190, 216, 235, 220), width=2)
+    elif kind == "snow":
+        for x, y in ((18, 16), (42, 38), (28, 52)):
+            c.ellipse((x - 3, y - 3, x + 3, y + 3), fill=(245, 248, 255, 210))
+    elif kind == "dust":
+        c.line([(8, 30), (54, 23)], fill=(210, 180, 125, 160), width=3)
+        c.line([(24, 45), (59, 40)], fill=(220, 194, 142, 130), width=2)
+    elif kind == "explosion":
         rad = 10 + frame * 7
         cols = [(255, 250, 200), (255, 200, 60), (240, 110, 30), (90, 80, 70)]
         for i, col in enumerate(cols[frame:]):
@@ -1760,6 +1804,10 @@ def vehicle_class(vt) -> str:
         return "ambulance"
     if vt.id == "motorcycle":
         return "motorcycle"
+    if v == "td" and vt.open_top and vt.turret:
+        return "open_td"
+    if v == "halftrack" and vt.aa:
+        return "aa_halftrack"
     if v == "tank" and vt.armor[0] >= 100:
         return "heavy"
     return {"tank": "tank", "ltank": "ltank", "tankette": "tankette", "td": "td", "spg": "spg",
@@ -1839,14 +1887,27 @@ class SpriteBank:
     def ring(self, kind="ring"):
         return self._get(("ring", kind), lambda: paint_ring(kind))
 
-    def vehicle_pieces(self, vclass, camo, L, W, hull_facing, facing, part="hull", burning=False):
+    def vehicle_pieces(self, vclass, camo, L, W, hull_facing, facing, part="hull", burning=False, open_top=False):
         """[(dx, dy, codepoint)] for a multi-tile vehicle (hull or turret)."""
-        key = ("vbig", vclass, camo, L, W, hull_facing % 8, facing % 8 if part != "hull" else 0, part, burning)
+        key = ("vbig", vclass, camo, L, W, hull_facing % 8, facing % 8 if part != "hull" else 0, part, burning, open_top)
         got = self.keys.get(key)
         if got is None:
-            pieces = paint_vehicle_pieces(vclass, camo, L, W, hull_facing, facing, part, burning)
+            pieces = paint_vehicle_pieces(vclass, camo, L, W, hull_facing, facing, part, burning, open_top)
             got = []
             for (dx, dy), arr in sorted(pieces.items()):
+                cp = self._get(key + (dx, dy), lambda a=arr: a)
+                got.append((dx, dy, cp))
+            self.keys[key] = got
+        return got
+
+    def vehicle_crew_pieces(self, figures):
+        """All visible crew/passengers composited together, including people sharing a tile."""
+        key = ("vehicle_crew", figures)
+        got = self.keys.get(key)
+        if got is None:
+            from .vehicle_figures import paint_pieces
+            got = []
+            for (dx, dy), arr in sorted(paint_pieces(figures).items()):
                 cp = self._get(key + (dx, dy), lambda a=arr: a)
                 got.append((dx, dy, cp))
             self.keys[key] = got

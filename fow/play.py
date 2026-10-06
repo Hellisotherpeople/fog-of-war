@@ -76,6 +76,8 @@ class PlayState:
         self.game = game
         game.__dict__["_prefs"] = getattr(app, "settings", None) or {}
         self._autosaved = time.time()
+        self._rt_last = time.monotonic()
+        self._rt_elapsed = 0.0
         self.cam = Camera()
         self.mode = "normal"
         self.cursor = None
@@ -155,6 +157,7 @@ class PlayState:
             return
         gfx = getattr(self.app, "gfx", None)
         sprites = self.sprites()
+        g.__dict__["_realtime_label"] = self.realtime_label()
         try:
             g.__dict__["_order_hint"] = self.order_hint()
         except Exception:
@@ -545,6 +548,8 @@ class PlayState:
             if e is not None and e.get("heard") is not None:
                 from .nearby import heard_lines
                 lines, title = heard_lines(e), "Heard, not seen"
+            elif e is not None and e.get("names"):
+                lines, title = list(zip(e["names"], e["item_colors"])), "Items here"
         if self.mode == "throw" and self.popups == []:
             it = self.pending and self.pending.get("item")
             if it:
@@ -677,6 +682,10 @@ class PlayState:
                 lines.append((f"{st} in {where}", col))
                 if a.weapon is not None and (d < 25 or g.player_binoculars):
                     lines.append((f"armed with {'a ' if not a.weapon.t.name[0] in 'AEIOU' else 'an '}{a.weapon.t.name}", UI_TEXT))
+                job = a.ai.get("support_job")
+                if friend and job and job["target"] == p.id and job["until"] > g.turn:
+                    lines.append(("Bringing ammunition to you." if job["kind"] == "ammo" else
+                                  "On the way to give you first aid.", (150, 225, 170)))
                 if a.has_tool("brassard") and (d < 40 or g.player_binoculars):
                     lines.append(("a Red Cross armband" + ("" if a.weapon is not None and a.weapon.t.kind == "gun"
                                                            else " - and no weapon"), (230, 120, 120)))
@@ -787,8 +796,87 @@ class PlayState:
         return lines, title
 
     # ================================================================== animation / ticking
+    def realtime_enabled(self):
+        return bool((getattr(self.app, "settings", None) or {}).get("realtime"))
+
+    def reset_realtime_clock(self):
+        self._rt_last = time.monotonic()
+        self._rt_elapsed = 0.0
+
+    def realtime_paused(self):
+        states = getattr(self.app, "states", [])
+        return (not getattr(self.app, "focused", True) or bool(states and states[-1] is not self) or
+                bool(self.popups) or self.inv_screen is not None or self.mode == "nearby" or
+                bool(self.game.__dict__.get("succession_pending")) or self.game.game_over)
+
+    def realtime_busy(self):
+        return self.realtime_enabled() and self.game.player.moves <= 0
+
+    def realtime_label(self):
+        if not self.realtime_enabled():
+            return None
+        pace = (getattr(self.app, "settings", None) or {}).get("realtime_pace", "deliberate")
+        speed = {"normal": "1x", "deliberate": "0.5x", "slow": "0.25x"}.get(pace, "0.5x")
+        if self.realtime_paused():
+            return f"REAL TIME {speed} - PAUSED"
+        p = self.game.player
+        if p.moves <= 0:
+            left = max(1, math.ceil((1 - p.moves) / max(1, p.speed())))
+            return f"REAL TIME {speed} - busy {left}s"
+        return f"REAL TIME {speed} - ready (F6)"
+
+    def _realtime_tick(self, now=None):
+        """One shared clock; no catch-up burst after menus, focus loss or a stalled frame."""
+        now = time.monotonic() if now is None else now
+        last = self._rt_last
+        self._rt_last = now
+        if self.realtime_paused():
+            self._rt_elapsed = 0.0
+            return False
+        pace = (getattr(self.app, "settings", None) or {}).get("realtime_pace", "deliberate")
+        interval = {"normal": 1.0, "deliberate": 2.0, "slow": 4.0}.get(pace, 2.0)
+        elapsed = max(0.0, now - last)
+        if elapsed > max(5.0, interval * 2):
+            self._rt_elapsed = 0.0
+            return False
+        self._rt_elapsed += elapsed
+        if self._rt_elapsed < interval:
+            return False
+        self._rt_elapsed %= interval          # at most one simulation second per frame, never a burst
+        g = self.game
+        before = sum(g.player.body.hp.values())
+        g.world_turn()
+        g.player_fov()
+        self.flash_red = sum(g.player.body.hp.values()) < before
+        if g.effects:
+            self._start_anim()
+        self.check_over()
+        self._maybe_autosave()
+        return True
+
+    def cmd_realtime(self):
+        st = getattr(self.app, "settings", None)
+        if st is None:
+            return
+        self.stop_auto()
+        st["realtime"] = not st.get("realtime", False)
+        if hasattr(st, "save"):
+            st.save()
+        self.reset_realtime_clock()
+        chart_open = any(state.__class__.__name__ == "SkySeaState" for state in getattr(self.app, "states", []))
+        if not st["realtime"] and not chart_open and self.game.map is not None and self.game.player.moves <= 0:
+            self.game.player_done()           # switching clocks cannot erase an action's remaining cost
+            self.check_over()
+        self.game.msg("Real time on: everyone shares the clock. Menus pause it. F6: turn based." if st["realtime"]
+                      else "Turn based time. F6: real time.", "system")
+
     def wants_tick(self):
         g = self.game
+        if g.__dict__.get("identity_check") and not g.game_over and g.player.body.conscious and \
+                not self.popups and self.inv_screen is None:
+            return True                               # closing the view does not dismiss a sentry's questions
+        if self.realtime_enabled() and not g.game_over and g.map is not None:
+            return True
         if g.__dict__.get("autopilot") and not g.game_over and g.map is not None:
             return True                               # (your soldier's getting on with it: the world must turn)
         return self.anim > 0 or self.travel_path or self.auto_wait > 0 or self.running or \
@@ -827,9 +915,23 @@ class PlayState:
 
     def tick(self):
         g = self.game
+        from .identity import present as papers_check
+        if papers_check(self):
+            return
         now = time.time()
         if g.map is None:
             return
+        if self.realtime_enabled() and not getattr(self.app, "focused", True):
+            self.reset_realtime_clock()
+            return
+        timed = self.realtime_enabled() and not self.auto_wait and not self.__dict__.get("ff_until")
+        if timed:
+            self._realtime_tick()
+            if self.realtime_paused() or g.player.moves <= 0 or not g.player.body.conscious or \
+                    g.__dict__.get("autopilot") or g.game_over:
+                return
+        else:
+            self.reset_realtime_clock()
         if now < self.anim_next:
             return
         if self.anim > 0:
@@ -848,6 +950,10 @@ class PlayState:
         if g.__dict__.get("succession_pending"):
             if not self.popups:
                 self._succession_menu()
+            return
+        if self.auto_wait > 0 and (self.__dict__.get("wait") or {}).get("kind") == "forced":
+            self._wait_tick()
+            self.anim_next = now + 0.005
             return
         if g.__dict__.get("autopilot") and not g.game_over:
             from .succession import set_autopilot
@@ -929,6 +1035,12 @@ class PlayState:
         g = self.game
         p = g.player
         if self.travel_path:
+            following = self.__dict__.get("_following_order")
+            if following is not None:
+                from .orders import execution_signature
+                if following != execution_signature(g):
+                    self.stop_auto("Your orders have changed. Enter follows the current instruction.")
+                    return
             if self.interrupted():
                 self.stop_auto("You stop.")
                 return
@@ -952,7 +1064,8 @@ class PlayState:
                     return
             nx, ny = self.travel_path.pop(0)
             dx, dy = nx - p.x, ny - p.y
-            if (g.soldier_at.get((nx, ny)) is not None and g.soldier_at[(nx, ny)].side != p.side):
+            if (g.soldier_at.get((nx, ny)) is not None and g.soldier_at[(nx, ny)].side != p.side and
+                    not g.soldier_at[(nx, ny)].ai.get("civilian")):
                 self.stop_auto()
                 return
             if max(abs(dx), abs(dy)) != 1 or (nx, ny) in g.vehicle_at:
@@ -992,13 +1105,13 @@ class PlayState:
     def _fast_quiet(self) -> bool:
         """Nobody in sight, nothing coming at you: the seconds may go by as fast as they can be simulated."""
         st = getattr(self.app, "settings", None) or {}
-        if not st.get("fast_quiet", True):
+        if st.get("realtime") or not st.get("fast_quiet", True):
             return False
         g = self.game
         p = g.player
         if p.suppression > 5 or g.turn - p.hit_turn < 20 or not p.body.conscious:
             return False
-        if any(a.side != p.side and a.alive and player_can_see_actor(g, a) for a in g.actors):
+        if any(a.side != p.side and not a.ai.get("civilian") and a.alive and player_can_see_actor(g, a) for a in g.actors):
             return False
         return not any(v.side != p.side and v.active and g.map.in_bounds(v.x, v.y) and g.map.visible[v.x, v.y]
                        for v in g.vehicles)
@@ -1045,15 +1158,24 @@ class PlayState:
         p = g.player
         deadline = time.perf_counter() + self.WAIT_BUDGET
         w0 = self.wait
+        forced = w0 is not None and w0["kind"] == "forced"
         while self.auto_wait > 0:
             if w0 is not None:
                 self.auto_wait = max(0, w0["start"] + w0["secs"] - g.turn)       # (the clock decides, not the count)
                 if self.auto_wait <= 0:
                     break
             self.auto_wait -= 1
-            self.act(100)
+            if forced:
+                # One simulation second, even if wounded, asleep, or stunned. Drawing and
+                # replaying every shot is what makes long waits expensive.
+                p.moves = 0
+                g.world_turn()
+                self.check_over()
+            else:
+                self.act(100)
             sts = getattr(self.app, "states", None)
-            if g.game_over or (sts and sts[-1] is not self) or not p.body.conscious or self.popups:
+            if g.game_over or g.__dict__.get("succession_pending") or (sts and sts[-1] is not self) or \
+                    (not forced and (not p.body.conscious or self.popups)):
                 self.auto_wait = 0
                 self.wait = None
                 return
@@ -1064,12 +1186,17 @@ class PlayState:
             if self.auto_wait <= 0 or time.perf_counter() >= deadline:
                 break
             self._skip_replay()
+        if forced:
+            self._skip_replay()
+            g.player_fov()
         if self.auto_wait <= 0:
             self._end_wait("")
 
     def _wait_stop(self):
         """Why the wait ends now: a message (\"\" for 'what you waited for'), or None to go on."""
         g = self.game
+        if (self.wait or {}).get("kind") == "forced":
+            return None
         if self.interrupted():
             return "Something catches your attention."
         w = self.wait
@@ -1116,12 +1243,12 @@ class PlayState:
         g = self.game
         w = self.wait
         what = {"event": "until something happens", "dawn": "for first light", "dark": "for dark",
-                "orders": "for orders"}.get(w["kind"], "")
+                "orders": "for orders", "forced": "through events"}.get(w["kind"], "")
         gone = g.turn - w["start"]
         bits = ["WAITING" + (f" {what}" if what else "")]
         if g.player.has_tool("watch") is not None:
             h, mnt = gone // 3600, (gone % 3600) // 60
-            if w["kind"] == "time":
+            if w["kind"] in ("time", "forced"):
                 th, tm = w["secs"] // 3600, (w["secs"] % 3600) // 60
                 bits.append(f"{h}:{mnt:02d} of {th}:{tm:02d}")
             else:
@@ -1136,8 +1263,6 @@ class PlayState:
         """Z: how long to wait - to the minute with a watch; without one, by feel and by the sky."""
         g = self.game
         p = g.player
-        if g.__dict__.get("domain") == "aboard" and (g.aboard or {}).get("kind") == "ship" and self._quiet_aboard():
-            return self.fast_forward()
         watch = p.has_tool("watch") is not None
         opts = [("Until something happens (up to three hours)", ("event", 3 * 3600), None, True)]
         spans = ((("5 minutes", 300), ("15 minutes", 900), ("30 minutes", 1800), ("An hour", 3600),
@@ -1149,14 +1274,29 @@ class PlayState:
         else:
             opts.append(("Until dark", ("dark", 18 * 3600), None, True))
         opts.append(("Until there are new orders", ("orders", 6 * 3600), None, True))
+        opts.append(("Pass time regardless of events...", "forced", None, True))
+        if g.__dict__.get("domain") == "aboard" and (g.aboard or {}).get("kind") == "ship" and self._quiet_aboard():
+            opts.append(("Ship's routine: until needed", "ship", None, True))
         self.open_popup(Popup("Wait", opts, self._screen_anchor(),
-                              footer="every second is fought out; anything that matters stops it"),
-                        lambda v: v and self.begin_wait(*v))
+                              footer="ordinary waits stop for danger; any key cancels"), self._choose_wait)
+
+    def _choose_wait(self, choice):
+        if choice == "forced":
+            spans = (("15 minutes", 900), ("An hour", 3600), ("Six hours", 21600),
+                     ("Twelve hours", 43200), ("A day", 86400))
+            self.open_popup(Popup("Pass time through events", [(label, seconds, None, True)
+                            for label, seconds in spans], self._screen_anchor(),
+                            footer="Combat, wounds and orders continue. Stops at death or any key."),
+                            lambda seconds: seconds and self.begin_wait("forced", seconds))
+        elif choice == "ship":
+            self.fast_forward()
+        elif choice:
+            self.begin_wait(*choice)
 
     def mark_interrupt(self):
         g = self.game
         p = g.player
-        seen = {a.id for a in g.actors if a.side != p.side and a.alive and player_can_see_actor(g, a)}
+        seen = {a.id for a in g.actors if a.side != p.side and not a.ai.get("civilian") and a.alive and player_can_see_actor(g, a)}
         seen |= {v.id for v in g.vehicles if v.side != p.side and v.active and g.map.visible[v.x, v.y]}
         self.interrupt_state = dict(seen=seen, hit=p.hit_turn, sup=p.suppression, msgs=g.msg_total,
                                     blood=p.body.blood)
@@ -1165,7 +1305,7 @@ class PlayState:
         g = self.game
         p = g.player
         st = self.interrupt_state or {}
-        seen = {a.id for a in g.actors if a.side != p.side and a.alive and player_can_see_actor(g, a)}
+        seen = {a.id for a in g.actors if a.side != p.side and not a.ai.get("civilian") and a.alive and player_can_see_actor(g, a)}
         seen |= {v.id for v in g.vehicles if v.side != p.side and v.active and g.map.visible[v.x, v.y]}
         if seen - st.get("seen", set()):
             g.msg("You spot movement!" if len(seen) else "", "warn")
@@ -1183,6 +1323,7 @@ class PlayState:
         return False
 
     def stop_auto(self, msg=None):
+        self._following_order = None
         self.travel_path = None
         self.travel_dest = None
         self.travel_then = None
@@ -1211,7 +1352,10 @@ class PlayState:
         self.log_scroll = 0
         hp_before = sum(p.body.hp.values())
         p.moves -= cost
-        g.player_done()
+        if not self.realtime_enabled() or self.realtime_paused() or self.__dict__.get("_rt_modal_action") or \
+                self.wait is not None or self.auto_wait > 0:
+            g.player_done()                   # a menu action still charges its full simulation time
+            self.reset_realtime_clock()
         if sum(p.body.hp.values()) < hp_before:
             self.flash_red = True
         if g.effects:
@@ -1226,6 +1370,8 @@ class PlayState:
         g.player_binoculars = False
         self.check_over()
         self._maybe_autosave()
+        from .identity import present as papers_check
+        papers_check(self)
         return True
 
     def _maybe_autosave(self):
@@ -1264,6 +1410,8 @@ class PlayState:
         p = g.player
         if g.map is None:
             return                                    # (between worlds: the sky view or the camp is coming)
+        if key.sym == E.KeySym.F6 and not self.popups and self.inv_screen is None:
+            return self.cmd_realtime()
         if self.anim > 0:
             self.anim = 0
             self.anim_groups = []
@@ -1280,6 +1428,12 @@ class PlayState:
             return
         if g.__dict__.get("succession_pending") and self.popups:
             return self.popup_key(key)             # (who carries on: the dead man can still choose)
+        if self.realtime_busy() and key.sym != E.KeySym.ESCAPE:
+            inspecting = not self.popups and self.inv_screen is None and (key.char in ("?", "m", "x", ";", "T", "@", "P", "+", "-", "=") or \
+                key.sym in (E.KeySym.F1, E.KeySym.HOME, E.KeySym.F5) or \
+                (self.mode in ("look", "target") and key.move() is not None))
+            if not inspecting:
+                return                      # the existing action must finish before another starts
         if not p.body.conscious:
             if key.sym == E.KeySym.ESCAPE and not self.popups:
                 from .ui import EscMenuState
@@ -1416,6 +1570,8 @@ class PlayState:
         g = self.game
         if g.map is None:
             return
+        if self.realtime_busy() and button != 2:
+            return
         if button == 2 and self.inv_screen is None and not self.popups and 0 <= ftx < VIEW_W and 0 <= fty < VIEW_H:
             c = self.view_center or (tuple(self.cam_c) if self.cam_c else
                                      (self.cam.x0 + self.cam.vw / 2, self.cam.y0 + self.cam.vh / 2))
@@ -1529,7 +1685,7 @@ class PlayState:
             if gr is not None:
                 # locked together: at him is the fight, anywhere else is tearing free
                 return self.act(attack(g, p, gr, None if other is gr else "break"))
-        if other is not None and other.side != p.side and other.state == "ok":
+        if other is not None and other.side != p.side and other.state == "ok" and not other.ai.get("civilian"):
             return self.act(A.melee(g, p, other))
         if other is not None and not auto and other.side == p.side and other.state == "ok" and not other.downed:
             from .base import TALKERS, talk
@@ -1789,6 +1945,7 @@ class PlayState:
         g = self.game
         p = g.player
         m = g.map
+        self._following_order = None
         self.travel_then = None
         if not m.in_bounds(tx, ty):
             return False
@@ -1906,7 +2063,9 @@ class PlayState:
             g.msg("There's nothing that way but open water.", "info")
             return
         p = g.player
-        if p.squad is not None and not p.squad.player_led and p.squad.order.kind in ("attack", "defend"):
+        from .orders import authorized_departure
+        if not authorized_departure(g, edge) and p.squad is not None and not p.squad.player_led and \
+                p.squad.order.kind in ("attack", "defend"):
             # a step away from your squad in the middle of a fight is desertion: say so once
             if self._desert_warned != (edge, g.turn // 30):
                 self._desert_warned = (edge, g.turn // 30)
@@ -1922,7 +2081,7 @@ class PlayState:
         px, py = (p.vehicle.x, p.vehicle.y) if p.vehicle is not None else (p.x, p.y)
         out = []
         for a in g.actors:
-            if a.side != p.side and a.alive and a.state == "ok" and not a.downed and player_can_see_actor(g, a):
+            if a.side != p.side and not a.ai.get("civilian") and a.alive and a.state == "ok" and not a.downed and player_can_see_actor(g, a):
                 out.append(("enemy", ("a", a.id), a, max(abs(a.x - px), abs(a.y - py))))
         for v in g.vehicles:
             if v.side != p.side and v.active and g.map.in_bounds(v.x, v.y) and g.map.visible[v.x, v.y]:
@@ -2059,12 +2218,33 @@ class PlayState:
         if g.__dict__.get("domain") == "aboard" and (g.aboard or {}).get("kind") == "ship":
             from . import shipboard as SB
             return SB.plan(self)
-        foc = g.__dict__.get("order_focus")
-        if foc in ("squad", "command", "mission") and p.vehicle is None:
-            # (you chose your unit's order in the book: toward the objective)
-            tp = g.order_target_for_player() if p.squad is not None else None
-            if tp is not None and max(abs(tp[0] - p.x), abs(tp[1] - p.y)) > 3:
-                return ("move toward your objective", lambda: self.start_travel(tp[0], tp[1], stop_short=1))
+        from .orders import active, navigation
+        current = active(g)
+        foc = current["key"] if current is not None else None
+        if foc in ("mission", "field") and p.vehicle is None:
+            pt = navigation(g)
+            if pt is None:
+                return ("carry out the briefing here (T: details; no single destination)", self.cmd_orders_book)
+            ms = g.__dict__.get("mission") or {}
+            edge = None
+            if foc == "field":
+                edge = g.field_order.get("edge")
+            elif pt[2].startswith("Return toward"):
+                edge = ms.get("home") or g.home_edge(p.side)
+            elif pt[2] == "Return to the mission sector":
+                from .base import _next_edge
+                sector = ms.get("_start_sector", g.sector)
+                edge = _next_edge(g, (sector.x, sector.y))
+            close = max(abs(pt[0] - p.x), abs(pt[1] - p.y)) <= (1 if edge else 3)
+            if edge:
+                return (pt[2].lower(), lambda: self._travel_chosen(edge) if close else
+                        self.start_travel(pt[0], pt[1], then=lambda: self._travel_chosen(edge), stop_short=1))
+            if not close:
+                instruction = pt[2].lower()
+                if not instruction.startswith(("take ", "hold ")):
+                    instruction = "move to the " + instruction
+                return (instruction, lambda: self.start_travel(pt[0], pt[1], stop_short=1))
+            return ("hold at the mission position; T shows the remaining task", self.cmd_orders_book)
         chosen_other = (foc or "fire") != "fire"      # (you picked another order in the book: that one first)
         if g.support is not None and not chosen_other:
             f = g.support.fires
@@ -2090,7 +2270,7 @@ class PlayState:
                 return ("climb out", lambda: self._vehicle_choice(v, ("exit", None)))
             return None
         d = getattr(g, "duty", None)
-        t = d.task if d is not None else None
+        t = current.get("task") if current is not None else None
         near = lambda a: max(abs(a.x - p.x), abs(a.y - p.y)) <= 1   # noqa: E731
 
         def again(fn, a, reach=1):
@@ -2143,6 +2323,9 @@ class PlayState:
             if k == "runner" and who is not None:
                 return (f"run the message to {name}", lambda: self.start_travel(who.x, who.y, stop_short=1))
             if k == "fetch" and isinstance(tgt, tuple):
+                if p.ai.get("resupplied_turn", -1) >= t["issued"] and by is not None:
+                    return (f"bring the ammunition back to {g.name_of(by)}",
+                            lambda: self.start_travel(by.x, by.y, stop_short=2))
                 def back():
                     self.cmd_resupply()
                     if by is not None:
@@ -2204,10 +2387,10 @@ class PlayState:
                 who = min(adj, key=lambda a: abs(a.x - p.x) + abs(a.y - p.y))
                 return (f"report to the {who.role_name.lower()}",
                         lambda: self.start_travel(who.x, who.y, then=lambda: BASE.talk(self, who), stop_short=1))
-        plan = BASE.order_plan(self)
+        plan = BASE.order_plan(self) if foc == "base" else None
         if plan is not None:
             return plan
-        tp = g.order_target_for_player() if p.squad is not None else None
+        tp = g.order_target_for_player()
         if tp is not None and max(abs(tp[0] - p.x), abs(tp[1] - p.y)) > 3:
             return ("move toward your objective", lambda: self.start_travel(tp[0], tp[1], stop_short=1))
         return None
@@ -2344,7 +2527,11 @@ class PlayState:
         if not retry:
             g.msg(f"You {plan[0]}.", "info")
         self._order_retry = retry
+        from .orders import execution_signature
+        signature = execution_signature(g)
         plan[1]()
+        if self.travel_path:
+            self._following_order = signature
 
     def _leave_ship(self):
         """The voyage is over - home to port, or into the sea."""
@@ -2440,7 +2627,10 @@ class PlayState:
     def _travel_chosen(self, edge):
         if edge:
             g = self.game
-            if g.player.squad and not g.player.squad.player_led and g.player.squad.order.kind in ("attack", "defend"):
+            from .orders import authorized_departure
+            authorized = authorized_departure(g, edge)
+            if not authorized and g.player.squad and not g.player.squad.player_led and \
+                    g.player.squad.order.kind in ("attack", "defend"):
                 g.stats["desertions"] += 1
             g.travel(edge)
             self.recenter()
@@ -2494,7 +2684,12 @@ class PlayState:
         if not keep:
             self.popups.remove(pop)
         if cb:
-            cb(value)
+            self._rt_modal_action = True
+            try:
+                cb(value)
+            finally:
+                self._rt_modal_action = False
+                self.reset_realtime_clock()
 
     # ================================================================== targeting modes
     def enter_mode(self, mode, cursor, pending=None):
@@ -2627,7 +2822,7 @@ class PlayState:
         g = self.game
         p = g.player
         ox, oy = (p.vehicle.x, p.vehicle.y) if p.vehicle is not None else (p.x, p.y)
-        ts = [a for a in g.actors if a.side != p.side and a.alive and a.state == "ok" and a.vehicle is None
+        ts = [a for a in g.actors if a.side != p.side and not a.ai.get("civilian") and a.alive and a.state == "ok" and a.vehicle is None
               and player_can_see_actor(g, a)]
         ts += [v for v in g.vehicles if v.side != p.side and not v.dead and g.map.visible[v.x, v.y]]
         ts.sort(key=lambda e: (e.x - ox) ** 2 + (e.y - oy) ** 2)
@@ -3354,9 +3549,15 @@ class PlayState:
             self.cursor = None
             self.recenter()
             if st["tab"] == 1:
+                body = e.get("body")
+                def collect():
+                    if body is not None and body in g.map.items_at(e["x"], e["y"]):
+                        self.cmd_inventory(focus_body=body)
+                    else:
+                        self.cmd_pickup()
                 if (e["x"], e["y"]) == (p.x, p.y):
-                    return self.cmd_pickup()
-                if not self.start_travel(e["x"], e["y"], then=self.cmd_pickup):
+                    return collect()
+                if not self.start_travel(e["x"], e["y"], then=collect):
                     g.msg("You can't see a way there.", "info")
                 return
             if not self.start_travel(e["x"], e["y"], stop_short=1):
@@ -3839,7 +4040,8 @@ class PlayState:
                 max(abs(a.x - p.x), abs(a.y - p.y)) <= 12 and player_can_see_actor(g, a)]
         from .prisoners import HANDS_UP
         words = HANDS_UP.get(g.side_nation(enemy), "Hands up!")
-        opts = [("Medic!", "medic", None, True), ("Grenade!", "grenade", None, True),
+        opts = [("Medic!", "medic", None, True), ("Need ammunition!", "ammo", None, True),
+                ("Grenade!", "grenade", None, True),
                 ("Covering fire!", "cover", None, True),
                 (f"'{words}' (demand their surrender)", "demand", (200, 220, 150), bool(seen)),
                 ("Don't shoot! (surrender)" + ("" if seen else " - nobody to surrender to"), "surrender",
@@ -3870,7 +4072,8 @@ class PlayState:
                 return
             g.player_orders = "You're a prisoner. Keep up with the guard - or run, and take your chances."
             return self.act(100)
-        text = {"medic": g.shout(p, "medic"), "grenade": g.shout(p, "grenade"), "cover": "Covering fire!"}[what]
+        text = {"medic": g.shout(p, "medic"), "ammo": "Need ammunition!",
+                "grenade": g.shout(p, "grenade"), "cover": "Covering fire!"}[what]
         p.say(text, g.turn, voice=self._native_order("suppress") if what == "cover" else None,
               tone="scream" if what == "medic" else None)
         g.msg(f"You shout: '{text}'", "shout")
@@ -3882,6 +4085,8 @@ class PlayState:
                     m.ai["cover_for"] = g.turn + 20       # (they fire on what they know of the enemy)
         if what == "medic":
             p.ai["medic_call"] = g.turn
+        elif what == "ammo":
+            p.ai["ammo_call"] = g.turn
         self.act(50)
 
     # ---------------------------------------------------------------- inventory
@@ -4072,11 +4277,17 @@ class PlayState:
                      (f"{NATIONS[d['nation']]['adj']} {d.get('role', 'soldier').replace('_', ' ')}", UI_TEXT),
                      (f"Killed by {d.get('cause') or 'unknown causes'}.", UI_DIM)]
         lines.append((f"Weight {it.weight:.1f} kg.", UI_DIM))
+        from .equipment import description
+        for line in description(it):
+            lines.extend((s, UI_DIM) for s in textwrap.wrap(line, 52))
         return lines
 
     def _personal_use(self, it):
         """A soldier's own things, used."""
         g = self.game
+        if not it.functional:
+            g.msg("It's broken and cannot be used.", "warn")
+            return
         p = g.player
         t = it.t
         tool = t.tool
@@ -4145,10 +4356,19 @@ class PlayState:
         g.msg(t.desc, "info")
 
     def use_tool(self, it):
+        if not it.functional:
+            self.game.msg("It's broken and cannot be used.", "warn")
+            return
         g = self.game
         p = g.player
         tool = it.t.tool
         rng = g.rng
+        if tool in ("antiseptic", "splint", "blanket", "gun_oil", "fuel", "repair", "spares"):
+            from .sustain import use
+            return use(self, it)
+        if tool == "ci_log":
+            from .counterintel import open_log
+            return open_log(self)
         if tool == "shovel":
             return self.cmd_dig()
         if tool == "wirecutters":
@@ -4198,7 +4418,10 @@ class PlayState:
                 g.map.lights.append([p.x, p.y, 1, g.turn + 30])
             return self.act(300)
         if tool == "ration":
-            p.remove_item(it)
+            needs = p.ai.setdefault("needs", dict(hunger=0., thirst=0., infection=0.))
+            needs["hunger"] *= 1 - it.condition
+            from .actions import _consume
+            _consume(p, it)
             p.morale = min(100, p.morale + 3)
             g.msg(f"You wolf down a {NATIONS[p.nation]['ration']}.", "info")
             return self.act(400)
@@ -4261,7 +4484,7 @@ class PlayState:
             for dx in range(-2, 3):
                 for dy in range(-2, 3):
                     mn = g.map.mines.get((p.x + dx, p.y + dy))
-                    if mn is not None and p.side not in mn.known:
+                    if mn is not None and p.side not in mn.known and rng.random() <= it.condition:
                         mn.known.add(p.side)
                         found += 1
             g.msg(f"The detector whines{': ' + str(found) + ' mines found!' if found else '. Nothing.'}", "warn" if found else "info")
@@ -4612,9 +4835,9 @@ class PlayState:
             opts.insert(0, ("Take him prisoner", "take_prisoner", (200, 220, 150), True))
         if adj and who.side != p.side and who.state == "surrendered" and who.ai.get("captor") == p.id:
             opts.insert(0, ("Your prisoner...", "prisoner", (200, 220, 150), True))
-        if adj and who.side != p.side and who.state == "ok" and who.downed and who.body.conscious:
+        if adj and who.side != p.side and not who.ai.get("civilian") and who.state == "ok" and who.downed and who.body.conscious:
             opts.insert(0, ("Take the wounded man prisoner", "take_wounded", (200, 220, 150), True))
-        if adj and who.side != p.side and who.state == "ok" and p.vehicle is None and player_can_see_actor(g, who):
+        if adj and who.side != p.side and not who.ai.get("civilian") and who.state == "ok" and p.vehicle is None and player_can_see_actor(g, who):
             # hand to hand: each move and the odds as you'd judge them (melee.py)
             from . import melee as ML
             for k, mv in enumerate(ML.moves_for(g, p, who)):
@@ -4624,7 +4847,7 @@ class PlayState:
                 (p.medical("bandage") is not None or p.medical("tourniquet") is not None):
             opts.append(("Patch him up (he's a prisoner)", "patch_enemy", None, True))
         if who is not None and who is not p and max(abs(mx - p.x), abs(my - p.y)) <= 2 and who.alive and \
-                (who.side == p.side or who.state == "surrendered" or who.downed) and player_can_see_actor(g, who):
+                (who.side == p.side or who.ai.get("civilian") or who.state == "surrendered" or who.downed) and player_can_see_actor(g, who):
             opts.insert(0, (f"Talk to {who.him}" + (" (E)" if adj else ""), "chat", (220, 210, 170), True))
         if who is not None and who is not p and (who.side == p.side or who.state == "surrendered") and \
                 player_can_see_actor(g, who):

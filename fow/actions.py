@@ -114,7 +114,7 @@ def move(game, a, dx: int, dy: int, allow_swap=True):
     other = game.soldier_at.get((nx, ny))
     if other is not None and other is not a:
         own_pw = a.is_player and other.state == "surrendered" and other.ai.get("captor") == a.id and not other.downed
-        if not own_pw and (not allow_swap or other.side != a.side or other.is_player or (
+        if not own_pw and (not allow_swap or (other.side != a.side and not other.ai.get("civilian")) or other.is_player or (
                 not other.active and not other.downed)):
             return None
         # swap places with a friendly (but not back and forth)
@@ -291,8 +291,19 @@ def reload(game, a, weapon=None, speed=False) -> int | None:
 
 def unjam(game, a) -> int:
     w = a.weapon
-    if w is None or not w.jammed:
+    if w is None or not w.functional or not w.jammed:
         return 0
+    if w.mag_item is not None and not w.mag_item.functional:
+        from .ammo import reload
+        cost = reload(game, a, w)
+        if cost is not None:
+            w.jammed = False
+            if a.is_player:
+                game.msg("You replace the broken magazine.", "info")
+            return cost
+        if a.is_player:
+            game.msg("The magazine is broken. Unload it and find a serviceable replacement.", "warn")
+        return 100
     from .familiar import learn, level, slow
     f = level(a, w.t)
     learn(game, a, w.t, 0.03)
@@ -614,7 +625,11 @@ def wield(game, a, item) -> int | None:
 
 def drink(game, a, item) -> int:
     t = item.t
+    if not item.functional:
+        return 0
     if t.tool == "canteen":
+        needs = a.ai.setdefault("needs", dict(hunger=0., thirst=0., infection=0.))
+        needs["thirst"] *= 1 - item.condition
         a.morale = min(100, a.morale + 4)
         a.suppression = max(0, a.suppression - 10)
         if getattr(a.body, "temp", 37.0) > 37.4:
@@ -654,6 +669,9 @@ def treat(game, medic, patient, item=None) -> int | None:
             item = medic.medical("plasma")
     if item is None:
         return None
+    if not item.functional:
+        return None
+    quality *= item.condition
     med = item.t.med
     cost = 300
     if self_aid:
@@ -683,7 +701,7 @@ def treat(game, medic, patient, item=None) -> int | None:
     elif med == "sulfa":
         w = b.worst_wound()
         if w:
-            w.bleed *= 0.75
+            w.bleed *= 1 - .25 * item.condition
         _consume(medic, item)
         cost = 120
         game.msg_for(medic, patient, f"sprinkle{'s' if not medic.is_player else ''} sulfa powder on the wound", "good")
@@ -691,15 +709,15 @@ def treat(game, medic, patient, item=None) -> int | None:
         if b.tourniquet() is None:
             return None
         _consume(medic, item)
-        cost = 200
+        cost = int(200 / max(.15, item.condition))
         game.msg_for(medic, patient, f"cinch{'es' if not medic.is_player else ''} a tourniquet on {who}", "good")
     elif med == "morphine":
-        b.morphine += item.t.power
+        b.morphine += item.t.power * item.condition
         _consume(medic, item)
         cost = 100
         game.msg_for(medic, patient, f"jab{'s' if not medic.is_player else ''} a morphine syrette into {who}", "good")
     elif med == "plasma":
-        b.heal_blood(item.t.power)
+        b.heal_blood(item.t.power * item.condition)
         _consume(medic, item)
         cost = 600
         game.msg_for(medic, patient, f"rig{'s' if not medic.is_player else ''} a bottle of plasma for {who}", "good")
@@ -726,7 +744,7 @@ def dig(game, a) -> int | None:
     rate = 2 if m.climate not in ("winter",) else 1
     if T.DEFS[int(tid)].key in ("crater", "crater_big"):
         rate *= 2
-    a.dig_progress += rate
+    a.dig_progress += rate * a.has_tool("shovel").condition
     if a.dig_progress % 10 == 0:
         game.emit_sound(a.x, a.y, 22, "digging", "digging", a.side, a)
     if a.dig_progress >= 60:
@@ -750,7 +768,7 @@ def cut_wire(game, a, x, y) -> int | None:
     m.set(x, y, "dirt")
     m.refresh()
     game.emit_sound(x, y, 18, "wire", "the snip of wire cutters", a.side, a)
-    return 300
+    return int(300 / max(.15, a.has_tool("wirecutters").condition))
 
 
 def fire_flare(game, a, tx, ty) -> int | None:
@@ -783,31 +801,42 @@ def resupply(game, a) -> int | None:
             if T.DEFS[int(m.t[x, y])].key == "ammo_stack":
                 near = True
             for it in m.items_at(x, y):
-                if it.tid == "ammo_crate":
+                if it.functional and it.tid == "ammo_crate":
                     near = True
     if not near:
+        return None
+    from .sustain import stores, take
+    if stores(game.sector, a.side)["ammo"] < .01:
+        if a.is_player:
+            game.msg("The ammunition reserve is exhausted. The next convoy must get through.", "warn")
         return None
     got = []
     from .ammo import give_ammo, sources
     guns = [i for i in a.inv if i.t.kind == "gun" and i.t.cal]
     for g in guns:
+        before_all = a.ammo_count(g)
+        budget = int(stores(game.sector, a.side)["ammo"] * 100)
         # top up part-used magazines first, then draw full ones
         for src in sources(a, g):
             if src.t.kind == "mag" and src.loaded < src.t.mag:
-                src.loaded = src.t.mag
+                added = min(budget, src.t.mag - src.loaded)
+                src.loaded += added
+                budget -= added
                 src.known_rounds = True
         have = a.ammo_count(g)
-        want = max(0, g.t.mag * (4 if g.t.cat not in ("lmg", "hmg") else 3) - have)
+        want = min(budget, max(0, g.t.mag * (4 if g.t.cat not in ("lmg", "hmg") else 3) - have))
         if want > 0:
-            before = a.ammo_count(g)
             give_ammo(a, g, want)
-            if a.ammo_count(g) > before:
-                got.append(ITEMS[g.t.magtype].name if g.t.get("magtype") else ITEMS[ammo_id(g.t.cal)].name)
+        added = max(0, a.ammo_count(g) - before_all)
+        if added:
+            take(game.sector, a.side, "ammo", added / 100)
+            got.append(ITEMS[g.t.magtype].name if g.t.get("magtype") else ITEMS[ammo_id(g.t.cal)].name)
     from .data.roles import pick_grenade
     if len(a.grenades()) < 2:
         gid = pick_grenade(game.rng, a.nation, game.year)
-        if gid:
-            a.add_item(Item(gid, 2))
+        n = min(2, int(stores(game.sector, a.side)["ammo"] * 2))
+        if gid and n and a.add_item(Item(gid, n)) is not None:
+            take(game.sector, a.side, "ammo", n / 2)
             got.append(ITEMS[gid].name)
     if got:
         a.ai["resupplied_turn"] = game.turn

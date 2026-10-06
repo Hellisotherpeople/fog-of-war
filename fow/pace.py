@@ -69,7 +69,7 @@ def ai_pace(game, a) -> str:
         ld = sq.leader if sq is not None else None
         if ld is not None and ld is not a and max(abs(ld.x - a.x), abs(ld.y - a.y)) > 7:
             want = "run"                      # catching up
-    if a.role == "medic" and a.ai.get("patient"):
+    if (a.role == "medic" and a.ai.get("patient")) or a.ai.get("support_job"):
         want = "run"
     # the stalkers: snipers, scouts, raiders creep when they aren't already in a fight
     if want == "walk" and (a.role in ("sniper", "scout") or (sq is not None and getattr(sq, "kind", "") in

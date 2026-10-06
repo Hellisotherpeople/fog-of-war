@@ -81,11 +81,11 @@ def _whose(game, a) -> str:
 def _weapon(a):
     """What he fights with: (kind of weapon, damage, words)."""
     w = a.weapon
-    if w is not None and w.t.kind == "melee":
+    if w is not None and w.functional and w.t.kind == "melee":
         if w.t.tool == "shovel":
-            return "spade", w.t.dmg, w.t.name
+            return "spade", w.t.dmg * w.condition, w.t.name
         big = w.t.hands >= 2 or w.t.dmg >= 24
-        return ("blade" if big else "knife"), w.t.dmg, w.t.name
+        return ("blade" if big else "knife"), w.t.dmg * w.condition, w.t.name
     if w is not None and w.t.kind == "gun":
         if w.t.bayonet:                                # (every rifleman had his bayonet in its scabbard)
             return "bayonet", w.t.bayonet, "bayonet"
@@ -98,7 +98,7 @@ def _weapon(a):
 def _knife(a):
     """A knife on him he could get at in a scramble (his belt, his boot)."""
     for it in a.inv:
-        if it.t.kind == "melee" and it.t.tool != "shovel" and it.t.dmg <= 26:
+        if it.functional and it.t.kind == "melee" and it.t.tool != "shovel" and it.t.dmg <= 26:
             return it
     return None
 
@@ -306,7 +306,7 @@ def _land(game, a, target, move, cost, mult=1.0, part=None):
     wk, base, wname = _weapon(a)
     if move == "stab" and wk != "knife":
         k = _knife(a)
-        base, wname = (k.t.dmg, k.t.name) if k is not None else (base, wname)
+        base, wname = (k.t.dmg * k.condition, k.t.name) if k is not None else (base, wname)
     if move == "butt":
         base, wname = BUTT, "rifle butt"
     if move in ("punch", "throw"):
@@ -485,7 +485,7 @@ def _silent(game, a, target, move, cost):
         return cost
     if move == "silent":
         k = _knife(a) or a.weapon
-        dmg = (k.t.dmg if k is not None and k.t.kind == "melee" else FIST) * MOVES["silent"]["mult"] * rng.uniform(0.9, 1.3)
+        dmg = (k.t.dmg * k.condition if k is not None and k.t.kind == "melee" else FIST) * MOVES["silent"]["mult"] * rng.uniform(0.9, 1.3)
         part = rng.choice(["torso", "head"])
         where = rng.choice(BEHIND[part])
         res = _hit(game, target, dmg, "cut", a, k.t.name if k is not None else "knife", part)

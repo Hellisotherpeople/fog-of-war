@@ -39,7 +39,7 @@ def near_people(game) -> list:
         from .senses import player_can_see_actor
         if not player_can_see_actor(game, o):
             continue
-        if o.side != p.side and o.state == "ok" and not o.downed:
+        if o.side != p.side and o.state == "ok" and not o.downed and not o.ai.get("civilian"):
             continue                              # (an enemy on his feet: this isn't a conversation)
         out.append(o)
     out.sort(key=lambda o: max(abs(o.x - p.x), abs(o.y - p.y)))
@@ -107,6 +107,9 @@ def open_talk(ps, who, said=None):
     p = g.player
     if not who.alive or max(abs(who.x - p.x), abs(who.y - p.y)) > 2:
         return
+    if who.ai.get("civilian"):
+        from .homefront import talk
+        return talk(ps, who)
     who.ai["talking"] = g.turn + 30               # (he stops to talk - ai.soldier_act - unless the enemy turns up)
     from .base import TALKERS
     if who.side == p.side and who.active and not who.downed and who.role in TALKERS and said is None:

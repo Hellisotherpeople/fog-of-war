@@ -208,6 +208,12 @@ def painter(key, aspect):
     return deco
 
 
+@painter("award", 0.8)
+def _award(c, arg):
+    from .awards import paint
+    paint(c, arg)
+
+
 def paint(key: str, pw: int, ph: int) -> np.ndarray | None:
     """RGBA (ph, pw, 4) for a key, or None if nothing paints it."""
     if pw < 2 or ph < 2:

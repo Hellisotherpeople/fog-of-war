@@ -26,6 +26,8 @@ DEFAULTS = {
     "shake": True,            # the view jolts when shells land close
     "safe_mode": True,        # stop and warn before a step while the enemy's in sight or you're under fire
     "fast_quiet": True,       # walking, autopilot: with no enemy in sight, simulate as fast as the machine can
+    "realtime": False,        # F6: idle time advances on the same clock as actions and everyone else
+    "realtime_pace": "deliberate",  # normal 1:1, deliberate 1:2, slow 1:4 (game seconds : wall seconds)
     "going": False,           # X: the ground tinted by the going (red: no way through; amber: slow)
     "hints": True,            # a line under your orders with the keys for what's beside you
     # the sound mixer (each 0..1, on top of the master volume)

@@ -188,7 +188,8 @@ class Duty:
         uid = self.__dict__.get("_uid", 0) + 1
         self._uid = uid
         ts.append(dict(kind=kind, by=sup.id, by_name=f"{sup.rank_short} {sup.last_name}", target=target,
-                       by_role=sup.role_name, by_nation=sup.nation, uid=uid,
+                       by_role=sup.role_name, by_nation=sup.nation, by_rank=sup.rank, uid=uid,
+                       _priority_checked=game.turn,
                        issued=game.turn, deadline=game.turn + int(DEADLINE[kind] / STRICT.get(sup.nation, 1.0)),
                        nagged=False, **data))
         self._say(game, sup, TASK_PHRASE[kind], TASK_TEXT[kind])
@@ -204,6 +205,10 @@ class Duty:
         t = t or self.task
         if t is None:
             return None
+        if (t["kind"] == "scout" and t.get("leg") == "back") or \
+                (t["kind"] == "fetch" and game.player.ai.get("resupplied_turn", -1) >= t["issued"]):
+            by = self._actor(game, t["by"])
+            return (by.x, by.y) if by is not None else None
         tg = t.get("target")
         if isinstance(tg, tuple):
             return tg
@@ -288,6 +293,17 @@ class Duty:
         self.next_task = game.turn + rng.randint(60, 180)
 
     def _check_task(self, game, t):
+        from .orders import deferred, pause_deadline
+        blocked = deferred(game, f"duty:{t.get('uid')}")
+        was_blocked = t.get("_priority_paused", False)
+        pause_deadline(game, t, blocked)
+        if (blocked or was_blocked) and t["kind"] in ("help", "ammo", "come", "runner"):
+            recipient = self._actor(game, t.get("target"))
+            if recipient is None or not recipient.alive:
+                self._drop(t)  # nobody is punished for a task becoming impossible during higher duty
+                return
+        if blocked:
+            return
         p = game.player
         k = t["kind"]
         tgt = t.get("target")
@@ -443,6 +459,11 @@ class Duty:
     def _desertion(self, game):
         """Leaving your post in the middle of a fight, in front of the men who command you."""
         p = game.player
+        from .orders import governing
+        primary = governing(game)
+        if primary and primary["key"] in ("mission", "base", "field"):
+            self.__dict__.pop("home_hist", None)
+            return                          # a squad leader cannot punish an authorized independent mission
         sq = p.squad
         if sq is None or p.vehicle is not None or sq.player_led or game.turn - sq.last_contact > 60:
             return

@@ -1,0 +1,95 @@
+{
+  "status": "deployed_verified",
+  "samplers": [
+    "xtc",
+    "dry",
+    "top_n_sigma",
+    "p_less",
+    "min_k"
+  ],
+  "temperature": {
+    "nonnegative_finite": true,
+    "positive_infinity": true,
+    "wire_value_for_infinity": "inf",
+    "native_vllm_temperature": 1
+  },
+  "python_tests_passed": 47,
+  "compiled_llamacpp_comparisons": 1360,
+  "omp_unit_tests_passed": 286,
+  "typescript": "passed",
+  "extension_patch_check": "passed",
+  "server_modified": true,
+  "pending": [],
+  "blockers": [],
+  "server": "alpha-h200",
+  "private_ip": "192.168.200.207",
+  "installed_extension": "/Users/lain/Downloads/omp-samplers",
+  "server_release": "/home/ubuntu/glm53-vllm/custom-samplers-releases/20261002-041738",
+  "user_profile_preserved": true,
+  "cuda_and_api_cases_passed": 8,
+  "omp_live": {
+    "passed": true,
+    "coding_tools": [
+      "bash",
+      "edit",
+      "read"
+    ],
+    "code_tests": 4,
+    "generations": 9,
+    "chain": [
+      "dry",
+      "top_n_sigma",
+      "p_less",
+      "min_k",
+      "xtc",
+      "min_p",
+      "temperature"
+    ],
+    "temperature_10_and_infinity": true,
+    "compaction_custom_chain": true,
+    "fixed_output_cap_absent": true,
+    "native_filters_neutral": true,
+    "llama_props_requests": 0
+  },
+  "completed_at": "2026-10-02T04:39:39.601055+00:00",
+  "installed_files_verified": 8,
+  "service_enabled": true,
+  "local_api": "http://127.0.0.1:8800/v1",
+  "full_context_boundary": {
+    "passed": true,
+    "usage": {
+      "prompt_tokens": 1048568,
+      "total_tokens": 1048576,
+      "completion_tokens": 8,
+      "prompt_tokens_details": null,
+      "completion_tokens_details": null
+    },
+    "samplers": {
+      "version": 1,
+      "chain": [
+        "dry",
+        "top_n_sigma",
+        "p_less",
+        "min_k",
+        "xtc",
+        "min_p",
+        "temperature"
+      ],
+      "params": {
+        "dry_multiplier": 0.2,
+        "dry_allowed_length": 2,
+        "dry_penalty_last_n": -1,
+        "dry_sequence_breakers": [],
+        "top_n_sigma": 2,
+        "p_less_exponent": 6,
+        "min_k_tau": 0.1,
+        "xtc_probability": 0.1,
+        "xtc_threshold": 0.1,
+        "min_p": 0.1,
+        "temperature": "inf"
+      }
+    },
+    "elapsed_seconds": 260.31,
+    "finish_reason": "length"
+  }
+}

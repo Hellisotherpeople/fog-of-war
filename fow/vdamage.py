@@ -56,7 +56,7 @@ def state(v, part) -> int:
 
 # ============================================================================ what each part does
 def can_move(v) -> bool:
-    return state(v, "engine") > OUT and state(v, "transmission") > OUT and state(v, "tracks") > OUT
+    return v.ai.get("fuel", 100) > 0 and state(v, "engine") > OUT and state(v, "transmission") > OUT and state(v, "tracks") > OUT
 
 
 def move_mult(v) -> float:

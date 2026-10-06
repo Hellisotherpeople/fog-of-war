@@ -131,6 +131,34 @@ ship("lefantasque", "Le Fantasque-class destroyer", "dd", ["france"], (1935, 195
      main=(138, 5, 140, 6, 70, 80), aa=(4, 0), torps=(9, 90, 43), dc=16, sonar=True, crew=230, freq=8)
 
 
+# Escorts and auxiliaries make the supply war visible alongside the capital ships.
+ship("cannon", "Cannon-class destroyer escort", "de", ["usa", "france"], (1943.7, 1950),
+     length=1, speed=21, hp=150, main=(76, 3, 90, 3, 30, 40), aa=(8, 0), torps=(3, 90, 45),
+     dc=120, sonar=True, radar=1943.7, crew=216)
+ship("evarts", "Evarts-class destroyer escort", "de", ["usa", "uk"], (1943.1, 1950),
+     length=1, speed=19, hp=130, main=(76, 3, 90, 3, 30, 40), aa=(6, 0), dc=100, sonar=True,
+     radar=1943.1, crew=156)
+ship("independence", "Independence-class light carrier", "cve", ["usa"], (1943.1, 1950),
+     length=2, speed=31, hp=590, belt=127, aa=(26, 0), radar=1943.1, air=(24, 0, 9), crew=1560, freq=5)
+ship("sangamon", "Sangamon-class escort carrier", "cve", ["usa"], (1942.7, 1950),
+     length=2, speed=18, hp=460, sec=(127, 2, 120, 5, 60, 65), aa=(20, 0), radar=1942.7,
+     air=(18, 0, 12), crew=1080)
+ship("cimarron", "Cimarron-class fleet oiler", "ap", ["usa"], (1939.2, 1950),
+     length=2, speed=18, hp=400, main=(127, 4, 100, 7, 50, 60), aa=(8, 0), crew=304,
+     desc="Fleet oiler. Transfers fuel alongside in calm water at low speed.")
+ship("vestal", "Vestal repair ship", "ap", ["usa"], (1913, 1950),
+     length=2, speed=16, hp=340, aa=(6, 0), crew=465, freq=3,
+     desc="A floating workshop and stores ship. Supports damaged escorts and transports.")
+ship("river_frigate", "River-class frigate", "de", ["uk", "canada", "australia"], (1942.4, 1950),
+     length=1, speed=20, hp=170, main=(102, 2, 100, 5, 35, 45), aa=(8, 0), dc=150,
+     sonar=True, radar=1942.4, crew=140)
+ship("matsu", "Matsu-class escort destroyer", "dd", ["japan"], (1944.3, 1950),
+     length=1, speed=28, hp=150, main=(127, 3, 110, 5, 50, 60), aa=(24, 0), torps=(4, 160, 48),
+     dc=36, sonar=True, radar=1944.3, crew=211)
+SHIPS["cimarron"]["cargo"] = dict(fuel=600.)
+SHIPS["vestal"]["cargo"] = dict(parts=250., medical=100.)
+
+
 def available(nation, year, cls=None):
     out = []
     for s in SHIPS.values():

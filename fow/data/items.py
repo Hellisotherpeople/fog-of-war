@@ -848,6 +848,34 @@ HELMETS = {
     "hungary": "stahlhelm", "romania": "stahlhelm",
 }
 
+# Exposure, field treatment, maintenance and district security.
+gear("rain_cape", "rubberized rain cape", "armor", slot="body", warmth=1, waterproof=True,
+     weight=1.1, volume=1.8, desc="Keeps rain and spray off the uniform. Worn in the body slot.")
+gear("blanket", "wool blanket", "tool", tool="blanket", weight=1.8, volume=3,
+     desc="Wrap up while resting: slows heat loss and makes cold shelter bearable.")
+gear("water_tin", "sealed drinking-water tin", "tool", tool="canteen", uses=4, weight=1.5, volume=1.5,
+     desc="Clean water for a march, a hot engine room or civilians on the road.")
+gear("field_dressing", "large field dressing", "medical", med="bandage", power=1.2, stack=5,
+     weight=.15, desc="A broad sterile pad and a long bandage for a heavy wound.")
+gear("saline", "saline infusion bottle", "medical", med="plasma", power=350, weight=.8,
+     desc="An infusion for shock. A trained medic should administer it.")
+gear("antiseptic", "antiseptic and clean dressings", "tool", tool="antiseptic", uses=3, weight=.3,
+     desc="Clean an open wound to limit infection, especially after mud and floodwater.")
+gear("splint", "padded wooden splint", "tool", tool="splint", weight=.6, volume=1,
+     desc="Support an injured limb until it can be treated at an aid station.")
+gear("tool_roll", "mechanic's tool roll", "tool", tool="repair", weight=3.5, volume=2,
+     desc="Spanners, pliers and punches. Use beside a vehicle with a packet of spare parts.")
+gear("spare_parts", "field repair spares", "tool", tool="spares", uses=1, stack=3, weight=2, volume=1.5,
+     desc="Pins, seals, bearings and replacement fittings. Consumed by a field repair.")
+gear("fuel_can", "petrol jerrycan", "tool", tool="fuel", weight=17, volume=20,
+     desc="A portable fuel reserve. Apply beside a friendly vehicle to refill its tank.")
+gear("gun_oil", "gun oil and cleaning cloth", "tool", tool="gun_oil", uses=5, weight=.2,
+     desc="Clear a stoppage and clean the weapon in your hands; stripping it takes time.")
+gear("security_pass", "stamped movement permit", "tool", tool="cover_papers", weight=.02, volume=.01,
+     desc="A dated movement permit. Helps at checkpoints, unless the identity is already circulated.")
+gear("frequency_log", "intercept frequency log", "tool", tool="ci_log", weight=.1, volume=.1,
+     desc="A counterintelligence notebook: intercepted calls, search areas and checkpoint reports.")
+
 # corpse template (instances carry a name)
 gear("corpse", "corpse", "corpse", weight=75.0, volume=80, glyph="%", color=(160, 30, 30),
      desc="A body.")

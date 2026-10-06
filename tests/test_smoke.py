@@ -892,6 +892,8 @@ def test_agents():
     # a message out; then on the air too long in one place, and the detector car comes
     st = g.agent
     st["df"] = 0.0
+    if not p.has_tool("wireless"):
+        p.invent.hands = Item("paraset")  # this part tests transmission with a real, working set
     AG.radio_choice(ps, "report")
     for k in range(AG.TX_TIME["report"] + 5):
         p.moves = 0
@@ -1104,6 +1106,7 @@ def test_orders_book_autopilot_and_succession():
     from fow import base as BASE
     fa = FakeApp()
     fa.settings.update(succession="on", succession_rule="squad", succession_side="own", succession_lives=0)
+    fa.settings["fast_quiet"] = False  # fixed simulation steps; this test must not depend on machine throughput
     g = Game("bocage44", "usa", role="rifleman", seed=5, setup={"battlefield": "standard"})
     ps = PlayState(fa, g)
     fa.states = [ps]

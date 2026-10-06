@@ -4,7 +4,7 @@
 
 <p align="center">
   <b>A Second World War roguelike. You are one soldier, and the whole war is simulated around you.</b><br>
-  Turn-based (one turn is one second) · procedurally generated and endless · sprites or ASCII ·
+  Turn based or optional real time (one turn is one second) · procedurally generated and endless · sprites or ASCII ·
   synthesised sound · deliberately unfair
 </p>
 
@@ -82,6 +82,10 @@ battle, nation, service, role, rank and kit. Then:
 - **Look at the panel on the right.** Your body, your weapon, and your **orders**. Press **Enter**
   and you'll carry them out: walk to the objective, take the ammunition to the gunner, go to your
   battle station.
+- `T` explains which orders govern and which local instructions support them. Your scenario briefing
+  takes priority unless equal or higher authority issues new orders; conflicting errands are deferred.
+- **F6** enables optional real time. Everyone shares the same clock and action costs. Options lets you
+  slow the pace equally for everyone; menus pause, aiming does not.
 - Move with the arrow keys, numpad or `hjklyubn`; left-click to walk somewhere. `c` crouch, `p`
   go prone. **Get down behind something that stops bullets.**
 - `f` to aim and fire (`a` aims longer), `r` reload, `t` throw, `B` bandage, `Y` shout for a medic.
@@ -215,8 +219,19 @@ name, traits, weapon and kit. Leave any of it to chance.</td>
   rearguard, captivity and escape; at sea, surface actions, carrier battles, convoys and submarine
   patrols; in the air, fighter sweeps, interceptions and bomber raids.
 - **Waiting without mashing keys**: `Z` waits until something happens, for a set time, till dawn or
-  till new orders - every second simulated for everyone, just not drawn, so it runs 70-100x faster than
-  life in a battle and hundreds of times faster behind the lines, stopping for anything that matters.
+  till new orders. **Pass time regardless of events...** continues for up to a day despite combat,
+  wounds or orders. Every second is simulated for everyone, with drawing batched for speed.
+  Any key cancels; death or succession ends the wait.
+- **Weather with consequences**: storms, blizzards, wind, rain and snow change visibility, sound,
+  exposure, shooting, flying and sailing. Mud, flooded trenches and drifts persist after the sky clears;
+  rain, wind and thunder are audible, with shelter and waterproof kit making a difference.
+- **The home front on both sides**: more intact inhabited country deeper behind the lines, with
+  workshops, hospitals, power stations, food stores and railway yards. Civilians flee the fighting,
+  need relief and can be escorted to care. Capture preserves undamaged civilian facilities.
+- **Finite supply and counterintelligence**: stores feed repairs, medicine, ammunition draws and fuel;
+  road routes, convoys and transport sorties replenish them. Security troops investigate sightings and
+  wireless bearings, check movement papers and hunt saboteurs. Twelve more aircraft, eight more ships,
+  eleven terrain types and thirteen items support these systems. See [the expanded systems](docs/SYSTEMS_EXPANSION.md).
 - **Honest time.** Aiming takes time, recoil throws off the next shot, captured weapons are clumsy
   until you learn them, breath and fatigue and load govern your speed.
 - **The same rules for everyone.** Pace, breath, cold, heat, stealth and wounds apply to every
@@ -242,6 +257,8 @@ name, traits, weapon and kit. Leave any of it to chance.</td>
   half-light it really started in, and the D-Day drop goes in under a full moon.
 - **Everything around you in a list** (`V`, as in Cataclysm), and **everyone armed as their army
   armed them**, down to the medic who goes unarmed and trusts the red cross.
+  Compatible ammunition and magazines are marked green **[P]** for your primary, blue **[S]** for your
+  secondary or holstered weapon, and violet **[P/S]** for both.
 - **Diegetic.** Menus open from your soldier. Without a watch you don't know the time; without a
   map or compass, sounds are vague and objectives are wherever your sergeant points.
 - **Everything is generated**: the battlefields, the sprites (painted by code, soldiers drawn from
@@ -251,6 +268,7 @@ name, traits, weapon and kit. Leave any of it to chance.</td>
 
 - [**The manual**](docs/GAMEPLAY.md): everything the game does.
 - [**Controls**](docs/CONTROLS.md): every key and click, screen by screen.
+- [**Survivability proposals**](docs/SURVIVABILITY_DESIGN.md): longer lives through preparation and squad support.
 - [**How it's built**](docs/ARCHITECTURE.md): the simulation, the AI, the war at sea, the renderer.
 - [**Working on it**](docs/DEVELOPMENT.md): running headless, tests, the fuzzer, making these GIFs,
   adding weapons, ships and battles.

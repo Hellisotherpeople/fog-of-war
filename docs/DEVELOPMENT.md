@@ -52,6 +52,11 @@ in any script that plays the game.
 
 ```sh
 .venv/bin/python -m pytest tests          # or: .venv/bin/python tests/test_smoke.py
+.venv/bin/python tests/test_expansion.py  # weather, civilians, security, supply, air and sea additions
+.venv/bin/python tests/test_orders_time_awards.py  # authority, real-time pacing and persistent citations
+.venv/bin/python tests/test_identity_loot_ballistics.py  # dialogue, leads, physical loot, condition and ricochets
+.venv/bin/python tests/test_squadcare.py  # observed needs, leader dispatch, triage and finite ammunition delivery
+.venv/bin/python tests/test_vehicle_figures.py  # visible occupants, gun traverse, casualties and fog of war
 ```
 
 The smoke tests start every battle on both sides, every service, save and load aboard a ship

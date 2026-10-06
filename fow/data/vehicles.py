@@ -672,6 +672,33 @@ plane("ki57", "Ki-57 'Topsy'", "transport", ["japan"], (1940.5, 1950), speed=6, 
 plane("lysander", "Westland Lysander", "transport", ["uk", "france", "poland"], (1938.5, 1950), speed=5, hp=60,
       guns=(), night=True, freq=0, sound="a single engine, throttled back, very low")
 
+# Expanded air groups. Speeds and loads are gameplay abstractions; dimensions
+# and engine layouts live in parked.py and are shared with the flight model.
+plane("a20", "Douglas A-20 Havoc", "attacker", ["usa", "uk", "ussr", "france"], (1941, 1950),
+      speed=8, hp=140, guns=((70, 12, 36),), bombs=((360, 6, 4),), freq=7)
+plane("a26", "Douglas A-26 Invader", "attacker", ["usa"], (1944.7, 1950),
+      speed=9, hp=155, guns=((70, 12, 48),), bombs=((520, 7, 4),), freq=4)
+plane("b26", "Martin B-26 Marauder", "bomber", ["usa", "uk", "france"], (1942.3, 1950),
+      speed=8, hp=190, guns=((70, 12, 12),), bombs=((360, 6, 8),), freq=6)
+plane("p61", "Northrop P-61 Black Widow", "fighter", ["usa"], (1944.5, 1950),
+      speed=9, hp=120, guns=((110, 12, 24),), night=True, radar=True, freq=3)
+plane("c47", "Douglas C-47 Skytrain", "transport", ["usa", "uk", "canada", "australia", "india", "france"],
+      (1942, 1950), speed=5, hp=120, guns=(), freq=7, cargo=80)
+plane("c46", "Curtiss C-46 Commando", "transport", ["usa", "china"], (1943.3, 1950),
+      speed=5, hp=150, guns=(), freq=4, cargo=110)
+plane("pby", "Consolidated PBY Catalina", "bomber", ["usa", "uk", "canada", "australia", "ussr"], (1939, 1950),
+      speed=4, hp=160, guns=((50, 10, 12),), bombs=((360, 6, 4),), night=True, patrol=True, freq=3)
+plane("beaufort", "Bristol Beaufort", "torpedo", ["uk", "australia"], (1940.2, 1945),
+      speed=7, hp=110, guns=((50, 10, 12),), bombs=((600, 7, 1),), freq=4)
+plane("barracuda", "Fairey Barracuda", "torpedo", ["uk"], (1943, 1950),
+      speed=6, hp=95, guns=((50, 10, 10),), bombs=((600, 7, 1),), freq=4)
+plane("b6n", "B6N 'Jill'", "torpedo", ["japan"], (1943.7, 1950),
+      speed=8, hp=85, guns=((50, 10, 12),), bombs=((600, 7, 1),), freq=5)
+plane("d4y", "D4Y 'Judy'", "divebomber", ["japan"], (1943.3, 1950),
+      speed=9, hp=65, guns=((50, 10, 12),), bombs=((520, 7, 1),), freq=5)
+plane("ju188", "Junkers Ju 188", "bomber", ["germany"], (1943.6, 1950),
+      speed=8, hp=165, guns=((70, 11, 14),), bombs=((520, 7, 5),), night=True, freq=4)
+
 # ---------------------------------------------------------------- off-map artillery
 
 def battery(id, name, nations, years, **kw):

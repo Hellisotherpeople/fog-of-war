@@ -129,7 +129,7 @@ def after_shot_aim(a, t, rounds):
 def dispersion(game, shooter, weapon, tx: int, ty: int, burst_index: int = 0) -> float:
     """Total angular error (degrees, 1 sigma) for a shot."""
     t = weapon.t
-    d = t.disp
+    d = t.disp + (1 - weapon.condition) * 2.5
     from .skills import level
     skill = level(shooter, "gunnery" if t.cat == "hmg" else "marksmanship")
     d += max(0.0, (8 - skill)) * 0.14
@@ -141,6 +141,8 @@ def dispersion(game, shooter, weapon, tx: int, ty: int, burst_index: int = 0) ->
         d += 1.2
     d += shooter.suppression / 28.0
     d += shooter.body.aim_penalty()
+    from .weather import aim_penalty as weather_aim
+    d += weather_aim(game, shooter, math.hypot(tx - shooter.x, ty - shooter.y))
     d += max(0.0, 35.0 - getattr(shooter, "stamina", 100.0)) / 35.0 * 0.9     # heaving chest
     if weapon.heat > 60:
         d += (weapon.heat - 60) / 25
@@ -213,6 +215,10 @@ def fire_weapon(game, shooter, weapon, tx: int, ty: int, target=None, *, mode=No
                 area=False) -> int:
     """Fire the wielded gun at a tile.  Returns moves spent."""
     t = weapon.t
+    if not weapon.functional:
+        if shooter.is_player:
+            game.msg(f"The {t.name} is broken. It needs replacement or workshop repair.", "warn")
+        return 50
     if t.cat == "flamer":
         return fire_flamer(game, shooter, weapon, tx, ty)
     if t.cat == "mortar":
@@ -250,12 +256,20 @@ def fire_weapon(game, shooter, weapon, tx: int, ty: int, target=None, *, mode=No
         shooter.stats["shots"] += 1
         # jam check
         jam = t.jam * (1 + max(0.0, weapon.heat - 70) / 40)
+        jam += (1 - weapon.condition) * .12
+        if weapon.mag_item is not None:
+            jam += (1 - weapon.mag_item.condition) * .18
+        rounds_condition = (weapon.mag_item.data or {}).get("rounds_condition", 1.) if weapon.mag_item is not None else \
+            (weapon.data or {}).get("rounds_condition", 1.)
+        jam += (1 - rounds_condition) * .18
         if weapon.data and game.turn - weapon.data.get("clean", -10 ** 9) < 3 * 86400:
             jam *= 0.5                            # (the armourer's been over it: a new spring, clean and oiled)
         if game.map.climate in ("desert", "volcanic"):
             jam *= 1.8
         if game.map.climate == "winter":
             jam *= 1.3
+        if weapon.mag_item is not None and not weapon.mag_item.functional:
+            jam = 1.
         if game.rng.random() < jam:
             weapon.jammed = True
             if shooter.is_player:
@@ -300,7 +314,7 @@ def fire_weapon(game, shooter, weapon, tx: int, ty: int, target=None, *, mode=No
 
 def trace_projectile(game, ox: int, oy: int, ang: float, max_range: float, dmg: float, pen: float,
                      kind: str, shooter, intended, source_name: str, *, mg=False,
-                     from_explosion=False, eff_range=40, skip_first=True, air=False) -> str:
+                     from_explosion=False, eff_range=40, skip_first=True, air=False, ricochets=0) -> str:
     """Trace a single projectile.  Returns 'hit', 'terrain', 'vehicle' or 'miss'."""
     m = game.map
     cos_a, sin_a = math.cos(ang), math.sin(ang)
@@ -335,7 +349,7 @@ def trace_projectile(game, ox: int, oy: int, ang: float, max_range: float, dmg: 
         a = game.soldier_at.get((x, y))
         if a is not None and getattr(a, "z", 0) < 0:
             a = None                                  # (under the floor: nothing flying reaches the cellar)
-        if a is not None and (a is not shooter or from_explosion) and a.alive:
+        if a is not None and (a is not shooter or from_explosion or ricochets) and a.alive:
             cx, cy = x + 0.5 - sx, y + 0.5 - sy
             perp = abs(cx * sin_a - cy * cos_a)
             st = 2 if a.downed else a.stance
@@ -373,7 +387,7 @@ def trace_projectile(game, ox: int, oy: int, ang: float, max_range: float, dmg: 
         v = game.vehicle_at.get((x, y))
         if v is not None and v is not shooter and v is not getattr(shooter, "vehicle", None) and not v.dead:
             if i > 0 or not skip_first:
-                hit_vehicle(game, v, pen if pen else (4 if kind == "bullet" else 2), energy, ox, oy,
+                hit_vehicle(game, v, (pen if pen else (4 if kind == "bullet" else 2)) * through, energy, ox, oy,
                             shooter, source_name, kind="bullet" if kind == "bullet" else "frag")
                 result = "vehicle"
                 break
@@ -405,12 +419,25 @@ def trace_projectile(game, ox: int, oy: int, ang: float, max_range: float, dmg: 
             if from_explosion:
                 chance = min(1.0, chance * 1.3)
             if chance > 0 and rng.random() < chance:
-                passed = projectile_hits_tile(game, x, y, energy, pen, kind)
-                if not passed:
+                from .ballistics import impact, surface_normal
+                previous = tuple(int(c) for c in path[max(0, i - 1)])
+                normal = surface_normal(m, x, y, (cos_a, sin_a), previous)
+                outcome, retained, outgoing = impact(T.DEFS[int(tid)], energy, pen * through,
+                                                     (cos_a, sin_a), normal, kind, rng.random())
+                projectile_hits_tile(game, x, y, energy, pen * through, kind, outcome=outcome)
+                if outcome == "ricochet" and ricochets < 2 and max_range - dist > 2:
+                    game.emit_sound(x, y, 45, "ricochet", "a bullet ricocheting", None, None)
+                    reflected = math.atan2(outgoing[1], outgoing[0]) + math.radians(rng.uniform(-3, 3))
+                    result = trace_projectile(game, *previous, reflected, (max_range - dist) * math.sqrt(retained),
+                                              energy * retained, pen * through * retained, kind, shooter, None,
+                                              source_name + " (ricochet)", mg=mg, eff_range=max(1, eff_range - dist),
+                                              ricochets=ricochets + 1)
+                    break
+                if outcome != "penetrate":
                     result = "terrain"
                     break
-                through *= 0.5
-                energy *= 0.5
+                through *= retained
+                energy *= retained
                 if energy < 8:
                     result = "terrain"
                     break
@@ -431,7 +458,7 @@ def trace_projectile(game, ox: int, oy: int, ang: float, max_range: float, dmg: 
     return result
 
 
-def projectile_hits_tile(game, x, y, energy, pen, kind) -> bool:
+def projectile_hits_tile(game, x, y, energy, pen, kind, outcome=None) -> bool:
     """Damage a tile from a bullet/fragment.  Returns True if it passes through."""
     m = game.map
     tid = int(m.t[x, y])
@@ -441,10 +468,12 @@ def projectile_hits_tile(game, x, y, energy, pen, kind) -> bool:
         if game.player and math.hypot(x - game.player.x, y - game.player.y) < 20:
             game.emit_sound(x, y, 35, "glass", "breaking glass", None, None)
         return True
-    material_pen = energy * 0.6 + pen * 2
     if T.HP[tid] > 0:
         damage_tile(game, x, y, max(1, energy / 12))
-    return material_pen > T.ARMOR[tid] and T.ARMOR[tid] < 60
+    if outcome is None:
+        from .ballistics import impact
+        outcome = impact(d, energy, pen, kind=kind)[0]
+    return outcome == "penetrate"
 
 
 def suppress_line(game, x0, y0, x1, y1, amount, shooter_side, exclude=None):
@@ -489,7 +518,8 @@ def hit_actor(game, a, dmg, kind, attacker, source, from_pos=None, part=None, si
         part = a.body.pick_part(rng, 2 if a.downed else a.stance, covered)
     # helmet
     if part == "head" and a.helmet is not None and kind in ("gunshot", "fragment", "blast") and dmg < 60:
-        p = a.helmet.t.prot_frag if kind in ("fragment", "blast") else a.helmet.t.prot_bullet
+        p = (a.helmet.t.prot_frag if kind in ("fragment", "blast") else a.helmet.t.prot_bullet) * a.helmet.condition
+        a.helmet.condition -= dmg / 800
         if rng.random() < p:
             if a.is_player:
                 game.msg("Something slams into your helmet! Your ears ring.", "hurt")
@@ -498,6 +528,17 @@ def hit_actor(game, a, dmg, kind, attacker, source, from_pos=None, part=None, si
             a.body.stunned = max(a.body.stunned, 2)
             a.suppression = min(100, a.suppression + 30)
             return None
+    if kind in ("gunshot", "fragment"):
+        from .equipment import damage as damage_equipment
+        # A hit can perforate the clothes, webbing or pack at that part of the body.
+        candidates = ([a.invent.slots.get("body")] if part == "torso" else [])
+        if part == "torso" and rng.random() < .35:
+            candidates.append(a.invent.slots.get(rng.choice(("rig", "pack"))))
+        if part in ("l_arm", "r_arm") and rng.random() < .2:
+            candidates.append(a.weapon)
+        for item in candidates:
+            if item is not None and not damage_equipment(game, item, dmg * .45, a.x, a.y):
+                a.remove_item(item)
     dmg *= rng.uniform(0.75, 1.25)
     res = a.body.damage(rng, part, dmg, kind)
     a.hit_turn = game.turn
@@ -784,6 +825,8 @@ def explode(game, x: int, y: int, power: float, radius: int, *, frags: int = 0,
         crater = False
         game.effect_splash(x, y)
         game.audio("splash", x, y, 70)
+    from .equipment import blast as damage_equipment
+    damage_equipment(game, x, y, power, radius)
     # ---- blast on soldiers
     pos, actors = game.actor_array()
     if power >= 20:

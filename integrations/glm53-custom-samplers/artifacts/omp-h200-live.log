@@ -1,0 +1,37 @@
+Tool: read
+Tool: read
+Tool: edit
+Tool: bash
+test_empty (test_totals.RunningTotalsTests.test_empty) ... ok
+test_negative (test_totals.RunningTotalsTests.test_negative) ... ok
+test_no_mutation (test_totals.RunningTotalsTests.test_no_mutation) ... ok
+test_positive (test_totals.RunningTotalsTests.test_positive) ... ok
+
+----------------------------------------------------------------------
+Ran 4 tests in 0.000s
+
+OK
+{
+  "passed": true,
+  "coding_tools": [
+    "bash",
+    "edit",
+    "read"
+  ],
+  "code_tests": 4,
+  "generations": 9,
+  "chain": [
+    "dry",
+    "top_n_sigma",
+    "p_less",
+    "min_k",
+    "xtc",
+    "min_p",
+    "temperature"
+  ],
+  "temperature_10_and_infinity": true,
+  "compaction_custom_chain": true,
+  "fixed_output_cap_absent": true,
+  "native_filters_neutral": true,
+  "llama_props_requests": 0
+}

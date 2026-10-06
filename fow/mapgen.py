@@ -1362,6 +1362,9 @@ class Gen:
 
     def installation(self, kind: str, side: str, depth: float | None = None, lat: float | None = None):
         """Place a base/installation belonging to `side`.  Returns its record."""
+        from .homefront import FACILITIES, build
+        if kind in FACILITIES:
+            return build(self, kind, side)
         r = self.rng
         defender = self.spec.get("defender_side")
         if depth is None:
@@ -1931,6 +1934,8 @@ class Gen:
                 self.installation(kind, side)
             except (IndexError, ValueError):
                 pass
+        from .homefront import dress
+        dress(self)
         self.battle_damage(spec.get("intensity", 0.5))
         self.pick_objectives()
         from .relief import make as relief

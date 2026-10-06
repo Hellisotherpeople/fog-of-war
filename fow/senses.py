@@ -1,6 +1,8 @@
 """Vision, light and hearing."""
 from __future__ import annotations
 
+from .weather import visibility as weather_visibility, masking as weather_masking
+
 import math
 
 import numpy as np
@@ -86,7 +88,7 @@ def _daylight(game) -> float:
 
 
 MOON_RANGE = 16                   # tiles the full moon, high in a clear sky, adds to what you can make out
-MOON_CLOUD = {"clear": 1.0, "overcast": 0.3, "rain": 0.15, "snow": 0.3, "fog": 0.5, "sandstorm": 0.2}
+MOON_CLOUD = {"clear": 1.0, "overcast": 0.3, "rain": 0.15, "storm": 0.06, "blizzard": 0.08, "snow": 0.3, "fog": 0.5, "sandstorm": 0.2}
 
 
 def moonlight(game) -> float:
@@ -102,14 +104,14 @@ def moonlight(game) -> float:
 
 def night_range(game) -> float:
     """How far you can make a man out in the dark, before the light comes."""
-    return (NIGHT_RANGE + MOON_RANGE * moonlight(game)) * WEATHER_VIS.get(game.weather, 1.0)
+    return (NIGHT_RANGE + MOON_RANGE * moonlight(game)) * weather_visibility(game)
 
 
 def base_view_range(game) -> float:
     d = daylight(game)
     nr = NIGHT_RANGE + MOON_RANGE * moonlight(game)
     r = nr + (DAY_RANGE - nr) * d
-    r *= WEATHER_VIS.get(game.weather, 1.0)
+    r *= weather_visibility(game)
     return max(4.0, r)
 
 
@@ -127,9 +129,10 @@ def viewer_range(game, viewer) -> float:
         # the binoculars round his neck (looked for now and then, not every time he looks up)
         bk = viewer.__dict__.get("_binoc")
         if bk is None or game.turn - bk[0] > 60 or game.turn < bk[0]:
-            bk = viewer._binoc = (game.turn, viewer.find(lambda i: i.t.tool == "binoculars") is not None)
+            binoculars = viewer.has_tool("binoculars")
+            bk = viewer._binoc = (game.turn, binoculars.condition if binoculars else 0.)
         if bk[1]:
-            r *= 1.25
+            r *= 1 + .25 * bk[1]
     return r
 
 
@@ -353,7 +356,7 @@ def can_detect(game, viewer, target, dist=None, r=None, conceal=None) -> bool:
         if target.fired_turn >= game.turn - 1:
             fr = max(fr, 45)
         if lit_at(game, target.x, target.y):
-            fr = max(fr, DAY_RANGE * WEATHER_VIS.get(game.weather, 1.0) * 0.6 * conceal)
+            fr = max(fr, DAY_RANGE * weather_visibility(game) * 0.6 * conceal)
     pk = peek_point(target)
     if dist > fr:
         if pk is None:
@@ -440,7 +443,7 @@ def update_actor_vision(game, a):
                 if e.fired_turn >= turn - 1:
                     fr = max(fr, 45)
                 if lit_at(game, e.x, e.y):
-                    fr = max(fr, DAY_RANGE * WEATHER_VIS.get(game.weather, 1.0) * 0.6 * cf)
+                    fr = max(fr, DAY_RANGE * weather_visibility(game) * 0.6 * cf)
             if dk > fr:
                 continue
             item = (e, dk, cf, dk <= 1.5)
@@ -514,7 +517,7 @@ def player_fov(game):
     base, cones = eye
     top = max([base] + [c[2] for c in cones])
     R = float(game.view_range_cache)                   # daylight, twilight, moon and weather are all in it
-    lit_r = max(45.0, DAY_RANGE * WEATHER_VIS.get(game.weather, 1.0) * 0.6) if game.is_dark else 0.0
+    lit_r = max(45.0, DAY_RANGE * weather_visibility(game) * 0.6) if game.is_dark else 0.0
     r = int(max(R * top, 8, lit_r * top)) + 2
     from .relief import viewshed
     eye_h = eye_height(p)
@@ -591,13 +594,14 @@ def player_can_see_actor(game, a) -> bool:
     if p.vehicle is None and p.suppression > 40:
         r *= 1 - (p.suppression - 40) / 150
     if game.player_binoculars:
-        r *= 1.6
+        binoculars = p.has_tool("binoculars")
+        r *= 1 + .6 * (binoculars.condition if binoculars else 0.)
     fr = r * concealment_factor(game, p, a)
     if game.is_dark:
         if a.fired_turn >= game.turn - 1:
             fr = max(fr, 45)
         if lit_at(game, a.x, a.y):
-            fr = max(fr, DAY_RANGE * WEATHER_VIS.get(game.weather, 1.0) * 0.6 * concealment_factor(game, p, a))
+            fr = max(fr, DAY_RANGE * weather_visibility(game) * 0.6 * concealment_factor(game, p, a))
     return dist <= fr
 
 
@@ -605,7 +609,7 @@ def player_can_see_actor(game, a) -> bool:
 
 def sound_at(game, sx, sy, loud, lx, ly) -> float:
     d = math.hypot(lx - sx, ly - sy)
-    level = loud - 20 * math.log10(max(1.0, d)) - WEATHER_SOUND.get(game.weather, 0)
+    level = loud - 20 * math.log10(max(1.0, d)) - weather_masking(game)
     if d > 3 and loud < 90:
         # walls between muffle the sound
         pts = tcod.los.bresenham((sx, sy), (lx, ly))[1:-1]

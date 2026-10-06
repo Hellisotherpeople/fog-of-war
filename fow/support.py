@@ -130,6 +130,11 @@ class Support:
     # ------------------------------------------------------------ air
     def launch_sortie(self, side, target=None, roles=None, quiet=False):
         g = self.game
+        from .weather import flight_factor
+        if flight_factor(g) < .25:
+            if not quiet and side == g.player.side:
+                g.msg("Radio: 'Flying suspended. Weather has closed the field.'", "radio")
+            return False
         rng = g.rng
         night = g.is_night()
         # a squadron with aircraft on the ground, fuelled and armed: what flies is what it has

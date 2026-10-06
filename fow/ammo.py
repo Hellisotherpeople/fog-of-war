@@ -31,7 +31,7 @@ def sources(actor, gun):
     out = []
     for g, loc in actor.invent.grids():
         for it in g.items:
-            if compatible(it, gun):
+            if it.functional and compatible(it, gun):
                 out.append((loc, it))
     order = {"rig": 0, "pockets": 1, "pack": 2}
     out.sort(key=lambda e: (order.get(e[0], 3), -(e[1].loaded if e[1].t.kind == "mag" else 0)))
@@ -99,7 +99,7 @@ def spare_description(actor, gun) -> str:
 def reload(game, actor, gun=None, speed=False) -> int | None:
     """Reload the gun.  Returns moves spent, or None if impossible."""
     gun = gun or actor.weapon
-    if gun is None or gun.t.kind != "gun":
+    if gun is None or not gun.functional or gun.t.kind != "gun":
         return None
     t = gun.t
     if t.cat in ("at_disposable", "flamer"):
@@ -111,7 +111,7 @@ def reload(game, actor, gun=None, speed=False) -> int | None:
         if t.cat == "at_launcher" or t.cat == "mortar":
             return _reload_loose(game, actor, gun)
         for it in sources(actor, gun):
-            if it.t.kind == "mag" and it.loaded > 0 and (gun.mag_item is None or it.loaded > gun.loaded):
+            if it.t.kind == "mag" and it.loaded > 0 and (gun.mag_item is None or not gun.mag_item.functional or it.loaded > gun.loaded):
                 new = it
                 break
         if new is None:
@@ -156,6 +156,7 @@ def reload(game, actor, gun=None, speed=False) -> int | None:
                 while it.count > 0 and need > 0:
                     n = it.t.mag
                     use = min(n, need)
+                    mix_rounds(gun, it, use)
                     gun.loaded += use
                     need -= use
                     if use < n:
@@ -178,7 +179,11 @@ def reload(game, actor, gun=None, speed=False) -> int | None:
 
 def _loose(gun, n):
     from .entities import Item
-    return Item(ammo_id(gun.t.cal), n)
+    rounds = Item(ammo_id(gun.t.cal), n)
+    quality = (gun.data or {}).get("rounds_condition", 1.)
+    if quality < 1:
+        rounds.condition = quality
+    return rounds
 
 
 def _reload_loose(game, actor, gun) -> int | None:
@@ -193,6 +198,7 @@ def _reload_loose(game, actor, gun) -> int | None:
         if it.t.kind != "ammo":
             continue
         take = min(need, it.count)
+        mix_rounds(gun, it, take)
         it.count -= take
         need -= take
         gun.loaded += take
@@ -218,7 +224,7 @@ def unload(actor, gun):
             return m          # caller drops it
         return None
     if gun.loaded > 0 and gun.t.cal:
-        rounds = Item(ammo_id(gun.t.cal), gun.loaded)
+        rounds = _loose(gun, gun.loaded)
         gun.loaded = 0
         if actor.add_item(rounds) is None:
             return rounds
@@ -228,6 +234,8 @@ def unload(actor, gun):
 def fill_magazine(actor, mag, max_rounds=None) -> int:
     """Thumb loose rounds into a magazine.  Returns rounds loaded (time: ~0.5s each)."""
     t = mag.t
+    if not mag.functional:
+        return 0
     need = t.mag - mag.loaded
     if max_rounds is not None:
         need = min(need, max_rounds)
@@ -236,8 +244,9 @@ def fill_magazine(actor, mag, max_rounds=None) -> int:
         for it in list(g.items):
             if need <= 0:
                 break
-            if it.t.kind == "ammo" and it.t.cal == t.cal:
+            if it.functional and it.t.kind == "ammo" and it.t.cal == t.cal:
                 take = min(need, it.count)
+                mix_rounds(mag, it, take, existing=mag.loaded + loaded)
                 it.count -= take
                 need -= take
                 loaded += take
@@ -247,6 +256,15 @@ def fill_magazine(actor, mag, max_rounds=None) -> int:
     if loaded:
         mag.known_rounds = True
     return loaded
+
+
+def mix_rounds(holder, source, count, existing=None):
+    """Keep ammunition quality when rounds change containers."""
+    existing = holder.loaded if existing is None else existing
+    quality = source.condition if source.t.kind in ("ammo", "clip") else (source.data or {}).get("rounds_condition", 1.)
+    old = (holder.data or {}).get("rounds_condition", 1.)
+    if quality < 1 or old < 1:
+        holder.data = dict(holder.data or {}, rounds_condition=(old * existing + quality * count) / max(1, existing + count))
 
 
 def loose_rounds(actor, cal) -> int:
@@ -266,7 +284,7 @@ def needs_refill(actor, gun) -> bool:
 def _spare_for(giver, gun):
     """What the giver can part with for someone else's gun: never his own last magazine."""
     own = giver.weapon
-    items = sources(giver, gun)
+    items = [it for it in sources(giver, gun) if (it.loaded > 0 if it.t.kind == "mag" else it.count > 0)]
     if own is not None and own.t.kind == "gun" and own is not gun and any(compatible(it, own) for it in items):
         keep = 2           # same calibre as his own weapon: he keeps a couple
         mine = [it for it in items if compatible(it, own)]
@@ -315,7 +333,7 @@ def give_ammo(actor, gun, rounds: int):
                         continue
                 break
         rest = rounds - n * per
-        if rest > per // 2:
+        if rest > 0:
             m = Item(t.magtype, full=False)
             m.loaded = rest
             actor.add_item(m)
