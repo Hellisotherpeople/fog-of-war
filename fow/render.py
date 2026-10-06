@@ -1114,7 +1114,7 @@ def draw_panel(con, game):
         con.print(x, yb, f"{game.sector.name}"[:wdt], fg=UI_DIM, bg=UI_BG)
     else:
         con.print(x, yb, f"Somewhere near {game.theatre['name']}"[:wdt], fg=UI_DIM, bg=UI_BG)
-    con.print(x, yb + 1, "? help  Esc menu"[:wdt], fg=(90, 85, 70), bg=UI_BG)
+    con.print(x, yb + 1, "/ search  ? help  Esc menu"[:wdt], fg=(90, 85, 70), bg=UI_BG)
 
 
 def draw_log(con, game, scroll=0):
@@ -1164,27 +1164,42 @@ class Popup:
         self.letters = letters
         self.rect = (0, 0, 0, 0)
         self.scroll = 0
+        from .search import Search
+        self.search = Search(kind == "menu")
         # skip disabled/headers
         self._fix_sel(1)
 
+    def indices(self):
+        return [i for i, o in enumerate(self.options) if self.search.matches(o[0])]
+
+    def search_key(self, key):
+        event = self.search.key(key)
+        if event == "changed":
+            self.scroll = 0
+            self._fix_sel(1)
+        return event in ("changed", "handled")
+
+    def display_footer(self):
+        if not self.search.enabled:
+            return self.footer
+        return self.search.prompt() if self.search.typing or self.search.query else \
+            "/ search" + ("  |  " + self.footer if self.footer else "  Enter select  Esc close")
+
     def _fix_sel(self, step):
-        n = len(self.options)
-        if n == 0:
-            return
-        for _ in range(n):
-            if self.options[self.sel][3]:
-                return
-            self.sel = (self.sel + step) % n
+        from .search import advance
+        indices = self.indices()
+        enabled = [i for i in indices if self.options[i][3]]
+        if self.sel not in enabled:
+            self.sel = advance(enabled or indices, self.sel, step)
 
     def move(self, d):
-        if not self.options:
-            return
-        self.sel = (self.sel + d) % len(self.options)
-        self._fix_sel(1 if d > 0 else -1)
+        from .search import advance
+        self.sel = advance([i for i in self.indices() if self.options[i][3]], self.sel, d)
 
     def letter_of(self, idx):
         k = 0
-        for i, o in enumerate(self.options):
+        for i in self.indices():
+            o = self.options[i]
             if not o[3]:
                 continue
             if i == idx:
@@ -1194,7 +1209,8 @@ class Popup:
 
     def index_of_letter(self, ch):
         k = 0
-        for i, o in enumerate(self.options):
+        for i in self.indices():
+            o = self.options[i]
             if not o[3]:
                 continue
             if LETTERS[k:k + 1] == ch:
@@ -1204,11 +1220,11 @@ class Popup:
 
     def layout(self):
         w = self.width or max([len(self.title) + 4] + [len(o[0]) + 6 for o in self.options] +
-                              [len(l[0]) + 3 for l in self.lines] + [len(self.footer) + 3])
+                              [len(l[0]) + 3 for l in self.lines] + [len(self.display_footer()) + 3])
         w = min(w, VIEW_W - 4)
         max_rows = VIEW_H - 6
-        body = len(self.lines) + len(self.options)
-        h = min(max_rows, body) + 2 + (1 if self.footer else 0)
+        body = len(self.lines) + max(1, len(self.indices()))
+        h = min(max_rows, body) + 2 + (1 if self.display_footer() else 0)
         ax, ay = self.anchor
         # prefer to the right of the anchor, with a gap for the connector
         if ax + 3 + w < VIEW_W:
@@ -1226,12 +1242,13 @@ class Popup:
         if not (x < sx < x + w - 1 and y < sy < y + h - 1):
             return None
         body_row = sy - y - 1 - len(self.lines)
-        avail = h - 2 - len(self.lines) - (1 if self.footer else 0)
+        avail = h - 2 - len(self.lines) - (1 if self.display_footer() else 0)
         if body_row < 0 or body_row >= avail:
             return None
         row = body_row + self.scroll
-        if 0 <= row < len(self.options) and self.options[row][3]:
-            return row
+        indices = self.indices()
+        if 0 <= row < len(indices) and self.options[indices[row]][3]:
+            return indices[row]
         return None
 
 
@@ -1266,12 +1283,20 @@ def draw_popup(con, pop: Popup):
             break
         con.print(x + 1, row, text[:w - 2], fg=col or UI_TEXT, bg=UI_BG)
         row += 1
-    avail = y + h - 1 - (1 if pop.footer else 0) - row
-    if pop.sel - pop.scroll >= avail:
-        pop.scroll = pop.sel - avail + 1
-    if pop.sel < pop.scroll:
-        pop.scroll = pop.sel
-    for i, (label, value, col, enabled) in enumerate(pop.options[pop.scroll:pop.scroll + avail], start=pop.scroll):
+    footer = pop.display_footer()
+    avail = max(0, y + h - 1 - (1 if footer else 0) - row)
+    pop._fix_sel(1)
+    indices = pop.indices()
+    selected = indices.index(pop.sel) if indices else 0
+    pop.scroll = max(0, min(pop.scroll, max(0, len(indices) - avail)))
+    if selected - pop.scroll >= avail:
+        pop.scroll = max(0, selected - avail + 1)
+    if selected < pop.scroll:
+        pop.scroll = selected
+    if not indices and avail:
+        con.print(x + 1, row, "No matches. Esc clears search."[:w - 2], fg=UI_DIM, bg=UI_BG)
+    for i in indices[pop.scroll:pop.scroll + avail]:
+        label, value, col, enabled = pop.options[i]
         sel = i == pop.sel
         bg = UI_SEL_BG if sel else UI_BG
         if not enabled:
@@ -1282,8 +1307,8 @@ def draw_popup(con, pop: Popup):
             con.print(x + 1, row, f"{letter}) " if pop.letters else "  ", fg=UI_DIM, bg=bg)
             con.print(x + 4, row, label[:w - 5], fg=col or (UI_HI if sel else UI_TEXT), bg=bg)
         row += 1
-    if pop.footer:
-        con.print(x + 1, y + h - 2, pop.footer[:w - 2], fg=UI_DIM, bg=UI_BG)
+    if footer:
+        con.print(x + 1, y + h - 2, footer[:w - 2], fg=UI_DIM, bg=UI_BG)
     from . import icons
     icons.erase(x, y, w, h)                       # (nothing painted earlier shows through the box)
 

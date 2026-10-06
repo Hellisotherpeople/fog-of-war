@@ -1404,6 +1404,41 @@ class PlayState:
             from .ui import GameOverState
             self.app.replace(GameOverState(self.app, g))
 
+    def cmd_search(self):
+        from .ui import search_choices
+        entries = [
+            ("i", "Inventory / kit", "Find, inspect and manage your equipment."),
+            ("C", "Command troops", "Delegate, assign commanders, doctrine and standing orders."),
+            ("T", "Orders book", "Missions, objectives, instructions and deadlines."),
+            ("G", "General staff", "Divisions, reserves and operational orders."),
+            ("m", "Map", "Dated intelligence, headquarters and locations."),
+            ("V", "Nearby", "Known soldiers, vehicles, sounds and items."),
+            ("E", "Talk", "Speak with someone nearby."),
+            ("e", "Vehicle", "Board, leave, choose a crew position or manage your vehicle."),
+            ("R", "Radio", "Communications and support requests."),
+            ("D", "Dig / construction", "Cover, fortifications and engineer work."),
+            ("S", "Resupply", "Ammunition, supplies and repairs."),
+            ("O", "Request orders", "Ask your superiors for instructions."),
+            ("g", "Pick up / loot", "Items and bodies within reach."),
+            ("a", "Use an item", "Tools, food and equipment."),
+            ("w", "Wield a weapon", "Change what is in your hands."),
+            ("d", "Drop an item", "Put equipment on the ground."),
+            ("r", "Reload", "Load your current weapon."),
+            ("B", "Bandage", "Treat an injury."),
+            ("x", "Look / inspect", "Examine the battlefield."),
+            ("@", "Soldier record", "Skills, service, wounds and character."),
+            ("P", "Message log", "Read and search earlier reports."),
+            ("W", "Movement pace", "Creep, walk, run or sprint."),
+            ("Z", "Wait", "Choose how long to wait."),
+            ("Y", "Yell", "Call out to nearby soldiers."),
+            ("X", "Going / travel", "Where you are going and how to get there."),
+            ("A", "Autopilot", "Let your soldier follow orders, or take control again."),
+            ("?", "Help / controls", "Search every key and learn how to play."),
+        ]
+        return search_choices(self.app, "Find a command",
+                              [(f"{label} [{key}]", key, desc, None) for key, label, desc in entries],
+                              lambda key: self.on_key(Key(char=key)))
+
     # ================================================================== input
     def on_key(self, key: Key):
         g = self.game
@@ -1429,7 +1464,7 @@ class PlayState:
         if g.__dict__.get("succession_pending") and self.popups:
             return self.popup_key(key)             # (who carries on: the dead man can still choose)
         if self.realtime_busy() and key.sym != E.KeySym.ESCAPE:
-            inspecting = not self.popups and self.inv_screen is None and (key.char in ("?", "m", "x", ";", "T", "@", "P", "+", "-", "=") or \
+            inspecting = not self.popups and self.inv_screen is None and (key.char in ("/", "?", "m", "x", ";", "T", "@", "P", "+", "-", "=") or \
                 key.sym in (E.KeySym.F1, E.KeySym.HOME, E.KeySym.F5) or \
                 (self.mode in ("look", "target") and key.move() is not None))
             if not inspecting:
@@ -1443,7 +1478,7 @@ class PlayState:
             # on autopilot: A or Esc takes him back; looking, the map, the books and the help still work
             if key.char == "A" or key.sym == E.KeySym.ESCAPE:
                 return self.cmd_autopilot()
-            if key.char not in ("?", "m", "x", ";", "T", "@", "P", "V", "G", "C", "+", "-", "=", "X") and \
+            if key.char not in ("/", "?", "m", "x", ";", "T", "@", "P", "V", "G", "C", "+", "-", "=", "X") and \
                     key.sym not in (E.KeySym.F1, E.KeySym.F2, E.KeySym.F3, E.KeySym.F4, E.KeySym.F5, E.KeySym.HOME):
                 g.msg("Your soldier's on autopilot. (A to take over)", "info")
                 return
@@ -1504,6 +1539,7 @@ class PlayState:
                 return self.begin_target()
             return
         handler = {
+            "/": self.cmd_search,
             "f": self.begin_target, "F": self.cycle_mode, "r": self.cmd_reload, "t": self.cmd_throw,
             "c": self.cmd_crouch, "p": self.cmd_prone, "i": self.cmd_inventory, "g": self.cmd_pickup,
             ",": self.cmd_pickup, "d": self.cmd_drop, "w": self.cmd_wield, "a": self.cmd_apply,
@@ -2647,6 +2683,8 @@ class PlayState:
 
     def popup_key(self, key: Key):
         pop = self.popups[-1]
+        if pop.search_key(key):
+            return
         if key.sym == E.KeySym.ESCAPE:
             self.popups.pop()
             cb = pop.data.get("cancel")
@@ -2678,6 +2716,8 @@ class PlayState:
         pop = self.popups[-1]
         if not pop.options:
             self.popups.pop()
+            return
+        if pop.sel not in pop.indices():
             return
         label, value, col, enabled = pop.options[pop.sel]
         if not enabled:
@@ -3506,6 +3546,14 @@ class PlayState:
         ents = st["lists"][TABS[st["tab"]]]
         mv = key.move()
         c = key.char
+        if c == "/":
+            from .ui import search_choices
+            def pick(value):
+                st["tab"], st["sel"] = value
+                self._nearby_cursor()
+            return search_choices(self.app, "Find something nearby",
+                                  [(e["label"], (tab, i), f"{e['group']} — {e['right']}", e["color"])
+                                   for tab, name in enumerate(TABS) for i, e in enumerate(st["lists"][name])], pick)
         if key.sym == E.KeySym.ESCAPE or c in ("V", "q"):
             self.park_view()
             self.mode = "normal"

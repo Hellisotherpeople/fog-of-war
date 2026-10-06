@@ -208,7 +208,7 @@ class SkySeaState:
         # menus opened from here (the admiral's signals) live on the play state: draw them over the chart
         for pop in getattr(self.play, "popups", []) or []:
             draw_popup(con, pop)
-        hint = self._hint()
+        hint = "/ find command  " + self._hint()
         con.print(0, 0, f" {hint} "[:VIEW_W], fg=(20, 20, 20), bg=(200, 190, 140))
 
     def _hint(self):
@@ -476,6 +476,20 @@ class SkySeaState:
         self.note = ""
         self.auto = 0
         c = key.char
+        if c == "/":
+            from .ui import search_choices
+            from .play import Key
+            entries = [("?", "Help / controls"), ("m", "Map"), ("t", "Next visible target"),
+                       ("z", "Fly / steam on")]
+            if ss.player_plane is not None:
+                entries += [("f", "Fire guns"), ("b", "Release bombs / torpedo"), ("h", "Head for home"),
+                            ("[", "Decrease throttle"), ("]", "Increase throttle")]
+            if ss.player_ship is not None:
+                entries += [("f", "Fire main battery"), ("g", "Fire torpedoes"), ("c", "Depth charges"),
+                            ("d", "Dive / surface"), ("l", "Launch air strike"), ("o", "Fleet orders")]
+            return search_choices(self.app, "Find a chart command",
+                                  [(f"{label} [{key}]", key, "Uses your current crew station.", None)
+                                   for key, label in entries], lambda key: self.on_key(Key(char=key)))
         if getattr(self, "aboard", False) and (key.sym == E.KeySym.ESCAPE or c in ("e", "q")):
             # step back from the chart onto the deck (the captain's AI - or the officer of the watch - has her)
             ss.station = "deck"

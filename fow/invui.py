@@ -20,7 +20,7 @@ from .inventory import ACCESS, SLOT_NAME, SLOTS, Grid, Inventory, container_grid
 CW, CH = 4, 2          # text cells per grid cell
 HELP_LINES = ("Enter pick/drop   r rotate", "e use/equip   q quick move   d drop",
               "l load   u unload   c count   x inspect", "Tab sides   [ ] piles   PgUp/PgDn sections",
-              "s search body   i/Esc close", "Mouse: drag items; right click for actions")
+              "s search body   / find item   i/Esc close", "Mouse: drag items; right click for actions")
 FOOTER = 11
 
 KIND_COL = {"gun": (70, 80, 55), "mag": (115, 100, 55), "clip": (120, 105, 60), "ammo": (110, 95, 50),
@@ -109,6 +109,7 @@ class InventoryScreen:
         self.info = ""
         self.menu = None
         self.ground_layout = {}
+        self.find_target = None
 
     # ================================================================== helpers
     @property
@@ -146,6 +147,13 @@ class InventoryScreen:
         self._draw_pane(con, self.own, x0, y0, own_w, h, focused=self.focus == 0)
         if loot is not None:
             self._draw_pane(con, loot, x0 + own_w, y0, loot_w, h, focused=self.focus == 1)
+        if self.find_target is not None:
+            pane, item = self.find_target
+            for i, cell in enumerate(self.cells):
+                if cell["pane"] is pane and cell.get("item") is item:
+                    self.cursor = i
+                    break
+            self.find_target = None
         # held item follows the cursor
         if self.held is not None and self.cells:
             c = self.cells[self.cursor % len(self.cells)]
@@ -424,10 +432,51 @@ class InventoryScreen:
             con.print(x, y + 12 * CH, f" page {pane.page + 1}/{pages} - PgUp/PgDn ", fg=UI_DIM, bg=UI_BG)
 
     # ================================================================== input
+    def find_item(self):
+        """Find visible equipment without opening unsearched pockets or moving anything."""
+        from .ui import search_choices
+        options = []
+        for pane in [self.own, *self.sources]:
+            seen = set()
+
+            def add(item, page, location):
+                if item is not None and id(item) not in seen:
+                    seen.add(id(item))
+                    options.append((f"{item.name} — {pane.title}", (pane, item, page),
+                                    f"{pane.title}: {location}. {item.t.desc or ''}", None))
+
+            if pane.ground is not None:
+                grid = pane.ground_grid(self.game)
+                for y in range(grid.h):
+                    for x in range(grid.w):
+                        add(grid.cells[x][y], y // 12, "on the ground")
+            else:
+                for slot in SLOTS:
+                    add(pane.inv.slots[slot], pane.page, SLOT_NAME[slot])
+                if pane is self.own:
+                    add(pane.inv.hands, pane.page, "in your hands")
+                for page, (label, grids) in enumerate(self._kit_blocks(pane)):
+                    for grid, _ in grids:
+                        for item in grid.items:
+                            add(item, page, label)
+
+        def pick(value):
+            pane, item, page = value
+            self.focus = 0 if pane is self.own else 1
+            if self.focus:
+                self.src_idx = self.sources.index(pane)
+            pane.page = page
+            self.find_target = pane, item
+            self.say(item.name)
+
+        return search_choices(self.play.app, "Find an item — your kit and visible loot", options, pick)
+
     def on_key(self, key):
         p = self.game.player
         if self.menu is not None:
             return self._menu_key(key)
+        if key.char == "/":
+            return self.find_item()
         # letters are actions on this screen (l load, u unload...): only arrows and the numpad move
         mv = key.move() if key.char is None or not key.char.isalpha() else None
         if key.sym == E.KeySym.ESCAPE:
@@ -892,6 +941,8 @@ class InventoryScreen:
 
     def _menu_key(self, key):
         m = self.menu
+        if m.search_key(key):
+            return
         if key.sym == E.KeySym.ESCAPE:
             self.menu = None
             return
@@ -911,6 +962,8 @@ class InventoryScreen:
 
     def _menu_select(self):
         m = self.menu
+        if m.sel not in m.indices() or not m.options[m.sel][3]:
+            return
         self.menu = None
         act = m.options[m.sel][1]
         it = m.data["item"]

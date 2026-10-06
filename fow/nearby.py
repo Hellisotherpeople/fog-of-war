@@ -233,6 +233,6 @@ def draw(con, ps):
         con.print(x0 + 1, SCREEN_H - 4, f"{sel + 1} of {len(entries)}", fg=UI_DIM, bg=UI_BG)
     keys = ["↑↓ pick   Tab " + TABS[1 - st["tab"]].lower()]
     keys.append("f/Enter fire, or go to" if tab == "Soldiers" else "Enter go and pick up")
-    keys.append("x look  b binocs  Esc")
+    keys.append("/ find  x look  b binocs  Esc")
     for i, k in enumerate(keys):
         con.print(x0 + 1, SCREEN_H - 3 + i, k[:w - 2], fg=UI_DIM, bg=UI_BG)

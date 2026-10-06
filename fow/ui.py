@@ -18,6 +18,7 @@ from .data.roles import PLAYER_ROLE_WEIGHTS, ROLES
 from .data.theatres import THEATRES
 from .play import Key, PlayState
 from .render import draw_center_box
+from .search import Search, advance
 
 ASSETS = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets")
 
@@ -47,7 +48,7 @@ SCENE = [
 class MenuState:
     """A vertical list of choices with a description pane."""
 
-    def __init__(self, app, title, options, on_select, subtitle="", on_back=None, width=44):
+    def __init__(self, app, title, options, on_select, subtitle="", on_back=None, width=44, searchable=True):
         self.app = app
         self.title = title
         self.options = options        # (label, value, description, color)
@@ -57,6 +58,17 @@ class MenuState:
         self.sel = 0
         self.width = width
         self.item_rows = {}
+        self.search = Search(searchable)
+
+    def _indices(self):
+        return [i for i, (label, value, desc, col) in enumerate(self.options)
+                if self.search.matches(f"{label} {desc or ''}") or value == "__done__"]
+
+    def _selection(self):
+        indices = self._indices()
+        if indices and self.sel not in indices:
+            self.sel = indices[0]
+        return indices
 
     def render(self, con):
         con.clear()
@@ -67,12 +79,15 @@ class MenuState:
                 con.print(x0, 3 + i, line, fg=UI_DIM)
         y = 6
         self.item_rows = {}
-        top = max(0, self.sel - (SCREEN_H - 12))
-        for i, (label, value, desc, col) in enumerate(self.options[top:], start=top):
+        indices = self._selection()
+        position = indices.index(self.sel) if indices else 0
+        top = max(0, position - (SCREEN_H - 12))
+        for shown, i in enumerate(indices[top:], start=top):
+            label, value, desc, col = self.options[i]
             if y >= SCREEN_H - 3:
                 break
             sel = i == self.sel
-            letter = "abcdefghijklmnopqrstuvwxyz"[i] if i < 26 else " "
+            letter = "abcdefghijklmnopqrstuvwxyz"[shown] if shown < 26 else " "
             bg = UI_SEL_BG if sel else None
             con.print(x0, y, " " * self.width, bg=bg)
             con.print(x0, y, f"{letter}) ", fg=UI_DIM, bg=bg)
@@ -80,7 +95,9 @@ class MenuState:
             self.item_rows[y] = i
             y += 1
         # description pane
-        desc = self.options[self.sel][2] if self.options else ""
+        if not indices:
+            con.print(x0, y, "No matches. Backspace to edit; Esc to clear.", fg=UI_DIM)
+        desc = self.options[self.sel][2] if indices else ""
         dx = x0 + self.width + 3
         dw = SCREEN_W - dx - 3
         con.draw_frame(dx - 1, 5, dw + 2, SCREEN_H - 9, clear=False, fg=(70, 65, 45))
@@ -91,15 +108,22 @@ class MenuState:
                     break
                 con.print(dx, yy, line, fg=UI_TEXT)
                 yy += 1
-        con.print(x0, SCREEN_H - 2, "↑↓/letter to choose, Enter to confirm, Esc to go back. Mouse works too.", fg=UI_DIM)
+        footer = self.search.prompt() + f"  ({len(indices)} results)" if self.search.typing or self.search.query else \
+            "↑↓/letter choose  Enter confirm  / search  Esc back  Mouse works too"
+        con.print(x0, SCREEN_H - 2, footer[:SCREEN_W - 8], fg=UI_HI if self.search.typing else UI_DIM)
 
     def on_key(self, key: Key):
-        if key.sym in (E.KeySym.UP, E.KeySym.KP_8) or key.char == "k" and False:
-            self.sel = (self.sel - 1) % len(self.options)
+        event = self.search.key(key)
+        indices = self._selection()
+        if event in ("changed", "handled"):
+            return
+        if key.sym in (E.KeySym.UP, E.KeySym.KP_8):
+            self.sel = advance(indices, self.sel, -1)
         elif key.sym in (E.KeySym.DOWN, E.KeySym.KP_2):
-            self.sel = (self.sel + 1) % len(self.options)
+            self.sel = advance(indices, self.sel, 1)
         elif key.sym in (E.KeySym.RETURN, E.KeySym.KP_ENTER, E.KeySym.SPACE):
-            self.on_select(self.options[self.sel][1])
+            if indices:
+                self.on_select(self.options[self.sel][1])
         elif key.sym == E.KeySym.ESCAPE:
             if self.on_back:
                 self.on_back()
@@ -107,21 +131,21 @@ class MenuState:
                 self.app.pop()
         elif key.char and key.char in "abcdefghijklmnopqrstuvwxyz":
             i = "abcdefghijklmnopqrstuvwxyz".index(key.char)
-            if i < len(self.options):
-                self.sel = i
-                self.on_select(self.options[i][1])
+            if i < len(indices):
+                self.sel = indices[i]
+                self.on_select(self.options[self.sel][1])
 
     def on_mouse_motion(self, tx, ty):
-        if ty in self.item_rows and 4 <= tx < 4 + self.width:
+        if ty in self.item_rows and self.item_rows[ty] in self._indices() and 4 <= tx < 4 + self.width:
             self.sel = self.item_rows[ty]
 
     def on_click(self, tx, ty, button):
-        if ty in self.item_rows and 4 <= tx < 4 + self.width and button == 1:
+        if ty in self.item_rows and self.item_rows[ty] in self._indices() and 4 <= tx < 4 + self.width and button == 1:
             self.sel = self.item_rows[ty]
             self.on_select(self.options[self.sel][1])
 
     def on_wheel(self, dy):
-        self.sel = (self.sel - dy) % len(self.options)
+        self.sel = advance(self._selection(), self.sel, -dy)
 
 
 class MainMenuState(MenuState):
@@ -140,7 +164,7 @@ class MainMenuState(MenuState):
                  ("Options", "options", "The sound mixer, display, safe mode, battlefield size, autosave.", None),
                  ("Memorial", "memorial", "The fallen.", None),
                  ("Quit", "quit", "Go home.", None)]
-        super().__init__(app, "", opts, self.choose)
+        super().__init__(app, "", opts, self.choose, searchable=False)
 
     def render(self, con):
         con.clear()
@@ -236,6 +260,13 @@ class ChoiceMenu(MenuState):
         self.on_pick(v)
 
 
+def search_choices(app, title, options, on_pick):
+    menu = ChoiceMenu(app, title, options, on_pick)
+    menu.search.typing = True
+    app.push(menu)
+    return menu
+
+
 class ToggleMenu(MenuState):
     """Tick things on and off (traits, extra kit); Enter on 'Done' to finish."""
 
@@ -266,7 +297,7 @@ class CreatorState:
 
     ROWS = [("side", "Side"), ("theatre", "Battle"), ("nation", "Nation"), ("service", "Service"),
             ("scenario", "Battle type"),
-            ("role", "Role"), ("vehicle", "Vehicle"), ("station", "Position"),
+            ("role", "Role"), ("vehicle", "Vehicle"), ("station", "Position"), ("captured_vehicle", "Vehicle use"),
             ("unit", "Unit"), ("rank", "Rank"), ("name", "Name"), ("traits", "Traits"),
             ("weapon", "Weapon"),
             ("kit", "Extra kit"), ("fair", "Opening"), ("start", "")]
@@ -274,10 +305,11 @@ class CreatorState:
     def __init__(self, app):
         self.app = app
         self.v = dict(side="random", theatre="random", nation="random", service="army", scenario="random",
-                      role="default", unit=None, vehicle=None, station=None,
+                      role="default", unit=None, vehicle=None, station=None, captured_vehicle=False,
                       rank=None, name="", traits=None, weapon=None, kit={}, fair=False)
         self.sel = 0
         self.rows = {}
+        self.notice = ""
 
     # -------------------------------------------------------- the lists
     def _side(self):
@@ -321,20 +353,31 @@ class CreatorState:
         if key == "vehicle":
             out = [("As assigned for the role", None, "Tank crew are guaranteed a tank. Choose a model here to "
                     "guarantee that exact vehicle; then choose your position. A vehicle assignment uses a ground "
-                    "battle opening. Enemy models are captured equipment.")]
+                    "battle opening. Normal issue matches your army and side to the vehicle. "
+                    "Enable captured equipment under Vehicle use to keep a foreign army.")]
             if v.get("service", "army") != "army":
                 return [("Ground vehicles require Army service", None, "Aircraft and ships use their service roles.")]
-            from .vehicle_start import available, seats
-            from .data.nations import equip_sources
+            from .vehicle_start import available, seats, assignments
             th = THEATRES.get(self._theatre())
-            from .data.theatres import theatre_year
-            sources = equip_sources(self._nation(), theatre_year(th) if th else 1944) if self._nation() else []
             for vt in available(th):
-                captured = bool(sources) and not any(n in sources for n in vt.nations)
+                if not assignments(vt.id, captured=v["captured_vehicle"]):
+                    continue
+                captured = v["captured_vehicle"] and self._nation() and self._nation() not in vt.nations
                 out.append((vt.name + (" (captured)" if captured else ""), vt.id,
                             f"{vt.vtype.title()}. Crew: {vt.crew}; passengers: {vt.seats}. "
-                            f"Available from {vt.years[0]:g}.\n\nPositions: " + ", ".join(n for n, _ in seats(vt.id))))
+                            f"Available from {vt.years[0]:g}.\n\nOperating armies: " +
+                            ", ".join(NATIONS[n]["name"] for n in vt.nations) +
+                            (".\n\nCaptured equipment allowed; your army stays as chosen." if v["captured_vehicle"] else
+                             ".\n\nSelecting this model matches Nation and Side to an operating army.") +
+                            "\n\nPositions: " + ", ".join(n for n, _ in seats(vt.id))))
             return out
+        if key == "captured_vehicle":
+            return [("Normal issue (match the vehicle's army)", False,
+                     "Vehicle selection chooses an operating army and the matching side. "
+                     "A compatible army you have already selected is preserved."),
+                    ("Captured equipment (keep my chosen army)", True,
+                     "Explicitly allow foreign vehicles, such as an American crew in a German tank. "
+                     "Choose your nation and then the vehicle. This is a custom captured-equipment start.")]
         if key == "station":
             if not v.get("vehicle"):
                 return [("Choose a vehicle first", None, "Select an exact model to choose an actual crew position.")]
@@ -481,7 +524,7 @@ class CreatorState:
         # description of what's under the cursor
         key = self.ROWS[self.sel][0]
         desc = ""
-        if key in ("theatre", "scenario", "role", "nation", "weapon", "unit", "service", "vehicle", "station"):
+        if key in ("theatre", "scenario", "role", "nation", "weapon", "unit", "service", "vehicle", "station", "captured_vehicle"):
             for lab, val, d in self.options(key):
                 if val == self.v[key]:
                     desc = d
@@ -507,7 +550,9 @@ class CreatorState:
                 con.print(dx + 12, SCREEN_H - 15, NATIONS[nat]["army"][: dw - 13], fg=UI_DIM)
             con.print(dx + 12, SCREEN_H - 14, (ROLES.get(role, {}).get("name", "") if role else "")[: dw - 13],
                       fg=UI_TEXT)
-        con.print(x0, SCREEN_H - 2, "↑↓ choose a line  ←→ cycle  Enter pick  Esc back", fg=UI_DIM)
+        if self.notice:
+            con.print(x0, SCREEN_H - 3, self.notice[:SCREEN_W - 8], fg=UI_HI)
+        con.print(x0, SCREEN_H - 2, "↑↓ choose a line  ←→ cycle  Enter pick  / find  Esc back", fg=UI_DIM)
 
     # -------------------------------------------------------- input
     def _cycle(self, key, d):
@@ -524,6 +569,7 @@ class CreatorState:
 
     def _fixup(self, key):
         """Keep the choices consistent: a nation from the chosen side and battle, a rank that fits the job."""
+        self.notice = ""
         if key == "service":
             self.v["scenario"] = "random"
             self.v["role"] = "default"
@@ -555,6 +601,24 @@ class CreatorState:
             self._special_fix()
         if key in ("theatre", "service", "unit") and self.v.get("vehicle") not in [o[1] for o in self.options("vehicle")]:
             self.v["vehicle"] = None
+        if self.v.get("vehicle"):
+            from .vehicle_start import assignments, default_nation
+            vid = self.v["vehicle"]
+            captured = self.v["captured_vehicle"]
+            if not captured and key in ("vehicle", "captured_vehicle"):
+                choices = assignments(vid, theatre=self._theatre())
+                if not choices:
+                    choices = assignments(vid)
+                    self.v["theatre"] = "random"
+                nat = default_nation(vid, choices, self._nation())
+                if nat:
+                    self.v["nation"], self.v["side"] = nat, NATIONS[nat]["side"]
+                    if self.v["unit"] not in [o[1] for o in self.options("unit")]:
+                        self.v["unit"] = None
+                    self.notice = f"Vehicle assignment: {NATIONS[nat]['name']} / {NATIONS[nat]['side'].title()}."
+            elif not assignments(vid, self._theatre(), self._nation(), self._side(), captured):
+                self.v["vehicle"] = None
+                self.notice = "Vehicle cleared: no compatible assignment. Enable captured equipment to use a foreign model."
         if self.v.get("station") not in [o[1] for o in self.options("station")]:
             self.v["station"] = None
 
@@ -602,6 +666,13 @@ class CreatorState:
 
     def on_key(self, key):
         k = self.ROWS[self.sel][0]
+        if key.char == "/":
+            def pick(field):
+                self.sel = next(i for i, row in enumerate(self.ROWS) if row[0] == field)
+                self._open(field)
+            return search_choices(self.app, "Find a setup choice", [
+                (label + ": " + self._value_label(field), field, "", None)
+                for field, label in self.ROWS if field != "start"], pick)
         if key.sym in (E.KeySym.UP, E.KeySym.KP_8):
             self.sel = (self.sel - 1) % len(self.ROWS)
         elif key.sym in (E.KeySym.DOWN, E.KeySym.KP_2, E.KeySym.TAB):
@@ -643,12 +714,20 @@ class CreatorState:
         side = self._side() or (NATIONS[self._nation()]["side"] if self._nation() else rng.choice((ALLIES, AXIS)))
         nat = self._nation()
         th = self._theatre()
-        if th is None:
+        if v.get("vehicle"):
+            from .vehicle_start import assignments, default_nation
+            choices = assignments(v["vehicle"], th, nat, self._side(), v["captured_vehicle"])
+            if not choices:
+                self.notice = "No compatible vehicle assignment. Change army, battle, or Vehicle use."
+                return
+            if nat is None and not v["captured_vehicle"]:
+                nat = default_nation(v["vehicle"], choices)
+                choices = [c for c in choices if c[1] == nat]
+            th, nat, _ = rng.choices(choices, [c[2] for c in choices])[0]
+            side = NATIONS[nat]["side"]
+        elif th is None:
             # a random battle - but one this nation fought, on this side
             fought = [t for t, d in THEATRES.items() if nat is None or any(n == nat for n, _ in d["sides"][side])]
-            if v.get("vehicle"):
-                from .vehicle_start import available
-                fought = [t for t in fought if any(a.id == v["vehicle"] for a in available(THEATRES[t]))]
             th = rng.choice(fought or list(THEATRES))
         if nat is None or nat not in [n for n, _ in THEATRES[th]["sides"][side]]:
             pool = THEATRES[th]["sides"][side]
@@ -663,6 +742,7 @@ class CreatorState:
             role = v["role"]
         setup = dict(scenario=v["scenario"], service=v["service"], rank=v["rank"], name=v["name"] or None,
                      traits=v["traits"], unit=v["unit"], vehicle=v["vehicle"], station=v["station"],
+                     captured_vehicle=v["captured_vehicle"],
                      weapon=v["weapon"], kit=dict(v["kit"]), fair=v["fair"], role_random=v["role"] == "random")
         self.app.start_game(th, nat, role, setup)
 
@@ -782,20 +862,31 @@ class TextState:
         self.title = title
         self.lines = lines
         self.scroll = 0
+        self.search = Search()
+
+    def matching_lines(self):
+        return [line for line in self.lines if self.search.matches(line[0] if isinstance(line, tuple) else line)]
 
     def render(self, con):
         con.clear()
         out = []
-        for l in self.lines:
+        for l in self.matching_lines():
             if isinstance(l, tuple):
                 out.append(l)
             else:
                 for w in textwrap.wrap(l, SCREEN_W - 12) or [""]:
                     out.append((w, UI_TEXT))
-        vis = out[self.scroll:self.scroll + SCREEN_H - 6]
-        draw_center_box(con, self.title, vis, width=SCREEN_W - 6, footer="Esc to close, ↑↓ scroll", top=1)
+        self.scroll = min(self.scroll, max(0, len(out) - (SCREEN_H - 6)))
+        vis = out[self.scroll:self.scroll + SCREEN_H - 6] or [("No matches.", UI_DIM)]
+        footer = self.search.prompt() if self.search.typing or self.search.query else "Esc close  ↑↓ scroll  / search"
+        draw_center_box(con, self.title, vis, width=SCREEN_W - 6, footer=footer, top=1)
 
     def on_key(self, key):
+        event = self.search.key(key)
+        if event:
+            if event == "changed":
+                self.scroll = 0
+            return
         if key.sym in (E.KeySym.ESCAPE, E.KeySym.RETURN, E.KeySym.KP_ENTER) or key.char in ("q", "?"):
             self.app.pop()
         elif key.sym in (E.KeySym.DOWN, E.KeySym.KP_2, E.KeySym.PAGEDOWN):
@@ -835,7 +926,7 @@ class OrdersState:
         watch = g.player.has_tool("watch") is not None
         con.print(3, 2, f"ORDERS - {g.now().strftime('%H:%M, %d %B %Y' if watch else '%d %B %Y')}", fg=self.INK,
                   bg=self.PAPER)
-        con.print(3, 3, "Higher orders govern. Enter: follow a compatible order. Esc: close.", fg=self.FAINT, bg=self.PAPER)
+        con.print(3, 3, "Higher orders govern. Enter: follow. / find order. Esc: close.", fg=self.FAINT, bg=self.PAPER)
         if not self.orders:
             con.print(3, 6, "Nothing. For once, nobody wants anything of you.", fg=self.INK, bg=self.PAPER)
             return
@@ -893,6 +984,10 @@ class OrdersState:
 
     def on_key(self, key):
         from .orders import focus
+        if key.char == "/":
+            return search_choices(self.app, "Find an order",
+                                  [(o["text"], i, f"{o['who']} — {o.get('reward', '')}", None)
+                                   for i, o in enumerate(self.orders)], lambda i: setattr(self, "sel", i))
         if key.sym == E.KeySym.ESCAPE or key.char in ("T", "q"):
             self.app.pop()
         elif key.sym in (E.KeySym.DOWN, E.KeySym.KP_2) or key.char == "j":
@@ -1184,19 +1279,27 @@ class LogState(TextState):
     def __init__(self, app, game):
         from .constants import MSG_COLORS
         lines = []
+        self.entries = []
         self.cats = []                              # (the kind of news on each line's first row, for its sign)
         for m in list(game.messages):
             t = m.text + (f" (x{m.count})" if m.count > 1 else "")
+            self.entries.append((t, MSG_COLORS.get(m.cat, UI_TEXT)))
             for k, w in enumerate(textwrap.wrap(t, SCREEN_W - 15)):
                 lines.append(("   " + w, MSG_COLORS.get(m.cat, UI_TEXT)))
                 self.cats.append(m.cat if k == 0 else None)
         super().__init__(app, "What happened", lines)
         self.scroll = max(0, len(lines) - (SCREEN_H - 6))
 
+    def matching_lines(self):
+        if not self.search.query:
+            return self.lines
+        return [("   " + line, color) for text, color in self.entries if self.search.matches(text)
+                for line in textwrap.wrap(text, SCREEN_W - 15)]
+
     def render(self, con):
         super().render(con)
         from . import icons
-        if not icons.on():
+        if not icons.on() or self.search.query:
             return
         for i, cat in enumerate(self.cats[self.scroll:self.scroll + SCREEN_H - 6]):
             if cat is not None and cat not in ("info", "system"):
@@ -1242,6 +1345,10 @@ class StatusState:
         self.record = CharState(app, game)
 
     @property
+    def search(self):
+        return self.record.search
+
+    @property
     def PAGES(self):
         from .agents import cover
         return ("health", "skills", "record") + (("cover",) if cover(self.game) else ())
@@ -1250,7 +1357,8 @@ class StatusState:
         name = self.PAGES[self.page % len(self.PAGES)]
         if name == "record":
             self.record.render(con)
-            con.print(2, SCREEN_H - 2, "Tab: next page   Shift+Tab: back   Esc: close", fg=UI_DIM)
+            if not (self.search.typing or self.search.query):
+                con.print(2, SCREEN_H - 2, "Tab: next page   Shift+Tab: back   / search record   Esc: close", fg=UI_DIM)
             return
         if name == "skills":
             return self._render_skills(con)
@@ -1418,7 +1526,7 @@ class StatusState:
         for t, col in feel_lines[:3]:
             con.print(2, yy, t, fg=col)
             yy += 1
-        con.print(2, SCREEN_H - 2, "Tab: skills   Esc: close" +
+        con.print(2, SCREEN_H - 2, "Tab: skills   / search record   Esc: close" +
                   ("" if nums else "   (numbers can be turned on in Options)"), fg=UI_DIM)
 
     def _render_skills(self, con):
@@ -1468,6 +1576,11 @@ class StatusState:
         con.print(2, SCREEN_H - 2, "Tab: health   Shift+Tab: service record   Esc: close", fg=UI_DIM)
 
     def on_key(self, key):
+        if self.search.typing or key.sym == E.KeySym.ESCAPE and self.search.query:
+            return self.record.on_key(key)
+        if key.char == "/":
+            self.page = self.PAGES.index("record")
+            return self.record.on_key(key)
         if key.sym == E.KeySym.TAB or key.sym in (E.KeySym.LEFT, E.KeySym.RIGHT):
             back = getattr(key, "shift", False) or key.sym == E.KeySym.LEFT
             self.page = (self.page + (-1 if back else 1)) % len(self.PAGES)
@@ -1708,7 +1821,8 @@ class OptionsState:
         con.print(x + 2, y, " Options ", fg=UI_HI, bg=UI_BG)
         self.rows = {}
         yy = y + 1
-        for i, it in enumerate(self.items):
+        top = max(0, min(self.sel - (h - 7) // 2, len(self.items) - (h - 6)))
+        for i, it in enumerate(self.items[top:], start=top):
             if yy >= y + h - 5:
                 break
             lab = self._label(it)
@@ -1723,7 +1837,7 @@ class OptionsState:
         desc = self.items[self.sel][3]
         for j, line in enumerate(textwrap.wrap(desc, w - 6)[:3]):
             con.print(x + 3, y + h - 5 + j, line, fg=UI_DIM, bg=UI_BG)
-        con.print(x + 3, y + h - 2, "↑↓ choose   ←→ change   Enter toggle   Esc back"[: w - 6], fg=UI_DIM, bg=UI_BG)
+        con.print(x + 3, y + h - 2, "↑↓ choose  ←→ change  Enter toggle  / find  Esc back"[: w - 6], fg=UI_DIM, bg=UI_BG)
         if self.play is not None and getattr(self.play, "overlay", None) is not None:
             self.play._finish_overlay()
 
@@ -1743,6 +1857,10 @@ class OptionsState:
                 return
 
     def on_key(self, key):
+        if key.char == "/":
+            return search_choices(self.app, "Find a setting",
+                                  [(self._label(it), i, it[3], None) for i, it in enumerate(self.items)
+                                   if it[2] != "head"], lambda i: setattr(self, "sel", i))
         if key.sym == E.KeySym.ESCAPE:
             self.app.pop()
         elif key.sym in (E.KeySym.UP, E.KeySym.KP_8):
@@ -2301,10 +2419,10 @@ class OvermapState:
         for i, l in enumerate(leg):
             con.print(ix, SCREEN_H - 8 + i, l, fg=UI_DIM)
         foot = ("Arrows (shift: faster) to look around, z " + ("detail" if self.compact else "wide view")
-                + ", Home back to you, Esc to close. The world goes on as far as you walk.")
+                + ", Home back to you, / find location, Esc close.")
         if self.reach:
             foot = ("Orders go out with the next situation report (about every ten minutes). "
-                    "Arrows to inspect, Esc to close.")
+                    "Arrows inspect, / find, Esc close.")
         con.print(2, SCREEN_H - 2, foot, fg=UI_DIM)
         if self.radio or self.reach or (self.has_map and p.rank >= 8):
             reports = g.player.ai.get("map_reports", {})
@@ -2379,6 +2497,13 @@ class OvermapState:
         g = self.game
         st = g.strategic
         c = key.char
+        if c == "/":
+            def pick(xy):
+                self.cx, self.cy = xy
+                self.vx0 = self.vy0 = None
+            return search_choices(self.app, "Find a location on your map",
+                                  [(f"{s.name} ({s.x}, {s.y})", (s.x, s.y), s.biome, None)
+                                   for s in st.cells.values() if self._knows(s.x, s.y)], pick)
         if self.mode and key.sym in (E.KeySym.RETURN, E.KeySym.KP_ENTER):
             return self._confirm()
         if self.mode and key.sym == E.KeySym.ESCAPE:
@@ -2775,8 +2900,12 @@ class App:
                     k.ctrl = bool(event.mod & (E.Modifier.CTRL | E.Modifier.GUI | E.Modifier.ALT))
                     st.on_key(k)
             elif isinstance(event, E.TextInput):
+                from .search import typing_in
                 for ch in event.text:
-                    if ch.isdigit() or ch == " ":
+                    if not self.states:
+                        break
+                    st = self.states[-1]
+                    if ch == " " or ch.isdigit() and not typing_in(st):
                         continue
                     if ch == "." and time.time() - self._last_kp_period < 0.2:
                         continue

@@ -128,7 +128,7 @@ class OperationsState:
             kind, cands = self.picking
             con.print(2, yy, {"attack": "Attack which sector?", "move": "Move to which sector?",
                               "commit": "Send the reserve to which sector?",
-                              "visit": "Go forward to where?"}[kind] + "  (↑↓, Enter, Esc)",
+                              "visit": "Go forward to where?"}[kind] + "  (↑↓, / find, Enter, Esc)",
                       fg=(250, 200, 140))
             top = max(0, min(self.pick_sel - 2, len(cands) - 6))      # (the list scrolls with the choice)
             if top > 0 or len(cands) > 6:
@@ -149,7 +149,7 @@ class OperationsState:
                           bg=UI_SEL_BG if sel else None)
         else:
             keys = ["a  attack", "h  hold / dig in", "m  move", "r  into reserve", "c  commit reserve here",
-                    "v  go and see", "w  wait at HQ", "Esc  close"]
+                    "v  go and see", "w  wait at HQ", "/ find", "Esc close"]
             con.print(2, yy, "   ".join(keys), fg=(200, 190, 150))
             for j, line in enumerate(textwrap.wrap(self.note, SCREEN_W - 6)[:2]):
                 con.print(2, yy + 1 + j, line, fg=(250, 220, 150))
@@ -202,6 +202,16 @@ class OperationsState:
         g = self.game
         c = key.char
         divs = self._divs()
+        if c == "/":
+            from .ui import search_choices
+            if self.picking:
+                options = [(s.name, i, s.biome, None) for i, s in enumerate(self.picking[1])]
+                field = "pick_sel"
+            else:
+                options = [(d["name"], i, d["status"], None) for i, (_, d) in enumerate(divs)]
+                field = "sel"
+            return search_choices(self.app, "Find a destination" if self.picking else "Find a formation",
+                                  options, lambda i: setattr(self, field, i))
         if self.picking:
             kind, cands = self.picking
             if key.sym in (E.KeySym.UP, E.KeySym.KP_8):
