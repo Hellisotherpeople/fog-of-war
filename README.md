@@ -78,7 +78,15 @@ Saves, settings and the memorial to the fallen live in `~/.fogofwar/`.
 
 Pick **Quick start** and the war picks everything for you, or **New game** to choose side,
 battle, nation, service, role, rank and kit. **Vehicle** and **Position** guarantee an exact ground
-vehicle and crew seat: for example, an M4 Sherman driver, gunner or commander. Then:
+vehicle and crew seat: for example, an M4 Sherman driver, gunner or commander. Selecting a vehicle
+matches your nation and side to an operating army; a Tiger II selects Germany / Axis. For a foreign
+crew, opt into **Vehicle use → Captured equipment** and choose your nation and model.
+
+Press **/** to find a command during play, or search choices in menus. It also finds items in your
+kit and visible loot, known locations on the map, nearby entries, orders, formations, settings,
+and text in logs and records. Type to filter, use arrows, then Enter; Esc clears the search first.
+
+Then:
 
 - **Look at the panel on the right.** Your body, your weapon, and your **orders**. Press **Enter**
   and you'll carry them out: walk to the objective, take the ammunition to the gunner, go to your

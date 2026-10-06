@@ -30,9 +30,16 @@ You can turn it off in Options ("Key hints").
 | F2 | sprites / ASCII |
 | F3 | sound on / off |
 | F4 | font: DejaVu Sans Mono / the classic bitmap |
+| / | search in menus, popups, setup, settings, inventory, nearby lists, map, orders, staff, logs and records; find commands on the battlefield or chart |
 
-"Ctrl" below also means Cmd or Alt. The number row isn't used anywhere. The numpad works as
-direction keys.
+Search filters as you type, including numbers and accented names. Use arrows to select and Enter
+to choose (in a text view, Enter finishes typing). Backspace edits; Delete clears the query;
+Esc clears search before closing the screen. While typing, letters are text rather than action
+shortcuts. Inventory search only focuses the item; it does not move or use it, or expose unopened
+pockets and packs. Map search includes only ground on your map sheet or previously visited.
+
+"Ctrl" below also means Cmd or Alt. The number row can be typed into search fields. The numpad
+works as direction keys.
 
 ## On the battlefield
 

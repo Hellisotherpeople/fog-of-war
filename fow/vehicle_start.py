@@ -3,7 +3,8 @@ from __future__ import annotations
 
 from . import crew
 from .data.vehicles import VEHICLES
-from .data.theatres import theatre_year
+from .data.theatres import THEATRES, theatre_year
+from .data.nations import NATIONS
 
 
 def available(theatre=None):
@@ -18,6 +19,27 @@ def seats(vid):
     vt = VEHICLES[vid]
     return [(crew.name(vt, s), s) for s in crew.stations(vt)] + (
         [("Passenger", "passenger")] if vt.seats else [])
+
+
+def assignments(vid, theatre=None, nation=None, side=None, captured=False):
+    """Valid battle/army pairs. Vehicle operators are more specific than arms-supply pools."""
+    vt = VEHICLES[vid]
+    out = []
+    for tid, th in THEATRES.items():
+        if theatre and tid != theatre or not vt.years[0] <= theatre_year(th) < vt.years[1]:
+            continue
+        for sd, pool in th["sides"].items():
+            if side and sd != side:
+                continue
+            for nat, weight in pool:
+                if (nation is None or nat == nation) and (captured or nat in vt.nations):
+                    out.append((tid, nat, weight))
+    return out
+
+
+def default_nation(vid, choices, preferred=None):
+    present = {nat for _, nat, _ in choices}
+    return next((nat for nat in (preferred, *VEHICLES[vid].nations) if nat in present), None)
 
 
 def prepare(game, role):
@@ -36,6 +58,9 @@ def prepare(game, role):
     vt = VEHICLES.get(vid)
     if vt is None or vt not in available(game.theatre):
         raise ValueError("The chosen ground vehicle is unavailable at this battle date.")
+    if game.setup.get("vehicle") and game.player_nation not in vt.nations and not game.setup.get("captured_vehicle"):
+        raise ValueError(f"{vt.name} is not normal issue for {NATIONS[game.player_nation]['name']}. "
+                         "Choose an operating army or explicitly enable captured equipment.")
     station = game.setup.get("station")
     if station and station not in dict((value, name) for name, value in seats(vid)):
         raise ValueError("That position does not exist in the chosen vehicle.")
@@ -126,6 +151,10 @@ def assign(game, p, notes):
         v.player_crewed, v.player_station = True, station
     v.abandoned = False
     v.ai.pop("supply_run", None)
+    if game.setup.get("captured_vehicle") and p.nation not in v.vt.nations:
+        v.ai.update(captured=True, fam=.15 + (.1 if "veteran" in p.traits else 0), captured_turn=game.turn)
+        notes.append(f"Captured-equipment start: the {v.vt.name} is outside your army's normal issue. "
+                     "Its controls are unfamiliar; friendly troops may mistake its unmarked silhouette for the enemy.")
     p.x, p.y = v.x, v.y
     if station == "commander":
         v.squad.leader, v.squad.player_led = p, True

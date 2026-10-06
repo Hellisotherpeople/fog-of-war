@@ -13,6 +13,8 @@ from __future__ import annotations
 SECTIONS = [
     ("Essentials", [
         ("t", "The dozen keys to know first. Everything else is in the other sections - or type {/} to search."),
+        ("k", "/", "find a command during play; search choices in menus, setup and settings"),
+        ("t", "Type to filter; arrows choose; Enter selects. Esc clears search first, then closes. Numbers work too."),
         ("k", "arrows|numpad|hjklyubn", "move; into an enemy: fight hand to hand"),
         ("k", "left-click", "walk there"),
         ("k", "Enter", "carry out your orders (the panel says what Enter will do)"),
@@ -109,6 +111,7 @@ SECTIONS = [
         ("t", "Examine anything ({x} in the kit screen) for its story - and this one's maker, serial, owner, engraving."),
         ("t", "Letters, photographs, newspapers and diaries can be read ({a}); food, drink, charms and pills used."),
         ("h", "In the kit screen"),
+        ("k", "/", "find an item in your kit or visible loot; unopened pockets and packs stay hidden"),
         ("k", "arrows", "move the cursor"),
         ("k", "Enter|Space", "pick up / put down (or drag with the mouse)"),
         ("k", "r", "rotate what you're holding"),
@@ -186,6 +189,7 @@ SECTIONS = [
         ("k", "", "you've heard, what's lying in sight"),
         ("h", "In the V list"),
         ("k", "up|down", "pick one - the view goes to it ({Shift}: five; {PgUp} / {PgDn}: ten)"),
+        ("k", "/", "find a known nearby entry by name; on the map, find a known location"),
         ("k", "Tab|left|right", "soldiers / items"),
         ("k", "f|Enter", "fire at an enemy; go to a friend or a pile; look toward a sound"),
         ("k", "x|b", "look at it / raise your binoculars"),
