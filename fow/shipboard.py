@@ -785,6 +785,7 @@ def fast_step(game, secs=30):
     ss.step(secs, clock=False)
     game.turn += secs
     game.clock += secs
+    game._weather_tick()
     for k in range(t0 // STRATEGIC_TICK + 1, game.turn // STRATEGIC_TICK + 1):
         try:
             game._strategic_tick()

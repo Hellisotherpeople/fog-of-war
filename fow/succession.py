@@ -136,13 +136,19 @@ def take_over(game, new, why=""):
     # a new man: nobody knows him yet, and his record starts here
     game.duty = Duty()
     cmd = game.command
+    from .awards import records
+    old_awards = records(cmd, old.nation)
     cmd.merit = cmd.merit_at_promotion = 0.0
     cmd.medals = []
+    cmd.award_records = []
     cmd.promotions = []
     cmd.battle = {"kills": 0, "objectives": 0, "acting": 0, "wounds": 0, "orders": 0}
     cmd.__dict__.pop("record", None)
     game.__dict__.pop("base_order", None)
     game.__dict__.pop("order_focus", None)
+    if new.side != old.side:
+        game.__dict__.pop("field_order", None)
+        game.__dict__.pop("mission", None)
     # and none of the dead man's troubles: his own side hunting him, the warrant, the missed ship
     game.renegade = False
     for k in ("wanted", "awol", "ship_ashore"):
@@ -163,7 +169,7 @@ def take_over(game, new, why=""):
             raise
     new.moves = max(new.moves, 100)
     lives = game.__dict__.setdefault("lives", [])
-    lives.append(dict(name=old.name, rank=old.rank_full, fell=game.turn))
+    lives.append(dict(name=old.name, rank=old.rank_full, fell=game.turn, awards=old_awards))
     side_word = "" if new.side == old.side else " - on the other side of the line"
     game.msg(f"{why}You are {new.rank_full} {new.name}, {new.role_name.lower()}, {new.unit}{side_word}. "
              f"The war goes on.", "good")

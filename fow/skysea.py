@@ -43,8 +43,9 @@ TURRETS = {
                     ("ball turret", 0, 180, 70, 6, 10), ("left waist", 270, 50, 70, 6, 10),
                     ("right waist", 90, 50, 70, 6, 10), ("tail gunner", 180, 50, 70, 6, 10)],
 }
-CARRIER_AIR = {"usa": (("f4f", "f6f"), ("sbd", "sb2c"), ("tbf",)), "japan": (("zero",), ("d3a",), ("b5n",)),
-               "uk": (("f4f", "f6f"), ("sbd",), ("swordfish", "tbf"))}
+CARRIER_AIR = {"usa": (("f4f", "f6f"), ("sbd", "sb2c"), ("tbf",)),
+               "japan": (("zero",), ("d3a", "d4y"), ("b5n", "b6n")),
+               "uk": (("f4f", "f6f"), ("sbd", "barracuda"), ("swordfish", "tbf", "barracuda"))}
 
 
 def _latest(nation, year, ids):
@@ -53,10 +54,12 @@ def _latest(nation, year, ids):
 
 
 def flight(at):
+    from .parked import DIMS
     role = at.role
     kmh = at.speed * 60
     return dict(kmh=kmh, turn=TURN_ID.get(at.id, TURN.get(role, 15)), climb=CLIMB.get(role, 8),
-                engines=ENGINES_ID.get(at.id, ENGINES.get(role, 1)), stall=kmh * 0.33,
+                engines=DIMS[at.id][2] if at.id in DIMS else ENGINES_ID.get(at.id, ENGINES.get(role, 1)),
+                stall=kmh * 0.33,
                 ceiling=11000 if role == "heavybomber" else 9000 if role in ("fighter", "fighterbomber") else 7000,
                 turrets=TURRETS.get(role, []))
 
@@ -286,6 +289,8 @@ class SkySea:
             self._detect()
             self.effects = [e for e in self.effects if e["t"] > self.t]
             if self.t % 60 == 0:
+                from .sealogistics import tick as replenish
+                replenish(self)
                 # aircraft that have landed or gone down are out of the story
                 self.planes = [p for p in self.planes if p.alive or p.player or p.ai.get("local") or
                                p is self.player_plane]
@@ -297,6 +302,8 @@ class SkySea:
                     break
                 continue
             g.advance_clock(1)
+            g.turn += 1
+            g._weather_tick()
             if self.t - self.last_strategic >= 600:
                 self.last_strategic = self.t
                 try:
@@ -311,9 +318,12 @@ class SkySea:
 
     # ------------------------------------------------------------ flight
     def _fly(self, p: Plane):
+        from .weather import state as weather_state
         rng = self.rng()
         if not p.player or self.station != "pilot":
             self._pilot_ai(p)
+        if not p.alive:
+            return
         # speed toward the throttle setting, minus climbing, plus diving
         target = p.max_kmh() * (0.45 + 0.55 * p.throttle)
         if p.pitch > 0:
@@ -338,6 +348,14 @@ class SkySea:
         v = p.kmh / KMH_PER_TILE_S * (0.3 if steep else 1.0)      # a steep dive covers little ground
         p.x += dx * v
         p.y += dy * v
+        wind = weather_state(self.game)["wind"] / 100
+        wx, wy = self.game.wind
+        norm = max(1, math.hypot(wx, wy))
+        p.x += wx * wind / norm
+        p.y += wy * wind / norm
+        if self.game.weather in ("storm", "blizzard"):
+            p.hdg = (p.hdg + rng.uniform(-1.5, 1.5)) % 360
+            p.alt = max(1, p.alt + rng.uniform(-8, 8))
         # fuel, fire
         p.fuel -= (0.004 + 0.012 * p.throttle) * (2.5 if p.hp["fuel"] < 50 else 1.0)
         if p.fire:
@@ -414,7 +432,7 @@ class SkySea:
                             want_alt = ldr.alt + 600
                         elif p.ai.get("home_pt") or p.home:
                             p.ai["role"] = "home"           # the strike's done: the fighters go home with it
-        elif role in ("bomber", "strike", "dive", "torpedo", "attack", "recon"):
+        elif role in ("bomber", "strike", "dive", "torpedo", "attack", "recon", "resupply"):
             wp = p.ai.get("wp")
             if p.ai.get("leader") and p.ai.get("offset"):
                 ldr = self.entity(p.ai["leader"])
@@ -434,6 +452,10 @@ class SkySea:
                 tx, ty = wp
                 want_hdg = (bearing(p.x, p.y, tx, ty) + p.ai.get("bomb_trim", 0)) % 360   # (the bomb aimer's trim)
                 d = math.hypot(tx - p.x, ty - p.y)
+                if role == "resupply":
+                    p.throttle = min(.6, max(0., (260 / max(1, p.max_kmh()) - .45) / .55))
+                    if d < 2 and 80 <= p.alt <= 600 and p.kmh <= 300:
+                        self.drop(p)
                 want_alt = p.ai.get("alt", 4000)
                 if role == "dive":
                     want_alt = 3000 if d > 9 else 400
@@ -496,12 +518,20 @@ class SkySea:
                     return
         if role == "home":
             hp = p.ai.get("home_pt") or p.home
+            car = self.entity(-p.carrier) if p.carrier else None
+            if isinstance(car, Ship) and car.alive:
+                hp = (car.x, car.y)              # the carrier has steamed on since the launch
             if hp is not None:
                 want_hdg = bearing(p.x, p.y, hp[0], hp[1])
                 d = math.hypot(hp[0] - p.x, hp[1] - p.y)
                 want_alt = 1200 if d > 6 else 100
                 p.throttle = 0.7
                 if d < 1.5:
+                    from .weather import flight_factor
+                    if flight_factor(self.game) < .2:
+                        p.hdg = (p.hdg + 12) % 360
+                        p.pitch = 0
+                        return                  # hold above the field/deck until it can receive us
                     p.state = "landed"
                     car = self.entity(-p.carrier) if p.carrier else None
                     if isinstance(car, Ship) and car.alive and car.air is not None:
@@ -536,7 +566,7 @@ class SkySea:
     def _pick_air_target(self, p, prefer=None):
         best, bd = None, 1e9
         for e in self.planes:
-            if not e.alive or e.side == p.side:
+            if not e.alive or e.side == p.side or not self._seen_by(p, e):
                 continue
             d = math.hypot(e.x - p.x, e.y - p.y) + abs(e.alt - p.alt) / 300
             if prefer and e.role in prefer:
@@ -760,6 +790,9 @@ class SkySea:
     # ------------------------------------------------------------ bombs, torpedoes, strafing
     def drop(self, p):
         """Bombs away (or the torpedo) - and then, as for any bomber that's let go, the turn for home."""
+        if p is self.player_plane and (self.mission or {}).get("kind") == "resupply":
+            from .airlogistics import drop_supplies
+            return drop_supplies(self, p)
         self._drop(p)
         if not p.bombs and not p.torpedo and p.ai.get("role") in ("bomber", "dive", "torpedo", "attack", "strike"):
             p.ai["drop"] = True                   # (the formation keys its own release off the leader's)
@@ -838,11 +871,20 @@ class SkySea:
         st = g.strategic
         c = st.at(*g2["sector"]) if g2.get("sector") else None
         if c is not None:
-            if g2["kind"] in ("depot", "artillery", "aa", "airfield", "hq", "motor_pool", "factory", "bridge"):
+            from .homefront import FACILITIES
+            kind = "rail_yard" if g2["kind"] == "railyard" else g2["kind"]
+            if kind in ("depot", "artillery", "aa", "airfield", "hq", "motor_pool", "bridge") or kind in FACILITIES:
                 for inst in c.installations:
-                    if inst[0] == g2["kind"] and inst[1] == g2["side"] and inst[2]:
+                    if inst[0] == kind and inst[1] == g2["side"] and inst[2]:
                         inst[2] = False
                         break
+                if kind in FACILITIES:
+                    from .sustain import stores
+                    resource = FACILITIES[kind][2]
+                    stock = stores(c, g2["side"])
+                    if resource in stock:
+                        stock[resource] *= .15
+                    st.interdict(g2["side"], c, .45, f"Air attack has knocked out the {g2['name']}.")
                 if g2["kind"] in ("factory", "railyard", "city"):
                     g.__dict__.setdefault("bombed", {})[g2["side"]] = g.__dict__.get("bombed", {}).get(g2["side"], 0) + 1
             elif g2["kind"] in ("column", "tanks", "train"):
@@ -891,6 +933,9 @@ class SkySea:
         s.hdg = (s.hdg + max(-rate, min(rate, dh))) % 360
         top = s.st["speed"] if not (s.cls == "ss" and s.depth > 0) else s.st["subspeed"]
         top *= max(0.3, 1 - s.flood / 120)
+        from .weather import sea_state
+        if s.depth == 0:
+            top *= max(.35, 1 - sea_state(self.game) * (.1 if s.cls in ("pt", "de", "lst") else .045))
         # fuel: burnt roughly with the square of the speed; dry bunkers leave her creeping
         fuel = s.__dict__.get("fuel", 100.0)
         if s.cls not in ("ss",) or s.depth == 0:
@@ -964,6 +1009,9 @@ class SkySea:
         return want
 
     def _ship_ai(self, s: Ship):
+        if s.ai.get("holding_for_replenishment"):
+            s.order_kn = 0.
+            return
         rng = self.rng()
         role = s.ai.get("role", "line")
         ldr = self.entity(-s.ai["leader"]) if s.ai.get("leader") else None
@@ -1127,15 +1175,19 @@ class SkySea:
         d = math.hypot(e.x - viewer.x, e.y - viewer.y)
         g = self.game
         night = g.is_night()
-        vis = 180 if not night else 35
-        if g.weather in ("fog", "rain", "snow"):
-            vis *= 0.4
-        radar = viewer.st.get("radar") if isinstance(viewer, Ship) else 0
+        vis = (60 if isinstance(viewer, Plane) else 90) if isinstance(e, Plane) else 180
+        if night:
+            vis = min(vis, 35)
+        from .weather import visibility, sea_state
+        vis *= visibility(g)
+        radar = viewer.st.get("radar") if isinstance(viewer, Ship) else \
+            (1944.5 if AIRCRAFT[viewer.at_id].get("radar") else 0)
         if radar and g.year >= radar:
-            vis = max(vis, 220)
+            vis = max(vis, 220 if isinstance(viewer, Ship) else 75)
         if isinstance(e, Ship) and e.cls == "ss":
             if e.depth == 2:
-                return isinstance(viewer, Ship) and viewer.st["sonar"] and d < 12 and self.rng().random() < 0.5
+                return isinstance(viewer, Ship) and viewer.st["sonar"] and d < max(4, 12 - sea_state(g)) and \
+                    self.rng().random() < .5
             if e.depth == 1:
                 return d < 10 or (isinstance(viewer, Ship) and viewer.st["sonar"] and d < 14)
             vis *= 0.5
@@ -1148,13 +1200,10 @@ class SkySea:
             [x for x in self.ships if x.alive and x.side == side]
         cont = set()
         for e in self.planes:
-            if e.alive and e.side != side and any(math.hypot(e.x - v.x, e.y - v.y) < (60 if isinstance(v, Plane) else 90)
-                                                  for v in eyes):
+            if e.alive and e.side != side and any(self._seen_by(v, e) for v in eyes):
                 cont.add(e.id)
         for s in self.ships:
-            if s.alive and s.side != side and any(self._seen_by(v, s) if isinstance(v, Ship)
-                                                  else math.hypot(s.x - v.x, s.y - v.y) < 120 and
-                                                  not (s.cls == "ss" and s.depth > 0) for v in eyes):
+            if s.alive and s.side != side and any(self._seen_by(v, s) for v in eyes):
                 cont.add(-s.id)
         for g2 in self.ground:
             if not g2["dead"] and g2["side"] != side:
@@ -1200,6 +1249,8 @@ class SkySea:
                 "ap": 1.1, "lst": 0.9}.get(tgt.cls, 1.0)
         p_hit = (0.008 + 0.04 * acc) * size * (1 - d / (rngt * 1.1)) * (0.5 if night and not radar else 1.0) * \
             (1.3 if radar else 1.0)
+        from .weather import sea_state, visibility
+        p_hit *= max(.3, 1 - sea_state(self.game) * .1) * (1 if radar else visibility(self.game))
         for _ in range(n):
             hit = rng.random() < p_hit
             ox, oy = (0, 0) if hit else (rng.gauss(0, 1.5 + (1 - acc) * 3), rng.gauss(0, 1.5 + (1 - acc) * 3))
@@ -1334,6 +1385,9 @@ class SkySea:
 
     def _carrier_ops(self, s, enemies):
         """A carrier's air group: a combat air patrol over the fleet, strikes at whatever's found."""
+        from .weather import flight_factor, sea_state
+        if flight_factor(self.game) < .25 or sea_state(self.game) > 4.5:
+            return
         rng = self.rng()
         f, d, t = s.air
         mine = [p for p in self.planes if p.alive and p.carrier == s.id]
@@ -1363,6 +1417,9 @@ class SkySea:
         rng = self.rng()
         if s.air is None:
             return "This ship has no aircraft."
+        from .weather import flight_factor, sea_state
+        if flight_factor(self.game) < .25 or sea_state(self.game) > 4.5:
+            return "Flying is suspended: the weather has closed the flight deck."
         f, d, t = s.air
         types = CARRIER_AIR.get(s.nation, CARRIER_AIR["usa"])
         yr = self.game.year

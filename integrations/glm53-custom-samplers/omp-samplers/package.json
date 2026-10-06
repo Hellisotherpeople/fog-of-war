@@ -1,0 +1,56 @@
+{
+  "name": "omp-samplers",
+  "version": "1.4.0",
+  "description": "Manual and model-selected per-prompt llama.cpp sampler routing for oh-my-pi, with special-token detection, per-token logit bias, and per-token sampler telemetry.",
+  "homepage": "https://github.com/Hellisotherpeople/omp-samplers",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Hellisotherpeople/omp-samplers.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Hellisotherpeople/omp-samplers/issues"
+  },
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "tsc --noEmit",
+    "e2e:live": "bun run e2e/logit-bias-live.ts",
+    "e2e:samplers": "bun run e2e/samplers-live.ts",
+    "e2e:ranks": "bun run e2e/rank-omp-live.ts"
+  },
+  "keywords": [
+    "oh-my-pi",
+    "omp",
+    "pi",
+    "llama.cpp",
+    "llamacpp",
+    "sampler",
+    "sampling-router",
+    "sampling",
+    "extension",
+    "tui",
+    "llm",
+    "logprobs",
+    "telemetry",
+    "observability",
+    "visualization",
+    "logit-bias",
+    "special-tokens",
+    "reasoning",
+    "thinking",
+    "gguf",
+    "reasoning-budget",
+    "think-cap"
+  ],
+  "omp": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "devDependencies": {
+    "@oh-my-pi/pi-coding-agent": "^17.3.4",
+    "@types/bun": "^1.3.14",
+    "typescript": "^7.0.2"
+  }
+}

@@ -1,12 +1,7 @@
-"""What's lying around.
+"""Equipment belongs at depots, firing positions, shelters, wrecks and inhabited buildings.
 
-Every stretch of ground a war has passed over is littered: helmets, rifles thrown down
-by men who ran or were carried off, bandoliers, ration tins, letters.  Houses still hold
-what their people left when they fled - food, a coat, a bottle, a hunting gun under the
-floor.  Behind the lines there are dumps: crates of ammunition, medical stores, rations
-stacked under a tarpaulin with a bored sentry or none at all.
-
-Made once, when a sector is first seen; after that it's only what the war leaves.
+Stocks are made once on first visiting a sector. Fighting then leaves its own casualties,
+dropped equipment, scattered stores and burned supplies.
 """
 from __future__ import annotations
 
@@ -162,7 +157,12 @@ def scatter(game):
         cells = _floor_cells(m, x0, y0, bw, bh)
         if not cells:
             continue
-        n = sum(rng.random() < civil_left for _ in range(2 + len(cells) // 9))
+        n = sum(rng.random() < civil_left for _ in range(2 + min(5, len(cells) // 25)))
+        # People leave possessions by beds, tables and storage, not evenly over every floor.
+        anchors = [xy for xy in cells if any(m.in_bounds(xy[0] + dx, xy[1] + dy) and
+                   T.DEFS[int(m.t[xy[0] + dx, xy[1] + dy])].key in ("bed", "table", "crates", "stove")
+                   for dx, dy in ((0, 1), (1, 0), (0, -1), (-1, 0)))]
+        cells = anchors[:3] or rng.sample(cells, min(2, len(cells)))
         if rng.random() < 0.06 and style in ("house", "farmhouse", "izba", "townhouse"):
             # something hidden under the floorboards
             nat = rng.choice(nations)
@@ -182,47 +182,93 @@ def scatter(game):
                 stamp(game, it, nation=LOCAL_NATION.get(lang))     # (their letters, their photographs)
                 m.add_item(*rng.choice(cells), it)
                 placed += 1
-    # battlefield litter
-    if fought:
-        n = rng.randint(45, 80)
-    else:
-        n = rng.randint(12, 24)
-    for _ in range(n):
-        x, y = rng.randrange(2, m.w - 2), rng.randrange(2, m.h - 2)
-        if not m.walk[x, y] or m.water[x, y] >= 2 or (x, y) in game.vehicle_at:
+    # Equipment follows the military geography. Quiet sectors have no random battlefield litter.
+    from .spawn import pick_nation
+    records = list(getattr(m, "gen_positions", []) or [])
+    for rec in records:
+        kind = rec.get("kind")
+        side = rec.get("side") or s.control
+        if side not in SIDES or rec.get("destroyed"):
             continue
-        nat = rng.choice(nations)
-        it = military_item(game, nat, _w(rng, LITTER), rng)
-        if it is not None:
-            m.add_item(x, y, it)
-            placed += 1
-            # things come in twos and threes where a man fell or a position was
-            if rng.random() < 0.5:
-                x2, y2 = x + rng.randint(-1, 1), y + rng.randint(-1, 1)
-                if m.in_bounds(x2, y2) and m.walk[x2, y2] and (x2, y2) not in game.vehicle_at:
-                    it2 = military_item(game, nat, _w(rng, LITTER), rng)
-                    if it2 is not None:
-                        m.add_item(x2, y2, it2)
-                        placed += 1
-    # supply dumps behind the lines
-    for side in SIDES:
-        if s.control != side:
-            continue
-        depot = bool(s.installs(side, "depot"))
-        rear = st._front_distance(s, side) >= 2
-        if not (depot or (rear and rng.random() < 0.3) or rng.random() < 0.08):
-            continue
+        nat = pick_nation(game, side)
         sup = st.supply_of(side, s)
-        nat = nations[SIDES.index(side)] if len(nations) > SIDES.index(side) else nations[0]
-        for _ in range(1 + (2 if depot else 0)):
-            cx, cy = rng.randrange(8, m.w - 8), rng.randrange(8, m.h - 8)
-            k = int(rng.randint(8, 18) * (0.4 + sup))
-            for _ in range(k):
-                x, y = cx + rng.randint(-2, 2), cy + rng.randint(-2, 2)
-                if not (m.in_bounds(x, y) and m.walk[x, y]) or m.water[x, y] >= 1 or (x, y) in game.vehicle_at:
-                    continue
-                it = military_item(game, nat, _w(rng, DUMP), rng)
-                if it is not None:
-                    m.add_item(x, y, it)
-                    placed += 1
+        if kind == "depot":
+            placed += stock_site(game, rec, nat, "Armoury racks", ("gun", "mag", "ammo", "grenade"), int(45 + 55 * sup))
+            placed += stock_site(game, rec, nat, "Depot stores", tuple(x[0] for x in DUMP), int(30 + 35 * sup))
+        elif kind in ("hq", "airfield", "harbour", "motor_pool"):
+            table = ("gun", "mag", "ammo", "helmet", "container") if kind == "hq" else \
+                    ("ammo_crate", "ammo", "ration", "bandage", "spanner", "wirecutters")
+            placed += stock_site(game, rec, nat, "Reserve arms" if kind == "hq" else "Service stores", table, int(16 + 18 * sup))
+        elif kind in ("artillery", "aa", "bunker", "mg_nest", "trench", "foxhole"):
+            if rng.random() < (.95 if kind in ("artillery", "aa", "bunker") else .55):
+                abandoned = fought and rng.random() < .45
+                placed += stock_site(game, rec, nat, "Abandoned firing position" if abandoned else "Ready ammunition",
+                                     ("ammo", "mag", "ammo_crate", "bandage", "ration") + (("gun", "helmet") if abandoned else ()),
+                                     rng.randint(4, 10), worn=abandoned)
+    # Small reserve caches: tucked into actual shelters, behind firing positions or in barns.
+    shelters = [r for r in records if r.get("kind") in ("bunker", "trench", "foxhole")]
+    shelters += [dict(x=x + w // 2, y=y + h // 2, rect=(x, y, w, h))
+                 for x, y, w, h, style in getattr(m, "buildings", []) if style in ("barn", "shed", "farmhouse")]
+    rng.shuffle(shelters)
+    side = s.control
+    if side in SIDES:
+        nat = pick_nation(game, side)
+        for rec in shelters[:rng.randint(1, 3)]:
+            placed += stock_site(game, rec, nat, "Sheltered reserve cache", ("ammo", "mag", "ration", "bandage", "grenade"),
+                                 rng.randint(8, 15), worn=fought and rng.random() < .4)
+    # Remnants of a withdrawal collect by shell holes and wrecks, not arbitrary grass tiles.
+    if fought:
+        anchors = [(v.x, v.y) for v in game.vehicles if v.dead or v.abandoned]
+        scarred = [(int(x), int(y)) for x, y in zip(*((m.t == T.ID["crater"]) | (m.t == T.ID["crater_big"])).nonzero())]
+        anchors += rng.sample(scarred, min(5, len(scarred)))
+        for x, y in anchors[:8]:
+            rec = dict(x=x, y=y)
+            placed += stock_site(game, rec, rng.choice(nations), "Abandoned kit", tuple(x[0] for x in LITTER),
+                                 rng.randint(2, 5), worn=True)
+    return placed
+
+
+def stock_site(game, rec, nation, name, table, count, worn=False):
+    """One finite, coherent stash. Stores are stacked at a few accessible spots inside the site."""
+    m, rng = game.map, game.rng
+    x, y = rec["x"], rec["y"]
+    rect = rec.get("rect", (x - 3, y - 3, 7, 7))
+    cells = [xy for xy in _floor_cells(m, *rect) if xy not in game.vehicle_at]
+    if not cells:
+        return 0
+    # Prefer walls, crates, sandbags and other cover; keep the doorways/aisles clear.
+    cells.sort(key=lambda xy: (not any(m.in_bounds(xy[0] + dx, xy[1] + dy) and
+                    (not m.walk[xy[0] + dx, xy[1] + dy] or m.pos_cover[xy[0] + dx, xy[1] + dy] >= 30)
+                    for dx, dy in ((0, 1), (1, 0), (0, -1), (-1, 0))), abs(xy[0] - x) + abs(xy[1] - y)))
+    anchors = cells[:max(1, min(6, count // 12 + 1))]
+    # A rack holds one weapon pattern and matching ammunition, not an arbitrary calibre soup.
+    gun = military_item(game, nation, "gun", rng)
+    placed = 0
+    for i in range(count):
+        what = rng.choice(table)
+        if gun is not None and what in ("gun", "ammo", "mag"):
+            if what == "gun":
+                it = Item(gun.tid, full=False)
+            elif what == "mag" and gun.t.get("magtype"):
+                it = Item(gun.t.magtype)
+            else:
+                aid = f"ammo_{gun.t.cal}"
+                it = Item(aid, rng.randint(20, 50)) if aid in ITEMS else None
+        else:
+            it = military_item(game, nation, what, rng)
+        if it is None:
+            continue
+        if worn:
+            it.condition = rng.uniform(.35, .85)
+        xy = anchors[i % len(anchors)]
+        m.add_item(*xy, it)
+        placed += 1
+    if placed:
+        m.__dict__.setdefault("loot_sites", []).append(dict(name=name, points=anchors, side=rec.get("side"), count=placed))
+        if name in ("Armoury racks", "Reserve arms", "Sheltered reserve cache"):
+            key = "supply_cache" if name == "Sheltered reserve cache" else "arms_rack"
+            for x, y in anchors:
+                if T.COVER[m.t[x, y]] < 20 and not T.DOOR[m.t[x, y]]:
+                    m.set(x, y, key)
+            m.refresh()
     return placed

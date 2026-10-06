@@ -124,11 +124,14 @@ def rank_ok(player, t) -> tuple[bool, str]:
 def stock(game, side):
     """What the depot holds, and the price multiplier for how well it's supplied."""
     from .data.nations import equip_sources
+    from .sustain import stores, category
     nation = game.player_nation
     supply = sector_supply(game, side)
     srcs = equip_sources(nation, game.year)
     out = []
     for t in ITEMS.values():
+        if stores(game.sector, side)[category(t)] < 1:
+            continue
         if t.freq <= 0 and t.kind == "gun":
             continue
         if t.kind not in ("gun", "grenade", "medical", "tool", "mag", "clip", "ammo", "explosive", "melee", "armor",
@@ -137,7 +140,7 @@ def stock(game, side):
         if t.kind in ("tool",) and t.tool in ("orders", "letter", "photo", "rosary", "dogtags", "lucky_coin", "cards",
                                               "bible", "harmonica", "ammo_crate", "pack"):
             continue
-        if t.kind == "armor" and t.slot != "head" and t.id not in ("winter_coat", "snow_smock"):
+        if t.kind == "armor" and t.slot != "head" and t.id not in ("winter_coat", "snow_smock", "rain_cape"):
             continue
         nats = t.get("nations") or ()
         if nats and not any(s in nats for s in srcs):

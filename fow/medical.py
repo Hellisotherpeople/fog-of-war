@@ -158,6 +158,8 @@ def first_aid(game, medic, patient, item=None) -> int | None:
                 kit.uses -= 1
                 if kit.uses <= 0:
                     medic.remove_item(kit)
+            else:
+                A._consume(medic, medic.medical("bandage"))
             game.msg_for(medic, patient, f"clean{'s' if not medic.is_player else ''} and stitch{'es' if not medic.is_player else ''} "
                                          f"the wound in {who if patient.is_player or self_aid else patient.his} {PART_NAME[worst]}",
                          "good")
@@ -191,7 +193,8 @@ def aid_posts(game, side):
     m = game.map
     out = []
     for rec in getattr(m, "gen_positions", []) or []:
-        if rec.get("kind") == "aid" and rec.get("side") == side:
+        if not rec.get("destroyed") and (rec.get("kind") == "hospital" or
+                                         rec.get("kind") == "aid" and rec.get("side") == side):
             out.append((rec["x"], rec["y"], rec["rect"]))
     return out
 
@@ -239,6 +242,11 @@ def surgery_time(b) -> int:
 def begin_surgery(game, surgeon, patient) -> int | None:
     """Put the patient under.  The operation runs as a job on the surgeon."""
     if patient.ai.get("surgery") is not None:
+        return None
+    from .sustain import take
+    if not take(game.sector, surgeon.side, "medical", 4):
+        if patient.is_player or surgeon.is_player:
+            game.msg("The surgeon needs dressings, plasma and anaesthetic. The medical stores are exhausted.", "warn")
         return None
     t = surgery_time(patient.body)
     patient.ai["surgery"] = dict(by=surgeon.id, start=game.turn, end=game.turn + t)
@@ -310,8 +318,18 @@ def recover(game, a, turns):
         return
     if a.ai.get("surgery") is not None:
         return
+    if missing_hp(b) == 0 and b.blood >= BLOOD_MAX:
+        return
     amputated = set(a.ai.get("amputated", []))
-    care = 1.0 / 120 if a.ai.get("recovering") is not None else (1.0 / 300 if at_aid_post(game, a) else 1.0 / 3000)
+    from .sustain import take
+    attended = at_aid_post(game, a)
+    supplied = attended and take(game.sector, a.side, "medical", .02 * turns / 30)
+    resting = game.turn - a.moved_turn > 30 and a.suppression < 5
+    care = (1.0 / 120 if a.ai.get("recovering") is not None else 1.0 / 300) if supplied else \
+        1.0 / 2000 if resting else 1.0 / 6000
+    needs = a.ai.get("needs", {})
+    care *= max(.15, 1 - needs.get("infection", 0) / 110) * \
+        (.4 if max(needs.get("hunger", 0), needs.get("thirst", 0)) > 60 else 1)
     gain = turns * care
     for p in PARTS:
         if p in amputated or b.hp[p] <= 0:
@@ -321,7 +339,7 @@ def recover(game, a, turns):
             whole = int(frac)
             a.ai["_heal_" + p] = frac - whole
             b.hp[p] = min(b.max[p], b.hp[p] + whole)
-    if at_aid_post(game, a) and b.blood < BLOOD_MAX:
+    if supplied and b.blood < BLOOD_MAX:
         b.heal_blood(turns * 0.6)
     if a.ai.get("recovering") is not None and missing_hp(b) <= sum(b.max.values()) * 0.1:
         a.ai.pop("recovering", None)

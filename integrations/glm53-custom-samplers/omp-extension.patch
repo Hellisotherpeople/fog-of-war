@@ -1,0 +1,635 @@
+--- a/README.md
++++ b/README.md
+@@ -412,22 +412,42 @@
+ # Local vLLM adapter
+ 
+ Providers with `vllm` in their provider name (for example `glm53-vllm`) use the
+-native vLLM request format. The manual sampler profile applies `min_p`, `top_p`,
+-`top_k`, temperature, and penalties only when their stages are enabled.
+-Inactive stages are explicitly disabled, so saved knobs from another profile
+-cannot accidentally activate a filter. vLLM determines execution order; the
+-llama.cpp `samplers` array is never sent.
+-
+-Use `/samplers` or `/samplers show` to inspect the effective settings.
+-`/samplers min_p 0.1` changes min-p for the next request. When the override is
+-off, OMP's model and launcher defaults apply.
+-
+-Telemetry uses authenticated OpenAI-compatible streaming logprobs, capped at a
+-20-candidate preview. This preview does not enable top-k sampling. Native
+-llama.cpp endpoints (`/props`, `/slots`, token detection and `/completion`
+-probes) are not queried. Full survivor counts and full-distribution entropy are
+-unavailable; previews must not be interpreted as those measurements.
+-
+-Automatic routing, custom llama.cpp samplers, and this extension's token-bias
+-and think-cap tools remain specific to llama.cpp. They are not applied to vLLM.
+-Restart OMP after updating the extension to load the adapter.
++ordered sampler plugin in the companion GLM53 integration package. Install and
++validate that server plugin before installing this adapter: ordinary vLLM does
++not implement these custom arguments.
++
++Supported stages: **XTC, DRY, top-n-sigma, P-less, min_k**, temperature, min_p,
++top_p, top_k, and repeat/frequency/presence penalties. Only enabled stages run,
++in the selected order. The request uses a versioned JSON string in
++`vllm_xargs.omp_sampler_config`; native vLLM sampling settings remain neutral.
++The llama.cpp `samplers` array is not sent.
++
++Use `/samplers` to add, remove, reorder or tune stages, and `/samplers show` to
++inspect settings. Direct examples:
++
++```text
++/samplers chain dry top_n_sigma xtc temperature
++/temp 10
++/temp inf
++```
++
++Temperature supports every nonnegative finite JavaScript number and exact
++positive infinity. Infinity makes the currently surviving candidates uniform
++without reviving excluded tokens. It is persisted as a boolean marker and sent
++as the JSON string `"inf"`; returning to a finite value clears that marker.
++`/temp` adds the temperature stage if absent. Put temperature last for a uniform
++final distribution. Dynamic temperature is not part of this port.
++
++The sampler proxy also applies the active profile to compaction, which bypasses
++OMP's normal request hook. Keep the proxy enabled for this behavior. When the
++override is off, OMP's model and launcher defaults apply. Saved user choices are
++not replaced during installation.
++
++Telemetry records the actual custom chain and knobs and uses authenticated
++OpenAI-compatible streaming logprobs, capped at a 20-candidate preview. This
++preview does not enable top-k sampling. The logprobs are raw model probabilities,
++not measured post-chain survivor counts. Native llama.cpp endpoints (`/props`,
++`/slots`, token detection and `/completion` probes) are not queried.
++
++Automatic routing, token-bias tools, think-cap and other unported llama.cpp
++samplers remain unavailable on vLLM. Restart OMP after installing the adapter.
+--- a/index.ts
++++ b/index.ts
+@@ -32,7 +32,7 @@
+ import fs from "node:fs";
+ import os from "node:os";
+ import path from "node:path";
+-import { applyVllmSamplerRoute, isVllmModel, VLLM_SAMPLERS } from "./vllm";
++import { applyVllmSamplerRoute, isVllmModel, VLLM_SAMPLERS, VLLM_KNOBS, parseVllmTemperature } from "./vllm";
+ import type {
+ 	ExtensionAPI,
+ 	ExtensionCommandContext,
+@@ -163,7 +163,7 @@
+ 				def: -1,
+ 				presets: [-1, 0, 64, 256],
+ 				min: -1,
+-				max: 262144,
++				max: 1048576,
+ 			},
+ 		],
+ 	},
+@@ -188,7 +188,7 @@
+ 				def: 64,
+ 				presets: [0, 64, 128, 256],
+ 				min: -1,
+-				max: 262144,
++				max: 1048576,
+ 			},
+ 			{
+ 				key: "frequency_penalty",
+@@ -868,6 +868,9 @@
+ 	let lastProbe: ProbeResult | undefined;
+ 
+ 	const scope = new SamplerScope({
++		vllmTransformRequest: (body) => {
++			if (profile.enabled) applyVllmSamplerRoute(body, manualRoute());
++		},
+ 		logger: {
+ 			debug: (message, data) => pi.logger.debug(message, data),
+ 			warn: (message, data) => pi.logger.warn(message, data),
+@@ -883,7 +886,7 @@
+ 	statusDecorator = (base) => {
+ 		if (isVllmModel(uiCtx?.model)) {
+ 			base = profile.enabled
+-				? `samplers: vLLM · ${summarizeChain(profile.chain, profile.params)}${isAutoMode() ? " · manual profile" : ""}`
++				? `samplers: vLLM · ${summarizeChain(profile.chain, profile.params)}${profile.chain.includes("temperature") && profile.params.temperature_infinite ? " · temp=inf" : ""}${isAutoMode() ? " · manual profile" : ""}`
+ 				: "samplers: OFF (model defaults)";
+ 		}
+ 		if (!profile.enabled) return base;
+@@ -1774,7 +1777,7 @@
+ 		ctx: ExtensionCommandContext,
+ 		knob: Knob,
+ 	): Promise<void> {
+-		const cur = profile.params[knob.key] ?? knob.def;
++		const cur = isVllmModel(ctx.model) && knob.key === "temperature" && profile.params.temperature_infinite === true ? Infinity : profile.params[knob.key] ?? knob.def;
+ 		if (knob.kind === "bool") {
+ 			const pick = await ctx.ui.select(`${knob.label} (current: ${fmt(cur)})`, [
+ 				"true",
+@@ -1796,15 +1799,19 @@
+ 			if (pick === CUSTOM) {
+ 				const raw = await ctx.ui.input(`Enter ${knob.label}`, String(cur));
+ 				if (raw === undefined || raw.trim() === "") return;
+-				val = Number(raw);
+-				if (!Number.isFinite(val)) {
++				try { val = isVllmModel(ctx.model) && knob.key === "temperature" ? parseVllmTemperature(raw) : Number(raw); }
++				catch (error) { ctx.ui.notify(String(error), "error"); return; }
++				if (!Number.isFinite(val) && !(isVllmModel(ctx.model) && knob.key === "temperature" && val === Infinity)) {
+ 					ctx.ui.notify(`Not a number: ${raw}`, "error");
+ 					return;
+ 				}
+ 			} else {
+ 				val = Number(pick.replace(/\s*\(current\)\s*$/, ""));
+ 			}
+-			profile.params[knob.key] = knob.kind === "int" ? Math.round(val) : val;
++			if (knob.key === "temperature") {
++				profile.params.temperature_infinite = val === Infinity;
++				profile.params.temperature = val === Infinity ? 1 : val;
++			} else profile.params[knob.key] = knob.kind === "int" ? Math.round(val) : val;
+ 		}
+ 		activateManualMode();
+ 		save();
+@@ -1823,8 +1830,8 @@
+ 		}
+ 		for (;;) {
+ 			const DONE = "‹ done›";
+-			const opts = def.knobs.map((k) => ({
+-				label: `${k.label}: ${fmt(profile.params[k.key] ?? k.def)}`,
++			const opts = def.knobs.filter((k) => !isVllmModel(ctx.model) || VLLM_KNOBS[id]?.includes(k.key)).map((k) => ({
++				label: `${k.label}: ${isVllmModel(ctx.model) && k.key === "temperature" && profile.params.temperature_infinite ? "inf" : fmt(profile.params[k.key] ?? k.def)}`,
+ 				description: `default ${fmt(k.def)}`,
+ 			}));
+ 			const pick = await ctx.ui.select(`Tune ${id} — pick a parameter`, [
+@@ -1922,9 +1929,9 @@
+ 		}
+ 		return [
+ 			`vLLM manual samplers: ${profile.enabled ? profile.chain.join(", ") || "none" : "OFF (model defaults)"}`,
+-			...Object.entries(body).map(([key, value]) => `${key}=${value}`),
+-			"vLLM controls the execution order. Inactive samplers use neutral values.",
+-			"Auto routing, custom llama.cpp samplers, token-bias tools and think-cap are unavailable on this backend.",
++			...Object.entries(body).map(([key, value]) => `${key}=${typeof value === "object" ? JSON.stringify(value) : value}`),
++			"Samplers execute in the selected order. Inactive stages are disabled. Temperature supports inf.",
++			"Auto routing, token-bias tools and think-cap remain unavailable on this backend.",
+ 			...scopeSummary(),
+ 		].join("\n");
+ 	}
+@@ -1933,6 +1940,18 @@
+ 		const arg = args.trim().toLowerCase();
+ 		if (arg === "auto" || arg.startsWith("rationale")) {
+ 			ctx.ui.notify("vLLM uses the manual sampler profile; automatic llama.cpp routing is unavailable.", "info");
++			return;
++		}
++		if (arg.startsWith("chain ")) {
++			const chain = arg.slice(6).split(/[;,\s]+/).filter(Boolean);
++			if (chain.length > 32 || chain.some((id) => !VLLM_SAMPLERS.has(id))) {
++				ctx.ui.notify(`Supported samplers: ${[...VLLM_SAMPLERS].join(", ")}`, "error");
++				return;
++			}
++			profile.chain = chain;
++			profile.enabled = true;
++			activateManualMode(); save(); refreshStatus(ctx);
++			ctx.ui.notify(vllmSummary(), "info");
+ 			return;
+ 		}
+ 		if (arg.startsWith("min_p ")) {
+@@ -2173,7 +2192,7 @@
+ 				);
+ 				if (preset) {
+ 					if (isVllmModel(ctx.model) && preset.chain.some((id) => !VLLM_SAMPLERS.has(id))) {
+-						ctx.ui.notify("This preset requires custom llama.cpp samplers. Use /samplers to choose native vLLM samplers.", "warning");
++						ctx.ui.notify("This preset contains samplers not included in the vLLM port. Use /samplers to choose supported stages.", "warning");
+ 						return;
+ 					}
+ 					profile.chain = [...preset.chain];
+@@ -2204,12 +2223,16 @@
+ 		handler: async (args: string, ctx: ExtensionCommandContext) => {
+ 			const arg = args.trim();
+ 			if (arg) {
+-				const v = Number(arg);
+-				if (!Number.isFinite(v)) {
++				let v: number;
++				try { v = isVllmModel(ctx.model) ? parseVllmTemperature(arg) : Number(arg); }
++				catch (error) { ctx.ui.notify(String(error), "error"); return; }
++				if (!Number.isFinite(v) && !(isVllmModel(ctx.model) && v === Infinity)) {
+ 					ctx.ui.notify(`Not a number: ${arg}`, "error");
+ 					return;
+ 				}
+-				profile.params.temperature = v;
++				profile.params.temperature = v === Infinity ? 1 : v;
++				profile.params.temperature_infinite = v === Infinity;
++				if (isVllmModel(ctx.model) && !profile.chain.includes("temperature")) profile.chain.push("temperature");
+ 				profile.enabled = true;
+ 				activateManualMode();
+ 				save();
+--- a/scope/proxy.ts
++++ b/scope/proxy.ts
+@@ -5,12 +5,13 @@
+  * anything it does not model — including `logprobs`. The extension therefore
+  * cannot read per-token probabilities from any event it receives. Sitting a
+  * loopback proxy between omp and llama-server solves that without touching
+- * omp's parsing: bytes are forwarded verbatim in both directions and a copy of
++ * omp's parsing: response bytes are forwarded verbatim and a copy of
+  * the response stream is fed to the telemetry parser.
+  *
+- * The proxy is deliberately dumb. It never rewrites a request or a response, it
+- * never fails a request because recording failed, and every hook call is
+- * wrapped so a telemetry bug cannot break the agent.
++ * An optional vLLM transform applies the sampler profile to compaction requests.
++ * Transform errors reject the request; telemetry hooks are isolated so recording
++ * failures never change the model response. Without a transform, request bytes
++ * pass through unchanged.
+  */
+ 
+ import http from "node:http";
+@@ -112,7 +113,9 @@
+ export async function startRecordingProxy(options: {
+ 	upstream: string;
+ 	hooks?: ProxyHooks;
+-	/** Bodies larger than this are forwarded but not parsed for telemetry. */
++	/** Optional sampler transform; unlike telemetry hooks, errors reject the request. */
++	transformRequest?: (body: Record<string, unknown>) => void;
++	/** Maximum buffered request size. Oversize requests receive HTTP 413. */
+ 	maxBodyBytes?: number;
+ }): Promise<RecordingProxy> {
+ 	const upstream = new URL(options.upstream);
+@@ -148,7 +151,12 @@
+ 		});
+ 
+ 		req.on("end", () => {
+-			const body = Buffer.concat(chunks);
++			if (bodyBytes > maxBodyBytes) {
++				res.writeHead(413, { "content-type": "application/json" });
++				res.end(JSON.stringify({ error: "Request exceeds sampler proxy buffer limit" }));
++				return;
++			}
++			let body = Buffer.concat(chunks);
+ 			let parsedBody: Record<string, unknown> | undefined;
+ 			if (body.length > 0 && body.length <= maxBodyBytes) {
+ 				try {
+@@ -162,6 +170,18 @@
+ 					}
+ 				} catch {
+ 					/* not JSON — forwarded untouched, just not recorded */
++				}
++			}
++			if (parsedBody && req.method === "POST" && /\/(chat\/)?completions(?:\?|$)/.test(req.url ?? "")) {
++				try {
++					if (options.transformRequest) {
++						options.transformRequest(parsedBody);
++						body = Buffer.from(JSON.stringify(parsedBody));
++					}
++				} catch (error) {
++					res.writeHead(400, { "content-type": "application/json" });
++					res.end(JSON.stringify({ error: error instanceof Error ? error.message : String(error) }));
++					return;
+ 				}
+ 			}
+ 			safe(() =>
+--- a/scope/runtime.ts
++++ b/scope/runtime.ts
+@@ -16,7 +16,7 @@
+ 
+ import fs from "node:fs";
+ import path from "node:path";
+-import { vllmSamplerChain } from "../vllm";
++import { vllmSamplerChain, vllmSamplerConfig } from "../vllm";
+ import {
+ 	GenerationBuilder,
+ 	type GenerationRecord,
+@@ -80,6 +80,8 @@
+ }
+ 
+ export interface ScopeOptions {
++	/** Apply the active profile to vLLM requests which bypass OMP's request hook (compaction). */
++	vllmTransformRequest?: (body: Record<string, unknown>) => void;
+ 	logger: ScopeLogger;
+ 	/** Knob keys worth recording from a request body. */
+ 	knobKeys: readonly string[];
+@@ -243,6 +245,9 @@
+ 			throw new Error("no upstream llama.cpp server is known yet");
+ 		this.#proxy = await startRecordingProxy({
+ 			upstream: this.#upstream,
++			transformRequest: (body) => {
++				if (this.#backend === "vllm") this.#options.vllmTransformRequest?.(body);
++			},
+ 			hooks: {
+ 				onRequest: (info) => this.#onProxyRequest(info),
+ 				onPayload: (id, payload) => this.#onProxyPayload(id, payload),
+@@ -299,6 +304,14 @@
+ 			const value = body[key];
+ 			if (typeof value === "number" || typeof value === "boolean")
+ 				params[key] = value;
++		}
++		const custom = this.#backend === "vllm" ? vllmSamplerConfig(body) : undefined;
++		if (custom) {
++			for (const key of Object.keys(params)) delete params[key];
++			for (const [key, value] of Object.entries(custom.params)) {
++				if (typeof value === "number" || typeof value === "boolean") params[key] = value;
++				else if (key === "temperature" && value === "inf") params.temperature_infinite = true;
++			}
+ 		}
+ 		const tools = Array.isArray(body.tools) ? body.tools : [];
+ 		const isRouter = tools.some((tool) => {
+--- /dev/null
++++ b/vllm-commands.test.ts
+@@ -0,0 +1,65 @@
++import { expect, test } from "bun:test";
++import fs from "node:fs";
++import os from "node:os";
++import path from "node:path";
++import { vllmSamplerConfig } from "./vllm";
++
++test("real extension command handlers preserve infinity and ordered custom controls without network", async () => {
++ const dir = fs.mkdtempSync(path.join(os.tmpdir(), "omp-vllm-command-"));
++ fs.writeFileSync(path.join(dir, "sampler-profile.json"), JSON.stringify({
++  enabled: true, mode: "manual", chain: ["min_p"], params: {min_p: 0.1},
++  scope: {proxy: false, capture: false, slots: false, jsonl: false},
++ }));
++ const model = {provider: "glm53-vllm", id: "glm53", baseUrl: "http://127.0.0.1:8800/v1"};
++ const listeners = new Map<string, ((e: any, c: any) => any)[]>();
++ const commands = new Map<string, (a: string, c: any) => any>();
++ const notifications: string[] = [];
++ const ctx = {model, models: {current: () => model, resolve: () => model}, hasUI: false,
++  ui: {notify: (s: string) => notifications.push(s), setStatus() {}, setWidget() {}}};
++ const pi = {logger: {debug() {}, warn() {}},
++  on(name: string, fn: (e: any, c: any) => any) {listeners.set(name, [...listeners.get(name) ?? [], fn]);},
++  registerCommand(name: string, options: any) {commands.set(name, options.handler);},
++  registerTool() {}, getActiveTools: () => [], async setActiveTools() {},
++  registerProvider() {throw new Error("Offline command test must not create a proxy");},
++  async setModel() {return true;},
++  typebox: {Type: new Proxy({}, {get: () => (...args: unknown[]) => ({args})})},
++ };
++ const before = process.env.PI_CODING_AGENT_DIR;
++ process.env.PI_CODING_AGENT_DIR = dir;
++ try {
++  const entry = "./index.ts?offline-vllm-commands";
++  (await import(entry)).default(pi);
++ } finally {
++  if (before === undefined) delete process.env.PI_CODING_AGENT_DIR;
++  else process.env.PI_CODING_AGENT_DIR = before;
++ }
++ const emit = async (event: string, data = {}) => {
++  for (const fn of listeners.get(event) ?? []) await fn(data, ctx);
++ };
++ try {
++  await emit("session_start");
++  await commands.get("samplers")!("chain dry top_n_sigma xtc p_less min_k temperature", ctx);
++  await commands.get("temp")!("inf", ctx);
++  const body: Record<string, unknown> = {model: "glm53", messages: []};
++  await emit("before_provider_request", {payload: body});
++  expect(vllmSamplerConfig(body)?.chain).toEqual(["dry", "top_n_sigma", "xtc", "p_less", "min_k", "temperature"]);
++  expect(vllmSamplerConfig(body)?.params.temperature).toBe("inf");
++  expect(body.temperature).toBe(1);
++  expect(body.max_tokens).toBeUndefined();
++  const saved = JSON.parse(fs.readFileSync(path.join(dir, "sampler-profile.json"), "utf8"));
++  expect(saved.params.temperature_infinite).toBe(true);
++  expect(saved.params.temperature).toBe(1);
++  await commands.get("temp")!("-1", ctx);
++  expect(notifications.at(-1)).toContain("nonnegative");
++  for (const temp of [10, 1e6, 1e300]) {
++   await commands.get("temp")!(String(temp), ctx);
++   await emit("before_provider_request", {payload: body});
++   expect(vllmSamplerConfig(body)?.params.temperature).toBe(temp);
++  }
++  await commands.get("samplers")!("show", ctx);
++  expect(notifications.at(-1)).toContain("selected order");
++ } finally {
++  await emit("session_shutdown");
++  fs.rmSync(dir, {recursive: true, force: true});
++ }
++});
+--- a/vllm-extension.test.ts
++++ b/vllm-extension.test.ts
+@@ -1,4 +1,5 @@
+ import { expect, test } from "bun:test";
++import { vllmSamplerConfig } from "./vllm";
+ import fs from "node:fs";
+ import os from "node:os";
+ import path from "node:path";
+@@ -12,11 +13,13 @@
+ 		thinkCap: 512,
+ 	}));
+ 	const requests: string[] = [];
+-	const server = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch(req) {
++	const bodies: Record<string, unknown>[] = [];
++	const server = Bun.serve({ port: 0, hostname: "127.0.0.1", async fetch(req) {
+ 		const url = new URL(req.url);
+ 		requests.push(url.pathname);
+ 		if (req.headers.get("authorization") !== "Bearer test-credential") return new Response("Unauthorized", { status: 401 });
+ 		if (url.pathname !== "/v1/chat/completions") return new Response("Not found", { status: 404 });
++		bodies.push(await req.json() as Record<string, unknown>);
+ 		const data = { choices: [{ delta: { content: "OK" }, logprobs: { content: [{ token: "OK", logprob: -0.2, top_logprobs: [{ token: "OK", logprob: -0.2 }] }] } }] };
+ 		return new Response(`data: ${JSON.stringify(data)}\n\ndata: [DONE]\n\n`, { headers: { "Content-Type": "text/event-stream" } });
+ 	} });
+@@ -52,7 +55,8 @@
+ 		await emit("before_agent_start");
+ 		const body: Record<string, unknown> = { model: "glm53", messages: [], min_p: 0.05 };
+ 		await emit("before_provider_request", { payload: body });
+-		expect(body.min_p).toBe(0.1);
++		expect(vllmSamplerConfig(body)?.params.min_p).toBe(0.1);
++		expect(body.min_p).toBe(0);
+ 		expect(body.top_p).toBe(1);
+ 		expect(body.top_k).toBe(-1);
+ 		expect(body.temperature).toBe(1);
+@@ -66,9 +70,9 @@
+ 		await response.text();
+ 		await commands.get("samplers")!("min_p 0.23", ctx);
+ 		await emit("before_provider_request", { payload: body });
+-		expect(body.min_p).toBe(0.23);
++		expect(vllmSamplerConfig(body)?.params.min_p).toBe(0.23);
+ 		await commands.get("samplers")!("show", ctx);
+-		expect(notifications.join("\n")).toContain("min_p=0.23");
++		expect(notifications.join("\n")).toContain('\\"min_p\\":0.23');
+ 		await commands.get("sampler-scope")!("slots on", ctx);
+ 		expect(notifications.at(-1)).toContain("unavailable");
+ 		await commands.get("sampler-scope")!("show", { ...ctx, hasUI: true,
+@@ -76,13 +80,31 @@
+ 		expect(notifications.at(-1)).toContain("vLLM logprobs");
+ 		await commands.get("think-cap")!("128", ctx);
+ 		expect(notifications.at(-1)).toContain("not sent to vLLM");
++		await commands.get("samplers")!("chain dry top_n_sigma xtc p_less min_k temperature", ctx);
++		await commands.get("temp")!("inf", ctx);
++		const stored = JSON.parse(fs.readFileSync(path.join(dir, "sampler-profile.json"), "utf8"));
++		expect(stored.params.temperature_infinite).toBe(true);
++		expect(stored.params.temperature).toBe(1);
++		// Compaction bypasses before_provider_request. The proxy must apply the live profile.
++		const compaction = await fetch(`${model.baseUrl}/chat/completions`, {
++			method: "POST", headers: { Authorization: "Bearer test-credential", "Content-Type": "application/json" },
++			body: JSON.stringify({ model: "glm53", messages: [], min_p: 0.05 }),
++		});
++		expect(compaction.status).toBe(200); await compaction.text();
++		expect(vllmSamplerConfig(bodies.at(-1)!)?.params.temperature).toBe("inf");
++		expect(vllmSamplerConfig(bodies.at(-1)!)?.chain).toEqual(["dry", "top_n_sigma", "xtc", "p_less", "min_k", "temperature"]);
++		expect(bodies.at(-1)!.max_tokens).toBeUndefined();
++		await commands.get("temp")!("10", ctx);
++		const finite: Record<string, unknown> = {};
++		await emit("before_provider_request", {payload: finite});
++		expect(vllmSamplerConfig(finite)?.params.temperature).toBe(10);
+ 		await commands.get("samplers-off")!("", ctx);
+ 		const defaults: Record<string, unknown> = { min_p: 0.05 };
+ 		await emit("before_provider_request", { payload: defaults });
+ 		expect(defaults.min_p).toBe(0.05);
+-		expect(requests).toEqual(["/v1/chat/completions"]);
++		expect(requests).toEqual(["/v1/chat/completions", "/v1/chat/completions"]);
+ 		const logs = fs.readdirSync(path.join(dir, "sampler-scope")).filter((name) => name.endsWith(".jsonl"));
+-		const record = JSON.parse(fs.readFileSync(path.join(dir, "sampler-scope", logs[0]), "utf8").trim());
++		const record = JSON.parse(fs.readFileSync(path.join(dir, "sampler-scope", logs[0]), "utf8").trim().split("\n")[0]);
+ 		expect(record.chain).toEqual(["min_p"]);
+ 		expect(record.nProbs).toBe(20);
+ 		expect(record.mode).toBe("raw");
+--- a/vllm.test.ts
++++ b/vllm.test.ts
+@@ -1,5 +1,5 @@
+ import { describe, expect, test } from "bun:test";
+-import { applyVllmSamplerRoute, isVllmModel } from "./vllm";
++import { applyVllmSamplerRoute, isVllmModel, vllmSamplerConfig, parseVllmTemperature } from "./vllm";
+ 
+ describe("vLLM sampler translation", () => {
+ 	test("a min-p-only profile ignores every inactive saved knob", () => {
+@@ -8,19 +8,23 @@
+ 			min_p: 0.1, top_p: 0.95, top_k: 20, temperature: 1e6,
+ 			repeat_penalty: 1.2, dry_multiplier: 0.8, top_n_sigma: 1,
+ 		}, reason: "test" });
+-		expect(body).toEqual({ messages: [], min_p: 0.1, top_p: 1, top_k: -1,
+-			temperature: 1, repetition_penalty: 1, presence_penalty: 0, frequency_penalty: 0 });
++		expect(body.temperature).toBe(1);
++		expect(body.min_p).toBe(0);
++		expect(body.top_p).toBe(1);
++		expect(body.top_k).toBe(-1);
++		expect(vllmSamplerConfig(body)).toEqual({version: 1, chain: ["min_p"], params: { min_p: 0.1 }});
+ 	});
+ 
+ 	test("only selected native stages translate, including the penalty spelling", () => {
+ 		const body: Record<string, unknown> = {};
+ 		applyVllmSamplerRoute(body, { chain: ["penalties", "temperature", "top_k"],
+ 			params: { repeat_penalty: 1.2, temperature: 0.7, top_k: 0, min_p: 0.5 }, reason: "test" });
+-		expect(body.repetition_penalty).toBe(1.2);
+-		expect(body.temperature).toBe(0.7);
++		expect(body.repetition_penalty).toBe(1);
++		expect(body.temperature).toBe(1);
+ 		expect(body.top_k).toBe(-1);
+ 		expect(body.min_p).toBe(0);
+-		expect(body.repeat_penalty).toBeUndefined();
++		expect(vllmSamplerConfig(body)?.params).toEqual({ repeat_penalty: 1.2, temperature: 0.7, top_k: 0 });
++		expect(vllmSamplerConfig(body)?.chain).toEqual(["penalties", "temperature", "top_k"]);
+ 	});
+ 
+ 	test("unsupported custom samplers fail explicitly", () => {
+@@ -32,3 +36,23 @@
+ 		expect(isVllmModel({ provider: "llama.cpp" })).toBe(false);
+ 	});
+ });
++
++
++test("custom sampler chain and exact infinity survive JSON serialization", () => {
++ const body: Record<string, unknown> = { vllm_xargs: { unrelated: 7 }, max_tokens: 17 };
++ const chain = ["dry", "top_n_sigma", "min_k", "p_less", "xtc", "temperature"];
++ applyVllmSamplerRoute(body, {chain, reason: "test", params: {
++  dry_multiplier: 0.8, top_n_sigma: 1, min_k_tau: 3, p_less_exponent: 3,
++  p_less_norm: true, xtc_probability: 0.5, temperature: 1, temperature_infinite: true,
++  top_p: 0.9, top_k: 20, min_p: 0.1,
++ }});
++ const roundtrip = JSON.parse(JSON.stringify(body));
++ expect(vllmSamplerConfig(roundtrip)?.params.temperature).toBe("inf");
++ expect(vllmSamplerConfig(roundtrip)?.chain).toEqual(chain);
++ expect(vllmSamplerConfig(roundtrip)?.params.top_p).toBeUndefined();
++ expect(roundtrip.vllm_xargs.unrelated).toBe(7);
++ expect(roundtrip.max_tokens).toBe(17);
++ for (const raw of ["inf", "Infinity", "∞", "+inf"]) expect(parseVllmTemperature(raw)).toBe(Infinity);
++ for (const n of [2, 10, 1e6, 1e300]) expect(parseVllmTemperature(String(n))).toBe(n);
++ for (const raw of ["NaN", "-1", "1e999", ""]) expect(() => parseVllmTemperature(raw)).toThrow();
++});
+--- a/vllm.ts
++++ b/vllm.ts
+@@ -1,43 +1,74 @@
+ import type { SamplerRoute } from "./router";
+ 
+-/** Explicit provider naming survives OMP's proxy base-URL rewrites. */
+ export function isVllmModel(model: { provider?: string } | undefined): boolean {
+ 	return model?.provider?.toLowerCase().includes("vllm") ?? false;
+ }
+ 
+-export const VLLM_SAMPLERS = new Set(["min_p", "top_p", "top_k", "temperature", "penalties"]);
++export const VLLM_KNOBS: Record<string, readonly string[]> = {
++	dry: ["dry_multiplier", "dry_base", "dry_allowed_length", "dry_penalty_last_n"],
++	xtc: ["xtc_probability", "xtc_threshold"],
++	top_n_sigma: ["top_n_sigma"],
++	p_less: ["p_less_exponent", "p_less_norm"],
++	min_k: ["min_k_tau"],
++	min_p: ["min_p"], top_p: ["top_p"], top_k: ["top_k"],
++	temperature: ["temperature"],
++	penalties: ["repeat_penalty", "repeat_last_n", "presence_penalty", "frequency_penalty"],
++};
++export const VLLM_SAMPLERS = new Set(Object.keys(VLLM_KNOBS));
++export const VLLM_CONFIG_KEY = "omp_sampler_config";
+ 
+-/** vLLM has a fixed pipeline; saved knobs for inactive stages must never leak. */
+-export function applyVllmSamplerRoute(
+-	body: Record<string, unknown>,
+-	route: SamplerRoute,
+-): void {
++export function parseVllmTemperature(raw: string): number {
++	if (/^(?:\+?inf(?:inity)?|∞)$/i.test(raw.trim())) return Infinity;
++	const n = Number(raw);
++	if (!raw.trim() || !Number.isFinite(n) || n < 0) throw new Error("Temperature must be nonnegative or inf");
++	return n;
++}
++
++/** All stages run in the selected order. Native vLLM sampling remains neutral. */
++export function applyVllmSamplerRoute(body: Record<string, unknown>, route: SamplerRoute): void {
+ 	const unsupported = route.chain.filter((id) => !VLLM_SAMPLERS.has(id));
+-	if (unsupported.length) {
+-		throw new Error(`Unsupported vLLM samplers: ${unsupported.join(", ")}. Choose native samplers in /samplers.`);
++	if (unsupported.length) throw new Error(`Unsupported vLLM samplers: ${unsupported.join(", ")}`);
++	if (route.chain.length > 32) throw new Error("At most 32 sampler stages are supported");
++	if (route.chain.includes("temperature") && Number(route.params.dynatemp_range ?? 0) !== 0) {
++		throw new Error("Dynamic temperature is not ported; set dynatemp_range to 0");
+ 	}
+-	const active = new Set(route.chain);
+-	const number = (key: string, fallback: number): number => {
+-		const value = route.params[key];
+-		return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+-	};
+-	const topK = active.has("top_k") ? number("top_k", -1) : -1;
++	const params: Record<string, number | boolean | string> = {};
++	for (const stage of route.chain) {
++		for (const key of VLLM_KNOBS[stage]) {
++			const value = route.params[key];
++			if (value === undefined) continue;
++			if (key === "temperature" && route.params.temperature_infinite === true) params[key] = "inf";
++			else if (key === "p_less_norm" && typeof value === "boolean") params[key] = value;
++			else if (typeof value === "number" && Number.isFinite(value)) params[key] = value;
++			else throw new Error(`Invalid vLLM sampler parameter ${key}`);
++		}
++	}
++	if (route.chain.includes("temperature") && route.params.temperature_infinite === true) params.temperature = "inf";
++	const extra = body.vllm_xargs;
++	const xargs = extra && typeof extra === "object" && !Array.isArray(extra) ? { ...extra } : {};
+ 	Object.assign(body, {
+-		temperature: active.has("temperature") ? number("temperature", 1) : 1,
+-		min_p: active.has("min_p") ? number("min_p", 0.05) : 0,
+-		top_p: active.has("top_p") ? number("top_p", 1) : 1,
+-		top_k: topK <= 0 ? -1 : topK,
+-		repetition_penalty: active.has("penalties") ? number("repeat_penalty", 1) : 1,
+-		presence_penalty: active.has("penalties") ? number("presence_penalty", 0) : 0,
+-		frequency_penalty: active.has("penalties") ? number("frequency_penalty", 0) : 0,
++		temperature: 1, min_p: 0, top_p: 1, top_k: -1,
++		repetition_penalty: 1, presence_penalty: 0, frequency_penalty: 0,
++		vllm_xargs: { ...xargs, [VLLM_CONFIG_KEY]: JSON.stringify({ version: 1, chain: route.chain, params }) },
+ 	});
+ 	delete body.samplers;
+ }
+ 
+-/** Describe actual native fields for telemetry; vLLM does not echo a chain. */
++export function vllmSamplerConfig(body: Record<string, unknown>): { version: 1; chain: string[]; params: Record<string, number | boolean | string> } | undefined {
++	const extra = body.vllm_xargs as Record<string, unknown> | undefined;
++	if (!extra || typeof extra[VLLM_CONFIG_KEY] !== "string") return undefined;
++	try {
++		const parsed = JSON.parse(extra[VLLM_CONFIG_KEY]);
++		if (parsed.version === 1 && Array.isArray(parsed.chain) && parsed.params && typeof parsed.params === "object") return parsed;
++	} catch { /* A bad request is rejected by the server, not misrepresented in telemetry. */ }
++	return undefined;
++}
++
+ export function vllmSamplerChain(body: Record<string, unknown>): string[] {
++	const custom = vllmSamplerConfig(body);
++	if (custom) return custom.chain;
+ 	const chain: string[] = [];
+-	if ((Number(body.repetition_penalty ?? 1) !== 1) || Number(body.presence_penalty ?? 0) !== 0 || Number(body.frequency_penalty ?? 0) !== 0) chain.push("penalties");
++	if (Number(body.repetition_penalty ?? 1) !== 1 || Number(body.presence_penalty ?? 0) !== 0 || Number(body.frequency_penalty ?? 0) !== 0) chain.push("penalties");
+ 	if (Number(body.temperature ?? 1) !== 1) chain.push("temperature");
+ 	if (Number(body.top_k ?? -1) > 0) chain.push("top_k");
+ 	if (Number(body.top_p ?? 1) < 1) chain.push("top_p");

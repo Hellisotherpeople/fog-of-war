@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import math
 import textwrap
+import time
 
 import tcod.event as E
 
@@ -41,10 +42,21 @@ class SkySeaState:
         self.note = ""
         self.auto = 0
         self.orders_menu = False
+        self._rt_last = time.monotonic()
+        self._rt_elapsed = 0.0
 
     @property
     def ss(self):
         return self.game.skysea
+
+    @property
+    def _rt_action_until(self):
+        return self.ss.__dict__.get("player_action_until", 0) if self.ss is not None else 0
+
+    @_rt_action_until.setter
+    def _rt_action_until(self, value):
+        if self.ss is not None:
+            self.ss.player_action_until = value
 
     # ------------------------------------------------------------ what you're looking from
     def _eye(self):
@@ -230,6 +242,13 @@ class SkySeaState:
                     con.print(x, y, s, fg=col, bg=UI_BG)
                     y += 1
         line(f"{p.rank_full} {p.name}", UI_HI)
+        if self.play.realtime_enabled():
+            pace = self.app.settings.get("realtime_pace", "deliberate")
+            speed = {"normal": "1x", "deliberate": "0.5x", "slow": "0.25x"}.get(pace, "0.5x")
+            left = max(0, self._rt_action_until - ss.t)
+            paused = bool(self.play.popups) or not getattr(self.app, "focused", True)
+            state = "PAUSED" if paused else f"busy {left:.0f}s" if left else "ready"
+            line(f"REAL TIME {speed} - {state} (F6)", (140, 205, 210))
         me = ss.player_plane
         ship = ss.player_ship
         if me is not None:
@@ -338,9 +357,39 @@ class SkySeaState:
 
     # ------------------------------------------------------------ input
     def wants_tick(self):
-        return self.auto > 0
+        return self.auto > 0 or self.play.realtime_enabled()
+
+    def reset_realtime_clock(self):
+        self._rt_last = time.monotonic()
+        self._rt_elapsed = 0.0
+
+    def _realtime_tick(self, now=None):
+        now = time.monotonic() if now is None else now
+        elapsed = max(0., now - self._rt_last)
+        self._rt_last = now
+        if not getattr(self.app, "focused", True) or self.play.popups or self.ss is None or \
+                (self.app.states and self.app.states[-1] is not self):
+            self._rt_elapsed = 0.0
+            return False
+        pace = self.app.settings.get("realtime_pace", "deliberate")
+        interval = {"normal": 1., "deliberate": 2., "slow": 4.}.get(pace, 2.)
+        if elapsed > max(5., interval * 2):
+            self._rt_elapsed = 0.
+            return False
+        self._rt_elapsed += elapsed
+        if self._rt_elapsed < interval:
+            return False
+        self._rt_elapsed %= interval
+        self._advance(seconds=1)
+        return True
 
     def tick(self):
+        if self.play.realtime_enabled() and not self.auto:
+            self._realtime_tick()
+            return
+        self.reset_realtime_clock()
+        if self.play.realtime_enabled() and not getattr(self.app, "focused", True):
+            return
         if self.auto > 0:
             before = (set(self.ss.contacts), self._hurt_level())
             self.auto -= 1
@@ -362,12 +411,22 @@ class SkySeaState:
             return ss.player_ship.hp
         return 0
 
-    def _advance(self):
+    def _advance(self, seconds=None):
         ss = self.ss
+        dt = seconds if seconds is not None else 1 if (ss.player_plane is not None or ss.chute is not None) else 10
         if getattr(self, "aboard", False):
             # at the chart table aboard: the ship's life goes on around you, second by second
             from .aboard import advance
-            advance(self.play, 1 if ss.player_plane is not None else 10)
+            if seconds is None:
+                advance(self.play, dt)
+            else:
+                # A clock tick is exactly one second, independent of the sailor's action-point balance.
+                for _ in range(int(dt)):
+                    self.game.world_turn()
+                    if ss.over or self.game.game_over:
+                        break
+                self.game.player_fov()
+                self.play.check_over()
             for n in ss.news[-2:]:
                 self.game.msg(n, "radio")
             ss.news = []
@@ -376,7 +435,7 @@ class SkySeaState:
                     self.app.pop()               # (not if the game-over screen has already replaced us)
                 self.play._skysea_pushed = False
             return
-        ss.step(1 if (ss.player_plane is not None or ss.chute is not None) else 10)
+        ss.step(dt)
         for n in ss.news[-2:]:
             self.game.msg(n, "radio")
         ss.news = []
@@ -405,6 +464,13 @@ class SkySeaState:
         ss = self.ss
         if ss is None:
             return self.app.pop()
+        if key.sym == E.KeySym.F6:
+            self.auto = 0
+            self.play.cmd_realtime()
+            self.reset_realtime_clock()
+            if not self.play.realtime_enabled() and self._rt_action_until > ss.t:
+                self._advance(seconds=int(math.ceil(self._rt_action_until - ss.t)))
+            return
         if getattr(self.play, "popups", None):
             return self.play.popup_key(key)
         self.note = ""
@@ -438,6 +504,13 @@ class SkySeaState:
         if c == "z":
             self.auto = 120 if ss.player_plane is not None else 90
             return
+        if self._rt_action_until > ss.t:
+            if self.play.realtime_enabled():
+                self.note = "Still carrying out the last action."
+                return
+            self._advance(seconds=int(math.ceil(self._rt_action_until - ss.t)))
+            if self.ss is not ss or ss.over:
+                return
         me = ss.player_plane
         ship = ss.player_ship
         acted = True
@@ -450,7 +523,10 @@ class SkySeaState:
         else:
             acted = False
         if acted:
-            self._advance()
+            if self.play.realtime_enabled():
+                self._rt_action_until = ss.t + (1 if me is not None or ss.chute is not None else 10)
+            else:
+                self._advance()
 
     def _air_key(self, key, me):
         ss = self.ss
@@ -665,9 +741,16 @@ class SkySeaState:
         from .render import Popup
         opts = [("All ships: follow me in line", "follow", None, True), ("All ships: engage my target", "engage", None, True),
                 ("Destroyers: attack with torpedoes", "torps", None, True), ("All ships: act independently", "free", None, True)]
+        opts += [(f"{s.name}: stop for replenishment alongside", s, None, True) for s in force if s.st.get("cargo")]
 
         def pick(v):
             if not v:
+                return
+            if isinstance(v, Ship):
+                v.ai["holding_for_replenishment"] = True
+                v.order_kn = 0.
+                self.note = f"{v.name} is stopping. Close within 300 metres at six knots or less; calm water required."
+                self.game.msg(self.note, "radio")
                 return
             tgt = ss.entity(-ship.target) if ship.target else None
             if v in ("engage", "torps") and tgt is None:
@@ -675,6 +758,7 @@ class SkySeaState:
                 return
             n = 0
             for i, s in enumerate(force):
+                s.ai.pop("holding_for_replenishment", None)
                 if v == "follow":
                     s.ai.update(role="line", leader=ship.id, offset=(0, 2 + 2 * i))
                     n += 1

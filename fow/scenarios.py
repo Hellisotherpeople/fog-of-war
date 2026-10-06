@@ -397,6 +397,9 @@ def setup_player(game, sid, notes):
         game.mission["sid"] = sid
         game.mission["start"] = game.turn
         game.mission["_start_sector"] = game.sector
+        authority = 13 if game.mission["kind"] == "agent" else \
+            12 if sid in ("rearguard", "defence", "assault", "armour") else 10
+        game.mission.setdefault("authority", min(18, max(authority, p.rank + 1)))
 
 
 def _set_night(game):
@@ -471,8 +474,12 @@ def _explosive_count(m, rec):
 def update(game):
     """Every few seconds: progress on the mission."""
     ms = game.__dict__.get("mission")
-    if not ms or ms.get("stage") in ("done", "failed"):
+    if not ms or ms.get("stage") in ("done", "failed", "cancelled"):
         return
+    from .orders import governing
+    current = governing(game)
+    if current is not None and current["key"] != "mission":
+        return                       # a newer, authorized order temporarily takes precedence
     p = game.player
     if p is None or not p.alive:
         return
@@ -619,9 +626,59 @@ def mission_line(game) -> str | None:
     ms = game.__dict__.get("mission")
     if not ms:
         return None
-    if ms.get("stage") == "done":
+    if ms.get("stage") in ("done", "failed", "cancelled"):
         return None
     return ms.get("text")
+
+
+def mission_point(game):
+    """A briefed destination for the current stage, never an unrelated squad objective.
+
+    Search missions point to the briefed area, never a hidden man's live position.
+    """
+    ms = game.__dict__.get("mission") or {}
+    if not mission_line(game) or game.map is None:
+        return None
+    p, m = game.player, game.map
+    from .orders import exit_point
+    kind, stage = ms.get("kind"), ms.get("stage")
+    going_home = stage in ("return", "exfil", "home", "withdraw", "away", "out") or kind in ("evader", "breakout")
+    if going_home:
+        edge = ms.get("home") or game.home_edge(p.side)
+        if edge:
+            x, y = exit_point(game, edge)
+            return x, y, "Return toward friendly lines"
+        return None
+    start = ms.get("_start_sector", game.sector)
+    if game.sector is not start:
+        from .base import _next_edge
+        edge = _next_edge(game, (start.x, start.y))
+        if edge:
+            x, y = exit_point(game, edge)
+            return x, y, "Return to the mission sector"
+        return None
+    if kind in ("take", "hold", "rearguard"):
+        objs = [o for o in m.objectives if kind != "take" or o.owner != p.side]
+        if not objs:
+            return None
+        # A leader may choose which of the briefed objectives to tackle; he cannot change the mission.
+        sq = p.squad
+        i = sq.order.obj if sq is not None else None
+        chosen = m.objectives[i] if i is not None and 0 <= i < len(m.objectives) else None
+        ob = chosen if chosen in objs else min(objs, key=lambda o: abs(o.x - p.x) + abs(o.y - p.y))
+        return ob.x, ob.y, f"{'Take' if kind == 'take' else 'Hold'} {ob.name}"
+    rec = ms.get("rec")
+    if rec and kind in ("raid", "agent") and stage in ("destroy", "steal", "plant"):
+        x, y, w, h = rec["rect"]
+        return x + w // 2, y + h // 2, "Briefed mission target"
+    if stage == "plant" and "tx" in ms:
+        return ms["tx"], ms["ty"], "Sabotage target"
+    if stage in ("dz", "collect") and ms.get("dz"):
+        return *ms["dz"][:2], "Collect the dropped stores" if stage == "collect" else "Drop zone"
+    if kind == "agent" and stage in ("find", "kill", "photo", "send"):
+        from .leads import point
+        return point(game, ms)
+    return None
 
 
 # ====================================================================== the air force and the navy
@@ -630,7 +687,7 @@ STATION = {"fighter_pilot": "pilot", "bomber_pilot": "pilot", "pilot": "pilot", 
            "air_gunner": "tail gunner", "sailor": "aa gun", "petty_officer": "main battery", "deck_officer": "bridge",
            "ship_captain": "bridge", "sub_commander": "bridge", "admiral": "bridge"}
 AIR_FOR_ROLE = {"fighter_pilot": ["sweep", "intercept", "escort", "recon", "attack"],
-                "bomber_pilot": ["strategic", "dive", "torpedo", "attack"], "bombardier": ["strategic"],
+                "bomber_pilot": ["strategic", "dive", "torpedo", "attack", "resupply"], "bombardier": ["strategic"],
                 "air_gunner": ["strategic", "dive", "torpedo"]}
 SEA_FOR_ROLE = {"sub_commander": ["sub"], "admiral": ["carrier", "surface"], "ship_captain": ["surface", "convoy",
                                                                                               "bombard", "carrier"],

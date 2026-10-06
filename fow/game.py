@@ -498,6 +498,9 @@ class Game:
     def enter_sector(self, sector, entry_edge=None, companions=()):
         rng = self.rng
         st = self.strategic
+        recall = self.__dict__.get("field_order")
+        if recall and recall.get("sector") != (sector.x, sector.y):
+            self.__dict__.pop("field_order", None)
         self.sector = sector
         sector.visited = True
         st.touch(sector.x, sector.y, 3)          # the world goes on: make the ground around here
@@ -550,6 +553,13 @@ class Game:
         self.update_view_range()
         from .spawn import populate
         populate(self, sector, att, att_edge)
+        from .homefront import populate as civilians_populate
+        civilians_populate(self)
+        for security in sector.__dict__.get("security", {}).values():
+            security["initialized"] = False
+            security["patrols"] = []
+        if self.__dict__.get("agent"):
+            self.agent.update(tx=None, hunt=None, df=0., df_pos=None)
         try:
             f = self.support.fires
             f.populate(self)
@@ -659,7 +669,7 @@ class Game:
                  f"{COMPASS_WORD.get(edge, edge)} - {n} men" + (f" and {nv} vehicles" if nv else "") +
                  f" - for the attack on {dst.name}.", "radio")
 
-    def _edge_exit_point(self, edge, near, radius=10):
+    def _edge_exit_point(self, edge, near, radius=10, rng=None):
         from .spawn import free_tile_near
         m = self.map
         x, y = near
@@ -671,7 +681,7 @@ class Game:
             x, y = 0, max(3, min(m.h - 4, y))
         else:
             x, y = m.w - 1, max(3, min(m.h - 4, y))
-        pt = free_tile_near(self, x, y, radius) or free_tile_near(self, x, y, 10)
+        pt = free_tile_near(self, x, y, radius, rng=rng) or free_tile_near(self, x, y, 10, rng=rng)
         return pt or (x, y)
 
     def _edge_gap(self, edge, x, y):
@@ -793,14 +803,15 @@ class Game:
 
     def distant_sound(self, x, y, loud, kind, desc, power=0):
         """A sound from off the map - the battle next door: heard, and guessed at, never seen."""
-        from .senses import WEATHER_SOUND, direction_word, distance_word
+        from .senses import direction_word, distance_word
+        from .weather import masking
         p = self.player
         if p is None or not p.body.conscious:
             return
         self.audio(kind, x, y, loud, None, power, None)
         lx, ly = (p.vehicle.x, p.vehicle.y) if p.vehicle is not None else (p.x, p.y)
         d = math.hypot(x - lx, y - ly)
-        lvl = loud - 20 * math.log10(max(1.0, d)) - WEATHER_SOUND.get(self.weather, 0)
+        lvl = loud - 20 * math.log10(max(1.0, d)) - masking(self)
         if p.body.deaf > 0:
             lvl -= 35
         if lvl < HEAR_THRESHOLD:
@@ -894,6 +905,9 @@ class Game:
 
     def sector_spec(self, sector):
         """How a sector's battlefield is to be made, as things stand."""
+        from .homefront import prepare
+        prepare(self.strategic, sector)
+        hinterland = sector.__dict__.get("homefront", {})
         att, att_edge = self._local_attacker(sector)
         spec = dict(w=self.__dict__.get("map_w", MAP_W), h=self.__dict__.get("map_h", MAP_H),
                     biome=sector.biome if sector.biome != "beach" else "bocage", climate=self.theatre["climate"],
@@ -907,6 +921,9 @@ class Game:
                     road_fracs=self._road_fracs(sector))
         if sector.biome == "beach":
             spec["biome"] = "beach"
+        if hinterland:
+            spec["intensity"] *= hinterland["damage"] / .7
+            spec["ruin"] = hinterland["damage"] * .25
         return spec, att, att_edge
 
     @staticmethod
@@ -1023,7 +1040,7 @@ class Game:
         s.saved = dict(t=pk(m.t), hp=pk(m.hp), blood=pk(m.blood), scorch=pk(m.scorch),
                        items=m.items, mines=m.mines, objectives=m.objectives, explored=pk(m.explored),
                        name=m.name, biome=m.biome, climate=m.climate, buildings=m.buildings, var=m.var,
-                       positions=recs, parked=list(m.__dict__.get("parked") or []),
+                       weather_ground=m.__dict__.get("weather_ground"), positions=recs, parked=list(m.__dict__.get("parked") or []),
                        storeys=dict(m.__dict__.get("storeys") or {}),
                        elev=pk(m.elev) if m.__dict__.get("elev") is not None else None)
 
@@ -1047,6 +1064,20 @@ class Game:
         # the bases are still there: their records come back (populate() puts the people and vehicles back -
         # neither is saved with the map - but not the crates and dressings, which are)
         m.gen_positions = list(sv.get("positions", []))
+        for rec in m.gen_positions:
+            if rec.get("homefront"):
+                intact = False
+                for kind, side, intact in sector.installations:
+                    if kind == rec["kind"] and intact:
+                        rec["side"] = side
+                        break
+                else:
+                    intact = False
+                if not intact:
+                    rec["destroyed"] = True
+                    for x, y in rec.get("targets", []):
+                        if m.t[x, y] == rec.get("target_tile"):
+                            m.set(x, y, "rubble")
         # the aircraft on the ground, the lie of the land and the floors of the buildings (saved since 2026-09-28;
         # a sector saved before then comes back flat, as it did)
         if sv.get("parked"):
@@ -1055,6 +1086,8 @@ class Game:
             m.storeys = dict(sv["storeys"])
         if sv.get("elev") is not None:
             m.elev = up(sv["elev"])
+        if sv.get("weather_ground") is not None:
+            m.weather_ground = sv["weather_ground"]
         m.loaded = True
         m.refresh()
         return m
@@ -1099,6 +1132,8 @@ class Game:
             return False
         p = self.player
         # who comes along: nearby squad mates, your prisoners, the man you're carrying
+        civilians = [a for a in self.actors if a.ai.get("civilian") and a.ai.get("following") and
+                     a.active and not a.downed and max(abs(a.x - p.x), abs(a.y - p.y)) <= 15]
         comp = []
         if p.squad is not None:
             for a in p.squad.members:
@@ -1108,6 +1143,10 @@ class Game:
         from .prisoners import bring_along
         pows = [a for a in bring_along(self, p) if a not in comp]
         carried = p.carrying
+        evacuees = civilians + ([carried] if carried is not None and carried.ai.get("civilian") and
+                               carried not in civilians else [])
+        if evacuees:
+            s.civilians = [a for a in s.__dict__.get("civilians", []) if a not in evacuees]
         if carried is not None:
             from .actions import put_down
             put_down(self, p)
@@ -1196,8 +1235,14 @@ class Game:
             place(self, p, ex, ey, 6)
         from .spawn import place
         for a in comp:
-            a.ai = {}
+            a.ai = {k: v for k, v in a.ai.items() if k in ("needs", "antiseptic_until", "splinted_until",
+                                                        "blanket_until", "recovering")}
             place(self, a, p.x, p.y, 5)
+        for a in civilians:
+            a.x = a.y = -1
+            if place(self, a, p.x, p.y, 7):
+                a.ai["home"] = a.pos
+                n.__dict__.setdefault("civilians", []).append(a)
         # prisoners of yours, still prisoners, still yours
         pw_sq = None
         for a in pows:
@@ -1217,10 +1262,14 @@ class Game:
             pw_sq.initial = len(pw_sq.members)
             self.msg(f"Your prisoner{'s come' if len(pows) > 1 else ' comes'} along with you.", "info")
         if carried is not None and carried.alive:
-            carried.ai = {k: carried.ai[k] for k in ("captor", "pw_order", "searched") if k in carried.ai}
+            carried.ai = {k: carried.ai[k] for k in ("captor", "pw_order", "searched", "civilian", "following",
+                         "occupation", "rescued", "needs", "antiseptic_until", "splinted_until", "recovering") if k in carried.ai}
             carried.x = carried.y = -1
             place(self, carried, p.x, p.y, 2)
-            if carried.squad is None or carried.squad not in self.squads:
+            if carried.ai.get("civilian"):
+                carried.ai["home"] = carried.pos
+                n.__dict__.setdefault("civilians", []).append(carried)
+            elif carried.squad is None or carried.squad not in self.squads:
                 carried.squad = sq
                 sq.members.append(carried)
             from .actions import pick_up
@@ -1397,7 +1446,7 @@ class Game:
         pl = self.player
         hidden = pl is not None and pl.ai.get("disguise") and pl.side != side
         out = [a for a in self.actors if a.side != side and a.alive and a.state == "ok" and a.vehicle is None
-               and not (hidden and a is pl)] + \
+               and not a.ai.get("civilian") and not (hidden and a is pl)] + \
               [v for v in self.vehicles if v.side != side and not v.dead and (v.active or v.static)]
         p = self.player
         if getattr(self, "renegade", False) and p is not None and p.side == side and p.alive and p.state == "ok" \
@@ -1557,6 +1606,8 @@ class Game:
     def name_of(self, a) -> str:
         if a is None:
             return "someone"
+        if getattr(a, "ai", {}).get("civilian"):
+            return "a civilian"
         if getattr(a, "vt", None) is not None:
             return self.name_of_vehicle(a)
         if a.is_player:
@@ -1629,8 +1680,15 @@ class Game:
         if getattr(a, "_killed", False):
             return
         a._killed = True
+        if a.ai.get("civilian"):
+            from .homefront import casualty
+            casualty(self, a, killer)
+            self.body_falls(a, killer)
+            return
         m = self.map
         seen = self.can_see(a.x, a.y) or a.is_player
+        from .squadcare import witnessed_kill
+        witnessed_kill(self, killer, a)
         if killer is not None and hasattr(killer, "kills") and killer is not a:
             killer.kills += 1
             if killer is self.player or (self.player is not None and killer is self.player.vehicle):
@@ -1764,6 +1822,10 @@ class Game:
                 cmd = getattr(self, "command", None)
                 if cmd is not None and cmd.medals:
                     f.write(f"  Decorations: {', '.join(cmd.medals)}.\n")
+                    from .awards import records
+                    for a in records(cmd, p.nation):
+                        f.write(f"    {a['name']}{' (posthumous)' if a['posthumous'] else ''}: {a['why']}"
+                                f"{'; ' + a['evidence'] if a['evidence'] else ''}. {a['when']}\n")
                 if cmd is not None and cmd.promotions:
                     f.write(f"  Promoted {len(cmd.promotions)} time(s) in the field.\n")
         except OSError:
@@ -1967,6 +2029,11 @@ class Game:
 
     def try_move_vehicle(self, v, dx, dy, reverse=False):
         """Drive one tile.  Returns the time it took, or None if the way is blocked."""
+        if v.ai.get("fuel", 100) <= 0 and "wagon" not in v.vid:
+            if v.player_crewed and not v.ai.get("dry_reported"):
+                self.msg("The engine stops: the fuel tank is dry. Bring a jerrycan or reach a workshop.", "warn")
+                v.ai["dry_reported"] = True
+            return None
         from .gamemap import octant
         m = self.map
         nx, ny = v.x + dx, v.y + dy
@@ -1994,7 +2061,7 @@ class Game:
         # men in the way: the enemy may be run down; our own scramble clear (but not the wounded)
         newset = set(cells)
         for o in victims:
-            if o.side != v.side:
+            if o.side != v.side and not o.ai.get("civilian"):
                 if o.downed or self.rng.random() < 0.3:
                     o.body.cause = f"being crushed under a {vt.name}"
                     hit_actor(self, o, 200, "blunt", v, f"the tracks of a {vt.name}")
@@ -2130,18 +2197,19 @@ class Game:
                 x, y = e["x"], e["y"]
                 self.map.remove_item(x, y, it)
                 # thrown back by the player, or picked up and thrown by anyone: find it
-            if it.t.dud and self.rng.random() < it.t.dud:
-                it.data = {"dud": True}
-                self.map.add_item(x, y, it)
-                if self.can_see(x, y):
-                    self.msg(f"The {it.t.name} fizzles. A dud.", "info", (x, y))
-                continue
             self._detonate_item(it, x, y, e["thrower"])
         self.explosives = keep
 
     def _detonate_item(self, item, x, y, thrower):
         t = item.t
         m = self.map
+        if (item.data or {}).get("dud") or self.rng.random() < max(t.dud or 0, 1 - item.condition):
+            item.data = dict(item.data or {}, dud=True)
+            item.data.pop("live", None)
+            m.add_item(x, y, item)
+            if self.can_see(x, y):
+                self.msg(f"The {t.name} fizzles. A dud.", "info", (x, y))
+            return
         if t.kind == "grenade" and t.gtype == "molotov":
             for dx in (-1, 0, 1):
                 for dy in (-1, 0, 1):
@@ -2271,7 +2339,7 @@ class Game:
             extra = "wheels" if source.vt.vtype in ("truck", "car", "armcar") else None
         self.audio(kind, x, y, loud, weapon, power, extra)
         p = self.player
-        if loud >= 50 and p is not None and kind != "shout":
+        if loud >= 50 and p is not None and kind not in ("shout", "thunder"):
             d = abs(p.x - x) + abs(p.y - y)
             if d < 40:
                 self.noise = min(100.0, self.noise + loud / (12.0 + d))
@@ -2480,8 +2548,11 @@ class Game:
         rng = self.rng
         f = m.fire
         burning = f > 0
-        rain = self.weather in ("rain", "snow")
+        rain = self.weather in ("rain", "storm", "snow", "blizzard")
         if burning.any():
+            if self.turn % 5 == 0:
+                from .equipment import fire_tick
+                fire_tick(self)
             f[burning] -= 1
             ended = burning & (f == 0)
             if ended.any():
@@ -2550,19 +2621,8 @@ class Game:
         m.update_see()
 
     def _weather_tick(self):
-        if self.turn - self.weather_turn < 900:
-            return
-        self.weather_turn = self.turn
-        if self.rng.random() < 0.3:
-            old = self.weather
-            self.weather = self._roll_weather()
-            if self.weather != old:
-                msgs = {"rain": "It starts to rain.", "snow": "Snow begins to fall.", "fog": "Fog rolls in.",
-                        "clear": "The sky clears.", "overcast": "Clouds roll over.",
-                        "sandstorm": "The wind rises, driving sand into everything."}
-                self.msg(msgs.get(self.weather, "The weather changes."), "info")
-        if self.rng.random() < 0.2:
-            self.wind = (self.rng.choice((-1, 0, 1)), self.rng.choice((-1, 0, 1)))
+        from .weather import tick
+        tick(self)
 
     # ================================================================== waves & strategic
     def schedule_wave(self, side, units, edge, delay=200, landing=False):
@@ -2693,12 +2753,14 @@ class Game:
     def on_withdrawal(self, side):
         if side == self.player_side:
             self.msg("Word spreads along the line: we're pulling out. Fall back!", "warn")
+            from .orders import recall
+            recall(self, 12, "battalion headquarters", "The line can no longer be held; the battalion is pulling out.")
         else:
             self.msg("The enemy is falling back!", "good")
 
     def _battle_check(self):
         s = self.sector
-        present = {side: any(a.side == side and a.active and not a.is_player for a in self.actors) or
+        present = {side: any(a.side == side and a.active and not a.is_player and not a.ai.get("civilian") for a in self.actors) or
                    any(v.side == side and v.active for v in self.vehicles) or
                    any(w["side"] == side for w in self.waves) for side in SIDES}
         p = self.player
@@ -2713,6 +2775,9 @@ class Game:
 
     def _sector_won(self, side):
         p = self.player
+        for rec in getattr(self.map, "gen_positions", []):
+            if rec.get("homefront") and not rec.get("destroyed"):
+                rec["side"] = side
         if side == p.side:
             self.msg(f"{self.sector.name} is clear of the enemy. The sector is ours.", "good")
             self.stats["sectors_won"] += 1
@@ -2752,12 +2817,6 @@ class Game:
                                       + _SB.station_words(self) + ("" if port else f" {mis}"))
                 return
             self.player_orders = f"{mis} {where} ({_AB.status_line(self) or ''})"
-            return
-        from .scenarios import mission_line
-        ml = mission_line(self)
-        if ml:
-            self.orders_turn = self.turn
-            self.player_orders = "MISSION: " + ml
             return
         self.orders_turn = self.turn
         sq = p.squad
@@ -2833,6 +2892,10 @@ class Game:
             text = "Your own side wants you dead. Get away - or go down fighting."
         if self.sector.control != p.side and not any(a.side == p.side and a.active and not a.is_player for a in self.actors):
             text = f"You're alone behind enemy lines. Get back to friendly territory ({self.home_edge(p.side) or '?'})."
+        from .orders import summary
+        resolved = summary(self)
+        if resolved is not None and not getattr(self, "renegade", False):
+            text = resolved
         if text != self.player_orders:
             self.player_orders = text
             it = p.find(lambda i: i.tid == "orders")
@@ -2859,50 +2922,20 @@ class Game:
         return f" - there, {direction_word(t[0] - p.x, t[1] - p.y)}, {yd} yards"
 
     def order_target_for_player(self):
-        p = self.player
-        sq = p.squad
-        if sq is None:
-            return None
-        from .ai import order_target
-        t = order_target(self, sq)
-        if sq.player_led:
-            enemy_obj = [o for o in self.map.objectives if o.owner != p.side]
-            if enemy_obj:
-                o = min(enemy_obj, key=lambda o: abs(o.x - p.x) + abs(o.y - p.y))
-                return (o.x, o.y)
-        return t
+        from .orders import navigation
+        pt = navigation(self)
+        return pt[:2] if pt is not None else None
 
     def order_pointer(self):
-        """(x, y, label) of where your orders send you - what your leader pointed at, or your objective."""
+        """The same authorized destination used by Enter and the orders book."""
+        from .orders import navigation
         p = self.player
-        duty = getattr(self, "duty", None)
-        if duty is not None and duty.task is not None:
-            pt = duty.task_point(self)
-            if pt is not None and max(abs(pt[0] - p.x), abs(pt[1] - p.y)) > 1:
-                from .duty import TASK_TEXT
-                return int(pt[0]), int(pt[1]), TASK_TEXT[duty.task["kind"]].split("!")[0].split(".")[0]
-        if self.__dict__.get("base_order") and self.__dict__.get("domain", "land") == "land" and self.map is not None:
-            from . import base as _BASE
-            pt = _BASE.order_point(self)
-            if pt is not None and max(abs(pt[0] - p.x), abs(pt[1] - p.y)) > 1:
-                return int(pt[0]), int(pt[1]), pt[2]
-        sq = p.squad
-        if sq is None or p.state != "ok":
+        if p is None or p.state != "ok" or self.map is None:
             return None
-        t = self.order_target_for_player()
-        if t is None:
+        pt = navigation(self)
+        if pt is None or max(abs(pt[0] - p.x), abs(pt[1] - p.y)) <= 1:
             return None
-        o = sq.order
-        if sq.player_led:
-            names = [ob.name for ob in self.map.objectives if (ob.x, ob.y) == tuple(t)]
-            label = f"Take {names[0]}" if names else "Objective"
-        elif o.kind == "follow":
-            return None
-        else:
-            label = o.describe(self)
-        if max(abs(t[0] - p.x), abs(t[1] - p.y)) <= 3:
-            return None
-        return int(t[0]), int(t[1]), label
+        return pt
 
     # ================================================================== turn engine
     def player_fov(self):
@@ -3060,6 +3093,14 @@ class Game:
             _NV.land_tick(self)
         if self.turn % 30 == 0:
             self._medical_tick()
+        if self.turn % 60 == 0 and self.__dict__.get("domain", "land") == "land":
+            from .homefront import tick as homefront_tick
+            from .sustain import tick as supply_tick
+            homefront_tick(self)
+            supply_tick(self)
+        if self.turn % 30 == 7:
+            from .counterintel import tick as security_tick
+            security_tick(self)
         if self.turn % 40 == 17:
             self._banter_tick()
         if self.turn % 2 == 0 and self.__dict__.get("domain", "land") == "land":
@@ -3210,56 +3251,48 @@ class Game:
         body = p.invent.slots.get("body")
         why = None
         from . import agents as AG
+        from . import counterintel as CI
+        from .senses import los_clear
+        observers = [a for a in self.actors if a.side != p.side and a.active and
+                     getattr(a, "z", 0) == getattr(p, "z", 0) and
+                     max(abs(a.x - p.x), abs(a.y - p.y)) <= 15 and
+                     los_clear(self, a.x, a.y, p.x, p.y)]
         if (body is None or body.tid != "civvies") and not p.ai.get("enemy_uniform"):
             why = "Out of your civilian clothes, you're just an enemy soldier to them."
         elif p.fired_turn >= self.turn - 2 and (p.weapon is None or p.weapon.t.loud > 40 or any(
                 a.side != p.side and a.active and max(abs(a.x - p.x), abs(a.y - p.y)) <= 8 and p in a.visible
-                for a in self.actors)):
+                for a in observers)):
             why = "The shot gives you away."          # (a Welrod's cough goes unheard - unless someone saw)
         elif p.weapon is not None and p.weapon.t.kind == "gun" and p.weapon.t.cat not in ("pistol",) and \
                 not p.ai.get("enemy_uniform"):
             why = f"Someone sees the {p.weapon.t.name} in your hands."
         elif AG.transmitting(self) and any(a.side != p.side and a.active and max(abs(a.x - p.x), abs(a.y - p.y)) <= 6
-                                           for a in self.actors):
+                                           for a in observers):
             why = "They find you at the set, the headphones on, the key still under your hand."
-        near = [a for a in self.actors if a.side != p.side and a.active and a.vehicle is None
-                and max(abs(a.x - p.x), abs(a.y - p.y)) <= 3]
-        if why and not any(max(abs(a.x - p.x), abs(a.y - p.y)) <= 15 for a in self.actors
-                           if a.side != p.side and a.active):
+        near = [a for a in observers if a.vehicle is None
+                and not a.ai.get("civilian") and max(abs(a.x - p.x), abs(a.y - p.y)) <= 3]
+        if why and not observers:
             why = None if "clothes" not in why else why      # nobody there to see
-        if why is None and near:
+        from . import identity as ID
+        pending = self.__dict__.get("identity_check")
+        if why:
+            ID.blow_cover(self, why)
+            return
+        if pending:
+            if ID.observer(self, pending) is None:
+                self.identity_check = None
+            elif self.turn - pending["started"] > 90:
+                ID.finish(self, False)
+            return
+        near = [a for a in near if a.ai.get("cleared_identity_until", -1) < self.turn]
+        if near:
             sus = p.ai.get("suspicion", 0) + 6 * len(near) + (8 if p.stance > 0 else 0) + \
-                (6 if self.is_night() else 0)
-            if p.ai.get("papers_checked", -999) > self.turn - 600:
-                sus -= 5
+                (6 if self.is_night() else 0) + 10 * CI.pressure(self)
             p.ai["suspicion"] = sus
             if sus >= 60:
-                a = near[0]
-                a.say({"germany": "Halt! Papiere!", "japan": "Tomare!", "italy": "Alt! Documenti!",
-                       "ussr": "Stoy! Dokumenty!", "finland": "Seis! Paperit!"}.get(a.nation, "Halt! Papers!"),
-                      self.turn, 3)
-                good = p.find(lambda i: i.tid == "forged_papers") is not None or p.ai.get("enemy_uniform")
-                if good and rng.random() < 0.7 + AG.papers_bonus(self, p):
-                    rk = a.rank_full or "soldier"
-                    self.msg(f"{'An' if rk[:1].lower() in 'aeiou' else 'A'} {rk} checks your papers, looks at your "
-                             f"face, and waves you on.", "info")
-                    p.ai["suspicion"] = 0
-                    p.ai["papers_checked"] = self.turn
-                elif good and AG.bribe(self, p):
-                    p.ai["suspicion"] = 0
-                    p.ai["papers_checked"] = self.turn
-                else:
-                    why = "Your papers don't satisfy him. He reaches for his rifle."
-        elif why is None:
+                ID.begin(self, max(near, key=ID.acuity))
+        else:
             p.ai["suspicion"] = max(0, p.ai.get("suspicion", 0) - 3)
-        if why:
-            p.ai["disguise"] = False
-            p.ai["suspicion"] = 0
-            self._enemy_arr = {}
-            self.msg(why + " Your cover is blown!", "death")
-            enemy = other_side(p.side)
-            self.brains[enemy].report(p, self.turn)
-            self.noise = min(100.0, self.noise + 40)
 
     def _mistaken_identity_tick(self):
         """An enemy tank with our men in it, a man in an enemy helmet: at a distance, the shape is all anyone sees."""

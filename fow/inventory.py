@@ -75,7 +75,7 @@ def stack_max(t) -> int:
 
 
 class Grid:
-    __slots__ = ("w", "h", "name", "allow", "cells", "items")
+    __slots__ = ("w", "h", "name", "allow", "cells", "items", "owner")
 
     def __init__(self, w: int, h: int, name: str = "", allow=None):
         self.w = w
@@ -84,6 +84,11 @@ class Grid:
         self.allow = allow          # None = anything, else a set of allowed kinds / "small"
         self.cells = [[None] * h for _ in range(w)]
         self.items = []
+        self.owner = None
+
+    def usable(self, x, y):
+        owner = getattr(self, "owner", None)
+        return owner is None or y * self.w + x < int(self.w * self.h * owner.condition + .0001)
 
     def allows(self, item) -> bool:
         if self.allow is None:
@@ -100,6 +105,8 @@ class Grid:
         for i in range(x, x + w):
             col = self.cells[i]
             for j in range(y, y + h):
+                if not self.usable(i, j):
+                    return False
                 o = col[j]
                 if o is not None and o is not ignore:
                     return False
@@ -144,7 +151,7 @@ class Grid:
         return None
 
     def free_cells(self) -> int:
-        return sum(1 for col in self.cells for o in col if o is None)
+        return sum(self.cells[x][y] is None and self.usable(x, y) for x in range(self.w) for y in range(self.h))
 
 
 def container_grids(item) -> list:
@@ -156,6 +163,8 @@ def container_grids(item) -> list:
         spec = item.t.get("grids") or ()
         gs = [Grid(w, h, name, set(allow) if allow else None) for (w, h, name, allow) in spec]
         item.data["grids"] = gs
+    for g in gs:
+        g.owner = item
     return gs
 
 

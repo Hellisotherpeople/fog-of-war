@@ -36,6 +36,8 @@ def open_quartermaster(ps, qm):
         "nearly empty - we're cut off"
     lines = [(f"{qm.rank_short} {qm.last_name}, quartermaster. The depot is {supply_word}.", UI_TEXT),
              (f"Your credit: {credit(g)}   Cigarettes: {cigs} pack{'s' if cigs != 1 else ''}", (220, 200, 140))]
+    from .sustain import stores
+    lines.append(("Stores: " + ", ".join(f"{k} {int(v)}" for k, v in stores(g.sector, p.side).items()), UI_DIM))
     opts = [("Turn in what I'm carrying...", "turnin", None, True),
             ("Draw equipment...", "draw", None, True)]
     if cigs:
@@ -141,6 +143,9 @@ def _draw(ps, qm, t, kinds):
     p = g.player
     stock, mult, supply = L.stock(g, p.side)
     pr = L.price(t, mult)
+    if t not in stock:
+        g.msg("'None left in store. Wait for the next delivery.'", "info")
+        return _draw_list(ps, qm, kinds)
     if pr > credit(g):
         g.msg("'Come back when you've something to trade.'", "info")
         return _draw_list(ps, qm, kinds)
@@ -154,6 +159,8 @@ def _draw(ps, qm, t, kinds):
         g.msg("You've no room to carry it.", "warn")
         return _draw_list(ps, qm, kinds)
     add_credit(g, -pr)
+    from .sustain import take, category
+    take(g.sector, p.side, category(t), 1)
     g.msg(f"You sign for a {it.name}. (-{pr} credit)", "info")
     ps.act(60)
     _draw_list(ps, qm, kinds)
@@ -191,9 +198,18 @@ def open_intel(ps, officer):
     docs = [i for i in p.inv if i.tid in L.DOCS]
     lines = [(f"{officer.rank_short} {officer.last_name}, intelligence.", UI_TEXT)]
     opts = [(f"Hand over {len(docs)} lot{'s' if len(docs) != 1 else ''} of enemy papers", "papers", None, bool(docs)),
-            ("Ask what's known of the enemy", "brief", None, True)]
+            ("Ask what's known of the enemy", "brief", None, True),
+            ("Counterintelligence reports and security patrols", "security", None, True)]
+    def choose(v):
+        if v == "papers":
+            hand_over_papers(ps, officer)
+        elif v == "brief":
+            _brief(ps, officer)
+        elif v == "security":
+            from .counterintel import open_log
+            open_log(ps)
     ps.open_popup(Popup("Intelligence", opts, _anchor(ps, officer), lines=lines, width=60),
-                  lambda v: hand_over_papers(ps, officer) if v == "papers" else _brief(ps, officer))
+                  choose)
 
 
 def _brief(ps, officer):

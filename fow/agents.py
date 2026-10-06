@@ -211,7 +211,14 @@ def cover_lines(game) -> list[str]:
                                            else "") + "."]
     else:
         out.append(f"No cover: {cv['story']}.")
+    from .counterintel import pressure
+    alert = pressure(game)
+    out.append("Local security: " + ("routine papers checks." if alert < .25 else
+                                    "patrols checking reports." if alert < .65 else "identity checks and searches; change your route."))
     out.append(c["desc"])
+    if cv.get("name") or c.get("uniform") == "enemy":
+        from .identity import notes
+        out.extend(notes(game))
     ms = game.__dict__.get("mission") or {}
     if ms.get("kind") == "agent" and ms.get("task"):
         out.append(f"Mission: {MISSIONS[ms['task']]['name']}. {ms.get('text', '')}")
@@ -230,7 +237,7 @@ def papers_bonus(game, p) -> float:
     """At a papers check: a cover with the right documents for its trade, and the language, help."""
     from .skills import level
     cv = cover(game)
-    b = 0.0
+    b = .08 if p.has_tool("cover_papers") and p.find(lambda i: i.tid == "security_pass") else 0.0
     if cv is not None and cv.get("name"):
         have = {i.tid for i in p.inv}
         b += 0.04 * sum(1 for x in cv.get("papers", ()) if x in have)
@@ -268,6 +275,9 @@ def setup(game, notes, strip_friends, sid="agent"):
     c = CAREERS[career]
     make_cover(game, p, career)
     equip(game, p, career)
+    if not c.get("uniform") or c.get("uniform") == "enemy":
+        from .identity import documents
+        documents(game)
     task = rng.choices(list(c["missions"]), list(c["missions"].values()))[0]
     home = game.home_edge(side) or "S"
     x, y = edge_band_point(game, _far_from_enemy(game, enemy), rng, depth=(2, 8))
@@ -288,6 +298,8 @@ def setup(game, notes, strip_friends, sid="agent"):
           "wireless": _setup_wireless, "eliminate": _setup_eliminate, "rescue_airman": _setup_airman,
           "photograph": _setup_photograph}[task]
     fn(game, ms, notes)
+    from .leads import initialize
+    initialize(game, ms)
     if MISSIONS[task]["night"]:
         from .scenarios import _set_night
         _set_night(game)
@@ -669,7 +681,7 @@ def _open_field(game, x, y):
 
 # ============================================================================ the radio
 def has_wireless(p):
-    return p.find(lambda i: i.t.tool == "wireless") is not None
+    return p.has_tool("wireless") is not None
 
 
 def radio_options(game) -> list:
@@ -713,7 +725,11 @@ def radio_choice(ps, what):
         if not _field_ok(g, p.x, p.y):
             g.msg(f"{base_city(p)} won't drop into trees, buildings or water: find an open field first.", "warn")
             return
-    secs = TX_TIME[what]
+    wireless = p.has_tool("wireless")
+    if wireless is None:
+        g.msg("You need a working wireless set.", "warn")
+        return
+    secs = int(TX_TIME[what] / max(.15, wireless.condition))
     st["tx"] = dict(what=what, left=secs, pos=(p.x, p.y), start=g.turn)
     g.msg(f"You string the aerial, put on the headphones and start tapping out your call sign. "
           f"({secs // 60} minutes; any key stops.)", "info")
@@ -742,7 +758,7 @@ def tick(game):
     p = game.player
     tx = st.get("tx")
     if tx is not None:
-        if (p.x, p.y) != tx["pos"] or p.fired_turn >= game.turn - 1 or not p.alive or p.downed:
+        if (p.x, p.y) != tx["pos"] or p.fired_turn >= game.turn - 1 or not p.alive or p.downed or not has_wireless(p):
             st["tx"] = None
             game.msg("You break off - the message is only half sent.", "warn")
         else:
@@ -767,7 +783,10 @@ def _df(game, secs, pos):
     if st["df_pos"] is not None and math.hypot(pos[0] - st["df_pos"][0], pos[1] - st["df_pos"][1]) > DF_MOVE:
         st["df"] *= 0.4                                  # a new place: they start their bearings again
     st["df_pos"] = pos
-    st["df"] += secs
+    from .counterintel import pressure, report
+    st["df"] += secs * (1 + pressure(game))
+    if game.turn % 60 == 0:
+        report(game, other_side(game.player.side), pos, 3, "wireless bearing")
     if st["df"] >= DF_ALARM and st.get("hunt") is None:
         _send_detector(game, pos)
 
@@ -1085,6 +1104,11 @@ def photograph(ps):
     """The Minox: their installations near enough (25 yards) and in sight."""
     g = ps.game
     p = g.player
+    camera = p.has_tool("camera")
+    if camera is None:
+        g.msg("You need a working camera.", "warn")
+        return
+    reach = 12 * camera.condition
     enemy = other_side(p.side)
     ms = g.__dict__.get("mission") or {}
     got = []
@@ -1094,15 +1118,16 @@ def photograph(ps):
             continue
         x0, y0, w, h = r["rect"]
         nx, ny = max(x0, min(p.x, x0 + w - 1)), max(y0, min(p.y, y0 + h - 1))
-        if math.hypot(nx - p.x, ny - p.y) <= 12 and m.in_bounds(nx, ny) and m.visible[nx, ny]:
+        if math.hypot(nx - p.x, ny - p.y) <= reach and m.in_bounds(nx, ny) and m.visible[nx, ny]:
             got.append(r)
     if not got:
         vs = [v for v in g.vehicles if v.side == enemy and not v.dead and g.can_see(v.x, v.y) and
-              math.hypot(v.x - p.x, v.y - p.y) <= 12]
+              math.hypot(v.x - p.x, v.y - p.y) <= reach]
         if vs:
             g.msg(f"Click. The {vs[0].vt.name}, its markings and whatever's parked round it.", "info")
             return ps.act(150)
-        g.msg("Nothing worth a frame within twenty-five yards that you can see.", "info")
+        g.msg(f"Nothing worth a clear frame within {round(reach * 2.2)} yards that you can see." +
+              (" The damaged camera needs a closer view." if camera.condition < 1 else ""), "info")
         return
     for r in got:
         key = f"{r.get('kind')}@{r['x']},{r['y']}"
@@ -1154,6 +1179,8 @@ def band_mission(game, notes) -> bool:
                 a.add_item(Item("time_pencil", 2))
     {"sabotage": _setup_sabotage, "receive_drop": _setup_drop, "eliminate": _setup_eliminate,
      "rescue_airman": _setup_airman}[task](game, ms, notes)
+    from .leads import initialize
+    initialize(game, ms)
     if MISSIONS[task]["night"]:
         from .scenarios import _set_night
         _set_night(game)

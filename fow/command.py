@@ -1487,6 +1487,8 @@ class CommandState:
                 return None
             name = name2
         self.medals.append(name)
+        from .awards import record
+        record(game, name, level, why, posthumous)
         if not posthumous:
             game.msg(f"You are awarded the {name} {why}.", "good")
             game.duty.valour(game, 6.0 if level > 0 else 0.5, f"the {name}")

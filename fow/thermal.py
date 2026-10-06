@@ -25,7 +25,8 @@ def ambient(game) -> float:
     d = daylight(game)
     t = night + (day - night) * d
     t += THEATRE_TWEAK.get(game.theatre.get("id", ""), 0)
-    t += {"rain": -4, "snow": -3, "fog": -2, "sandstorm": 3, "overcast": -1}.get(game.weather, 0)
+    t += {"rain": -4, "storm": -6, "snow": -3, "blizzard": -8, "fog": -2, "sandstorm": 3,
+          "overcast": -1}.get(game.weather, 0)
     return t
 
 
@@ -34,21 +35,24 @@ def insulation(a) -> float:
     ins = 1.0
     body = a.invent.slots.get("body") if hasattr(a, "invent") else None
     if body is not None:
-        ins += body.t.get("warmth", 0) * 0.8 or 0.3
+        ins += (body.t.get("warmth", 0) * 0.8 or 0.3) * body.condition
     for it in a.inv:
         if it.t.kind == "armor" and it.t.get("warmth") and it is not body:
-            ins += it.t.warmth * 0.25        # carried, not worn: a bit, if you put it round you
+            ins += it.t.warmth * 0.25 * it.condition
     if a.helmet is not None:
-        ins += 0.1
+        ins += 0.1 * a.helmet.condition
     return ins
 
 
 def feels_like(game, a) -> float:
+    from .weather import exposure, state, sheltered
     m = game.map
     t = ambient(game)
+    if t < 15:
+        t -= state(game)["wind"] * .45 * exposure(game, a)
     if a.vehicle is not None:
         t = max(t, t + 10)                    # out of the wind, engine heat
-    elif m.in_bounds(a.x, a.y) and T.FLOOR[m.t[a.x, a.y]]:
+    elif sheltered(game, a):
         t = t + 8 if t < 15 else t - 4       # a roof: warmer in the cold, cooler in the sun
     fire = m.fire[max(0, a.x - 2):a.x + 3, max(0, a.y - 2):a.y + 3] if m.in_bounds(a.x, a.y) else None
     if fire is not None and fire.size and fire.max() > 0:
@@ -63,16 +67,22 @@ def update(game, a, dt=30):
         b.temp, b.wet, b.frost = 37.0, 0.0, 0.0
     m = game.map
     air = feels_like(game, a)
+    from .weather import sheltered
     # wet: rain, snow, water
     if m.in_bounds(a.x, a.y) and m.water[a.x, a.y] >= 1 and a.vehicle is None:
         b.wet = 100.0 if m.water[a.x, a.y] >= 2 or a.stance == 2 else max(b.wet, 60.0)
-    elif game.weather in ("rain", "snow") and a.vehicle is None and not (m.in_bounds(a.x, a.y) and T.FLOOR[m.t[a.x, a.y]]):
+    elif game.weather in ("rain", "storm", "snow", "blizzard") and not sheltered(game, a):
         # rain soaks you; wet snow near freezing does too; dry powder at thirty below barely does
-        rate = 1.5 if game.weather == "rain" else (0.8 if air > -4 else 0.05)
+        from .weather import exposure, precipitation
+        waterproof = max((i.condition for i in a.invent.slots.values() if i is not None and i.t.get("waterproof", False)), default=0.)
+        rate = (3.0 if game.weather in ("rain", "storm") else (1.4 if air > -4 else .1)) * \
+            precipitation(game) * exposure(game, a) * (1 - .75 * waterproof)
         b.wet = min(85.0, b.wet + rate * dt / 30)
     else:
         b.wet = max(0.0, b.wet - (0.4 + max(0, air) * 0.05) * dt / 30)
     ins = insulation(a) * (1 - 0.6 * b.wet / 100)
+    if a.ai.get("blanket_until", 0) > game.turn and a.moved_turn < game.turn - 5:
+        ins += 2.5
     moving = a.moved_turn >= game.turn - 3
     work = 4.0 if moving else 0.0
     if getattr(a, "stamina", 100) < 60 and moving:

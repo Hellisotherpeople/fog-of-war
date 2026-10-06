@@ -127,6 +127,8 @@ class Bank:
         add("hiss", self._hiss(rng))
         add("ui", self._ui_click())
         add("rustle", self._rustle(rng))
+        add("thunder", _reverb(_filter(_noise(SR * 4, rng), hi=240) *
+                               _env(SR * 4, attack=.18, decay=1.1)))
         # far / muffled versions for anything loud
         for k in list(self.s):
             if k in ("rifle", "pistol", "shotgun", "atrifle", "cannon", "expl_small", "expl_med", "expl_big",
@@ -697,7 +699,7 @@ class Audio:
                   "footsteps": "step", "engine": ("engine" if extra != "wheels" else "truck") + suffix,
                   "flare": "pop", "smoke": "hiss", "whizz": "whizz", "shell": "whistle", "siren": "siren",
                   "aircraft": "aircraft" + suffix, "thud": "thud", "splash": "splash", "radio": "radio",
-                  "ramp": "clang", "wire": "click", "door": "click"}
+                  "ramp": "clang", "wire": "click", "door": "click", "thunder": "thunder"}
         name = simple.get(kind)
         return b.get(name) if name else None
 
@@ -714,9 +716,11 @@ class Audio:
                 except Exception:
                     near = 0.0
             want["battle"] = 0.05 + 0.3 * intensity + min(0.2, near)
-            if game.weather in ("rain", "snow"):
-                want["rain"] = 0.3 if game.weather == "rain" else 0.08
-            want["wind"] = 0.08 + (0.15 if game.weather in ("snow", "sandstorm") else 0.0)
+            from .weather import precipitation, state, exposure
+            outside = exposure(game, game.player) if game.player is not None else 1
+            want["rain"] = precipitation(game) * (.55 if game.weather in ("rain", "storm") else .08) * \
+                max(.3, outside)
+            want["wind"] = (.025 + state(game)["wind"] * .018) * outside
             amb_mix = self.mix("ambience")
             for k in ("battle", "wind", "rain"):
                 want[k] *= amb_mix

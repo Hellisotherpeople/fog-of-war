@@ -1,0 +1,16 @@
+bun test v1.3.14 (0d9b296a)
+
+vllm.test.ts:
+(pass) vLLM sampler translation > a min-p-only profile ignores every inactive saved knob [0.25ms]
+(pass) vLLM sampler translation > only selected native stages translate, including the penalty spelling [0.04ms]
+(pass) vLLM sampler translation > unsupported custom samplers fail explicitly [0.04ms]
+(pass) vLLM sampler translation > backend identity does not depend on the proxy port or model family [0.02ms]
+(pass) custom sampler chain and exact infinity survive JSON serialization [0.17ms]
+
+vllm-commands.test.ts:
+(pass) real extension command handlers preserve infinity and ordered custom controls without network [12.73ms]
+
+ 6 pass
+ 0 fail
+ 42 expect() calls
+Ran 6 tests across 2 files. [23.00ms]

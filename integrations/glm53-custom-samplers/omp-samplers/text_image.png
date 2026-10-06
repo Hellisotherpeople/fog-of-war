@@ -1,0 +1,17 @@
+import textwrap
+from PIL import Image, ImageDraw, ImageFont
+
+img = Image.new("RGB", (600, 200), color="#0b172b")
+draw = ImageDraw.Draw(img)
+font = ImageFont.load_default()
+
+text = "Hello from OMP Samplers!"
+bbox = draw.textbbox((0, 0), text, font=font)
+tw = bbox[2] - bbox[0]
+th = bbox[3] - bbox[1]
+x = (600 - tw) // 2
+y = (200 - th) // 2
+draw.text((x, y), text, font=font, fill="white")
+
+img.save("/Users/lain/Downloads/omp-samplers/text_image.png")
+print("Saved text_image.png")

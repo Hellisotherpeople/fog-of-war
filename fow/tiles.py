@@ -542,6 +542,35 @@ T("ac_tail", "tailplane", "▬", (160, 162, 150), (58, 60, 54), cost=200, see=Tr
 T("ac_wreck", "burnt-out aircraft", "%&%;", (100, 95, 88), (34, 32, 30), cost=240, see=True, cover=25, pos_cover=15,
   conceal=10, into="ac_wreck", desc="Twisted, blackened alloy and a melted engine - what's left of an aircraft.")
 
+# New tiles are appended: existing saves store numeric tile ids.
+variant("mud", "waterlogged", "waterlogged ground", cost=245, water=1,
+        desc="Standing water over churned mud. Boots sink; wheeled traffic crawls.")
+variant("trench", "flooded_trench", "flooded trench", cost=230, water=1,
+        desc="Water ankle-deep in the trench. Cover remains, but clothes and dressings get soaked.")
+variant("deep_snow", "snow_drift", "wind-packed snowdrift", cost=240,
+        desc="Fresh drifting snow. Slow to cross, and it stays after the sky clears.")
+variant("crates", "food_store", "ration store", fg=(205, 170, 100),
+        desc="Sacks of flour and tinned food, feeding civilians and the army alike.")
+variant("crates", "medical_store", "medical supplies", fg=(225, 225, 210),
+        desc="Dressings, splints, antiseptic and plasma packed for the aid posts.")
+variant("crates", "spares_store", "machinery spares", fg=(130, 155, 170),
+        desc="Bearings, tools and spare assemblies for the workshops.")
+variant("machinery", "transformer", "electrical transformer", fg=(120, 145, 150),
+        desc="The substation feeds workshops and the town's water pumps.")
+variant("bed", "hospital_bed", "hospital bed", fg=(225, 230, 230),
+        desc="A clean bed, away from the gun line. Rest here while the staff treat you.")
+variant("table", "market_stall", "market stall", fg=(200, 150, 90),
+        desc="A civilian market: baskets, ration books and the last of yesterday's bread.")
+variant("sandbags", "checkpoint", "checkpoint barrier", fg=(205, 185, 160),
+        desc="A road barrier. The sentries check identities and search for contraband.")
+variant("floor_concrete", "shelter_floor", "air-raid shelter", pos_cover=60,
+        desc="A reinforced public shelter. Civilians crowd here when the sirens go.")
+variant("table", "arms_rack", "armoury rack", walk=True, see=True, cover=15, pos_cover=5,
+        desc="Issue weapons racked beside their ammunition. The loose equipment here can be taken.")
+variant("floor_wood", "supply_cache", "covered supply cache", cover=10, pos_cover=5, hp=100, armor=6,
+        into="rubble_wood", flam=35,
+        desc="A small reserve tucked into shelter: ammunition, rations and dressings under canvas.")
+
 NUM = len(DEFS)
 
 # ------------------------------------------------------------------ lookup arrays

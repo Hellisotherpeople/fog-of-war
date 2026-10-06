@@ -1,0 +1,38 @@
+Testing 1,048,568 input + 8 output tokens with all custom samplers and full-history DRY.
+{
+  "passed": true,
+  "usage": {
+    "prompt_tokens": 1048568,
+    "total_tokens": 1048576,
+    "completion_tokens": 8,
+    "prompt_tokens_details": null,
+    "completion_tokens_details": null
+  },
+  "samplers": {
+    "version": 1,
+    "chain": [
+      "dry",
+      "top_n_sigma",
+      "p_less",
+      "min_k",
+      "xtc",
+      "min_p",
+      "temperature"
+    ],
+    "params": {
+      "dry_multiplier": 0.2,
+      "dry_allowed_length": 2,
+      "dry_penalty_last_n": -1,
+      "dry_sequence_breakers": [],
+      "top_n_sigma": 2,
+      "p_less_exponent": 6,
+      "min_k_tau": 0.1,
+      "xtc_probability": 0.1,
+      "xtc_threshold": 0.1,
+      "min_p": 0.1,
+      "temperature": "inf"
+    }
+  },
+  "elapsed_seconds": 260.31,
+  "finish_reason": "length"
+}

@@ -53,6 +53,12 @@ DIMS = {
     "ju52": (29.3, 18.9, 3, 0, "three"), "ki57": (22.6, 16.1, 2, 0, "twin"), "lysander": (15.2, 9.3, 1, 0, "mono"),
 }
 PART_KEYS = ("ac_body", "ac_engine", "ac_wing", "ac_tail")
+DIMS.update({"a20": (18.7, 14.6, 2, 0, "twin"), "a26": (21.3, 15.2, 2, 0, "twin"),
+             "b26": (21.6, 17.8, 2, 0, "twin"), "p61": (20.1, 15.1, 2, 0, "twinboom"),
+             "c47": (29.0, 19.4, 2, 0, "twin"), "c46": (32.9, 23.3, 2, 0, "twin"),
+             "pby": (31.7, 19.5, 2, 0, "twin"), "beaufort": (17.6, 13.5, 2, 0, "twin"),
+             "barracuda": (15.0, 12.1, 1, 5.6, "mono"), "b6n": (14.9, 10.9, 1, 7.5, "mono"),
+             "d4y": (11.5, 10.2, 1, 0, "mono"), "ju188": (22.0, 15.0, 2, 0, "twin")})
 PART_WORD = {"ac_body": "the fuselage", "ac_engine": "an engine", "ac_wing": "a wing", "ac_tail": "the tailplane"}
 
 
@@ -296,9 +302,11 @@ def pick(nation, year, roles=None, rng=None, carrier=False, pacific=False):
     return (rng.choice(cands) if rng is not None else cands[0])
 
 
-CARRIER_OK = {"zero", "d3a", "sbd", "f4f", "f6f", "tbf", "sb2c", "b5n", "swordfish", "f4u"}
-CARRIER_AIR = {"usa": (("f4f", "f6f"), ("sbd", "sb2c"), ("tbf",)), "uk": (("f4f",), ("swordfish",), ("swordfish",)),
-               "japan": (("zero",), ("d3a",), ("b5n",))}
+CARRIER_OK = {"zero", "d3a", "sbd", "f4f", "f6f", "tbf", "sb2c", "b5n", "swordfish", "f4u",
+              "b6n", "d4y", "barracuda"}
+CARRIER_AIR = {"usa": (("f4f", "f6f"), ("sbd", "sb2c"), ("tbf",)),
+               "uk": (("f4f", "f6f"), ("swordfish", "barracuda"), ("swordfish", "barracuda")),
+               "japan": (("zero",), ("d3a", "d4y"), ("b5n", "b6n"))}
 
 
 def carrier_model(nation, year, slot, rng):

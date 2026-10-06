@@ -18,6 +18,10 @@ from .entities import Item
 from .inventory import ACCESS, SLOT_NAME, SLOTS, Grid, Inventory, container_grids, item_size
 
 CW, CH = 4, 2          # text cells per grid cell
+HELP_LINES = ("Enter pick/drop   r rotate", "e use/equip   q quick move   d drop",
+              "l load   u unload   c count   x inspect", "Tab sides   [ ] piles   PgUp/PgDn sections",
+              "s search body   i/Esc close", "Mouse: drag items; right click for actions")
+FOOTER = 11
 
 KIND_COL = {"gun": (70, 80, 55), "mag": (115, 100, 55), "clip": (120, 105, 60), "ammo": (110, 95, 50),
             "grenade": (65, 85, 55), "explosive": (120, 80, 40), "medical": (150, 145, 135),
@@ -190,16 +194,19 @@ class InventoryScreen:
             self._draw_ground(con, pane, x0 + 2, y0 + 2)
         else:
             self._draw_kit(con, pane, x0, y0, w, h)
+            body = getattr(pane, "body", None)
+            if body is not None and not body.data.get("searched"):
+                con.print(x0 + 2, y0 + h - 4, "s: search pockets / pack", fg=UI_HI, bg=UI_BG)
+                con.print(x0 + 2, y0 + h - 3, "Takes 6 seconds", fg=UI_DIM, bg=UI_BG)
+                self.cells.append(dict(kind="search", pane=pane, item=None, rect=(x0 + 2, y0 + h - 4, w - 4, 2)))
         # footer help / info
         if pane is self.own:
             info = self.info or self._hover_text()
-            lines = textwrap.wrap(info, w - 4)[:3]
+            lines = textwrap.wrap(info, w - 4)[:2]
             for i, line in enumerate(lines):
-                con.print(x0 + 2, y0 + h - 5 + i, line, fg=UI_TEXT, bg=UI_BG)
-            con.print(x0 + 2, y0 + h - 2, "Enter pick/drop  r rotate  e use/equip  l load  u unload  c count  d drop  x look"[: w - 4],
-                      fg=UI_DIM, bg=UI_BG)
-            if self.sources:
-                con.print(x0 + 2, y0 + h - 1, " Tab: switch side  q: quick move ", fg=UI_DIM, bg=UI_BG)
+                con.print(x0 + 2, y0 + h - 9 + i, line, fg=UI_TEXT, bg=UI_BG)
+            for i, line in enumerate(HELP_LINES):
+                con.print(x0 + 2, y0 + h - 7 + i, line, fg=UI_DIM, bg=UI_BG)
 
     def _hover_text(self):
         if not self.cells:
@@ -232,7 +239,26 @@ class InventoryScreen:
         pack = inv.slots["pack"]
         if pack is not None and pack.t.get("grids"):
             blocks.append((pack.name, [(g, "pack") for g in container_grids(pack)]))
+        body = getattr(pane, "body", None)
+        if body is not None and not body.data.get("searched"):
+            blocks = [(name, gs) for name, gs in blocks if gs and gs[0][1] == "rig"]
         return blocks
+
+    def search_body(self, pane):
+        body = getattr(pane, "body", None)
+        if body is None or body.data.get("searched") or self.held is not None:
+            return
+        p, g = self.game.player, self.game
+        x, y = pane.at
+        from .senses import los_clear
+        if max(abs(p.x - x), abs(p.y - y)) > 1 or body not in g.map.items_at(x, y) or \
+                not los_clear(g, p.x, p.y, x, y):
+            self.say("The body is no longer within reach.")
+            return
+        self.spend(600)
+        if p.alive and p.body.conscious and max(abs(p.x - x), abs(p.y - y)) <= 1 and body in g.map.items_at(x, y):
+            body.data["searched"] = True
+            self.say("You've checked the pockets and opened the pack.")
 
     def _draw_kit(self, con, pane, x0, y0, w, h):
         inv = pane.inv
@@ -283,6 +309,7 @@ class InventoryScreen:
         gy = y0 + 2 if w > 50 else sy + 1
         maxw = x0 + w - 2
         blocks = self._kit_blocks(pane)
+        footer = FOOTER if pane is self.own else 7
         pane.page = min(pane.page, max(0, len(blocks) - 1))
         pane.more = False
         if pane.page:
@@ -290,7 +317,7 @@ class InventoryScreen:
                       bg=UI_BG)
             gy += 1
         for bi, (label, grids) in enumerate(blocks[pane.page:]):
-            if gy >= y0 + h - 7:
+            if gy >= y0 + h - footer:
                 pane.more = True
                 break
             con.print(gx0, gy, label[: maxw - gx0], fg=UI_FRAME, bg=UI_BG)
@@ -303,7 +330,7 @@ class InventoryScreen:
                     cx = gx0
                     gy += row_h + 1
                     row_h = 0
-                if gy + gh >= y0 + h - 5:
+                if gy + gh >= y0 + h - footer + 2:
                     pane.more = True
                     break
                 self._draw_grid(con, pane, g, cx, gy)
@@ -311,7 +338,7 @@ class InventoryScreen:
                 row_h = max(row_h, gh)
             gy += row_h + 1
         if pane.more:
-            con.print(gx0, y0 + h - 6 if pane is not self.own else y0 + h - 7, " ▼ more below - PgDn ",
+            con.print(gx0, y0 + h - footer, " ▼ more below - PgDn ",
                       fg=(220, 200, 140), bg=UI_BG)
 
     def _draw_grid(self, con, pane, g, x, y):
@@ -322,7 +349,8 @@ class InventoryScreen:
                     bx, by = x + i * CW, y + j * CH
                     for dx in range(CW):
                         for dy in range(CH):
-                            con.print(bx + dx, by + dy, "·" if (dx, dy) == (1, 0) else " ", fg=(60, 56, 44), bg=(24, 22, 17))
+                            con.print(bx + dx, by + dy, ("·" if g.usable(i, j) else "×") if (dx, dy) == (1, 0) else " ",
+                                      fg=(60, 56, 44) if g.usable(i, j) else (145, 75, 65), bg=(24, 22, 17))
                 self.cells.append(dict(kind="grid", pane=pane, grid=g, x=i, y=j, item=g.cells[i][j],
                                        rect=(x + i * CW, y + j * CH, CW, CH)))
         # items
@@ -428,6 +456,8 @@ class InventoryScreen:
         c = key.char
         if c is None:
             return
+        if c == "s" and self.loot is not None:
+            return self.search_body(self.loot)
         cell = self.cells[self.cursor % len(self.cells)] if self.cells else None
         it = cell.get("item") if cell else None
         if c == "r" and self.held is not None:
@@ -529,6 +559,8 @@ class InventoryScreen:
             return
         self.cursor = k
         cell = self.cells[k]
+        if cell["kind"] == "search":
+            return self.search_body(cell["pane"])
         if cell["kind"] == "tab":
             self.src_idx = cell["idx"]
             return
@@ -555,6 +587,8 @@ class InventoryScreen:
         if not self.cells:
             return
         cell = self.cells[self.cursor % len(self.cells)]
+        if cell["kind"] == "search":
+            return self.search_body(cell["pane"])
         if cell["kind"] == "tab":
             self.src_idx = cell["idx"]
             return
@@ -667,6 +701,10 @@ class InventoryScreen:
         game = self.game
         p = game.player
         src = cell["pane"]
+        still = it in game.map.items_at(*src.ground) if src.ground is not None else src.inv.contains(it)
+        if not still:
+            self.say("It isn't there any more.")
+            return
         if src is self.own:
             dst = self.loot
             if dst is None:
@@ -905,6 +943,9 @@ def loot_sources_at(game, x, y, reach=0):
     spots = [(x, y)] + [(x + dx, y + dy) for dy in range(-reach, reach + 1) for dx in range(-reach, reach + 1)
                         if (dx or dy) and m.in_bounds(x + dx, y + dy)]
     for sx, sy in spots:
+        from .senses import los_clear
+        if not los_clear(game, x, y, sx, sy):
+            continue
         where = "" if (sx, sy) == (x, y) else f" ({COMPASS.get((sx - x, sy - y), '')})"
         loose = [i for i in m.items_at(sx, sy) if i.t.kind != "corpse"]
         if loose:
@@ -917,5 +958,6 @@ def loot_sources_at(game, x, y, reach=0):
                 p = Pane(f"Searching {d.get('name', 'a body')}{where}", d["inv"])
                 p.tab = f"{d.get('name', 'body').split()[-1]}{where}"
                 p.at = (sx, sy)
+                p.body = it
                 panes.append(p)
     return panes

@@ -225,7 +225,7 @@ def fitters_near(game, v) -> bool:
 
 def at_motor_pool(game, v) -> bool:
     for rec in getattr(game.map, "gen_positions", None) or []:
-        if rec.get("kind") == "motor_pool" and rec.get("side") == v.side:
+        if rec.get("kind") in ("motor_pool", "factory") and rec.get("side") == v.side and not rec.get("destroyed"):
             x0, y0, sw, sh = rec.get("rect", (rec["x"] - 8, rec["y"] - 8, 16, 16))
             if x0 - 4 <= v.x <= x0 + sw + 4 and y0 - 4 <= v.y <= y0 + sh + 4:
                 return True
@@ -322,6 +322,15 @@ def _repair(game, v):
                 job, f"Work starts on the {v.vt.name}'s {word[4:] if word.startswith('the ') else word}."))
         w[job] += speed
         if w[job] >= need:
+            from .sustain import take
+            if v.ai.get("field_parts", 0) > 0:
+                v.ai["field_parts"] -= 1
+            elif not take(game.sector, v.side, "parts", 1 if skilled else .25):
+                if not v.ai.get("parts_warned"):
+                    _tell(game, v, f"The {v.vt.name}'s repair is waiting for spare parts.", "warn")
+                    v.ai["parts_warned"] = True
+                return
+            v.ai.pop("parts_warned", None)
             del w[job]
             _mend(v, job)
             _tell(game, v, {"track": f"The track's back on the {v.vt.name}.",
@@ -331,6 +340,9 @@ def _repair(game, v):
                 job, f"{word[0].upper() + word[1:]} of the {v.vt.name}: fixed."), "good")
         break                                   # one job at a time
     if hull and not todo:
+        from .sustain import take
+        if not take(game.sector, v.side, "parts", .02 * speed / STEP):
+            return
         v.hp = min(v.vt.hp, v.hp + v.vt.hp * 0.002 * speed / STEP)
         if v.hp >= v.vt.hp:
             _tell(game, v, f"The motor pool signs the {v.vt.name} off as fit.", "good")
@@ -380,9 +392,16 @@ def _rearm(game, v):
                 game.map.remove_item(x, y, it)
             else:
                 it.data = dict(it.data or {}, rounds=left)
+        elif kind == "depot":
+            from .sustain import stores, take
+            n = min(n, int(stores(game.sector, v.side)["ammo"] * 4))
+            take(game.sector, v.side, "ammo", n / 4)
         _load_rounds(v, n)
     if belts > 0:
-        v.mg_ammo = min(full_load(v)[2], v.mg_ammo + 50 * hands)
+        from .sustain import take
+        rounds = min(belts, 50 * hands)
+        if take(game.sector, v.side, "ammo", rounds / 250):
+            v.mg_ammo += rounds
     if shells_short(v) <= 0 and mg_short(v) <= 0:
         v.ai.pop("rearming", None)
         if "ammo" in v.parts:
@@ -454,6 +473,9 @@ def call_truck(game, side, target=None, why=None) -> str | None:
     edge = game.home_edge(side)
     if edge is None:
         return "No road back to the rear from here." if why else None
+    from .sustain import stores, take
+    if stores(game.sector, side)["ammo"] < 5:
+        return "The shell dump is empty. We need a delivery first." if why else None
     from .ai import Order
     from .spawn import edge_band_point, make_vehicle_squad, pick_nation
     x, y = edge_band_point(game, edge, game.rng, depth=(2, 6))
@@ -467,7 +489,9 @@ def call_truck(game, side, target=None, why=None) -> str | None:
     t = sq.vehicles[0]
     t.crew = max(1, t.vt.crew)
     t.abandoned = False
-    t.ai.update(cargo=TRUCK_CARGO, delivered=0, fitters=True,
+    load = min(TRUCK_CARGO, int(stores(game.sector, side)["ammo"] * 4))
+    take(game.sector, side, "ammo", load / 4)
+    t.ai.update(cargo=load, delivered=0, fitters=True,
                 supply_run=dict(until=game.turn + 3600, target=tuple(target), edge=edge))
     if why or (game.player is not None and game.player.side == side and game.player.vehicle is not None):
         game.msg("Radio: 'Ammunition truck on its way up to you - fitters aboard.'", "radio")

@@ -17,6 +17,7 @@ from .data.vehicles import AIRCRAFT
 from .skysea import SEC, CARRIER_AIR, Plane, Ship, SkySea, _latest, bearing
 
 AIR_MISSIONS = {
+    "resupply": "Air supply: carry food, ammunition and medicine to troops short of supplies. Drop low and slow, then return.",
     "sweep": "Fighter sweep: over the front, find their fighters and fight them.",
     "intercept": "Interception: a raid is coming in. Get at the bombers before they reach the target.",
     "escort": "Escort: take the bombers to the target and bring them home. Stay with them.",
@@ -36,6 +37,7 @@ SEA_MISSIONS = {
     "bombard": "Shore bombardment: the troops ashore need the big guns.",
 }
 AIR_ROLE_TYPES = {"sweep": ("fighter",), "intercept": ("fighter",), "escort": ("fighter",),
+                  "resupply": ("transport",),
                   "attack": ("fighterbomber", "attacker", "fighter"), "dive": ("divebomber",),
                   "torpedo": ("torpedo",), "strategic": ("heavybomber", "bomber"), "recon": ("fighter",),
                   "kamikaze": ("fighterbomber", "fighter")}
@@ -118,13 +120,19 @@ def _ground_targets(ss, c, side, kind):
     cx, cy = (c.x + 0.5) * SEC, (c.y + 0.5) * SEC
     out = []
     names = {"column": "supply column", "tanks": "tank column", "artillery": "artillery battery", "depot": "supply depot",
-             "bridge": "bridge", "factory": "factory", "railyard": "rail yards", "airfield": "airfield"}
+             "bridge": "bridge", "factory": "factory", "railyard": "rail yards", "rail_yard": "rail yards",
+             "power_station": "power station", "food_depot": "food warehouse", "airfield": "airfield"}
     kinds = {"attack": ["column", "column", "tanks", "artillery"], "dive": ["bridge", "depot", "artillery"],
              "strategic": ["factory", "railyard", "factory"], "recon": ["depot"]}.get(kind, ["depot"])
+    if kind == "strategic":
+        kinds = list(dict.fromkeys(k for k, sd, ok in c.installations if sd != side and ok and
+                                  k in ("factory", "rail_yard", "power_station", "food_depot", "depot", "airfield")))
+        kinds = kinds or ["column"]
     for i, k in enumerate(kinds):
         out.append(dict(id=10_000 + len(ss.ground) + i, kind=k, x=cx + rng.uniform(-8, 8), y=cy + rng.uniform(-8, 8),
                         hp={"column": 300, "tanks": 500, "artillery": 400, "depot": 900, "bridge": 700,
-                            "factory": 2500, "railyard": 2000, "airfield": 1500}[k],
+                            "factory": 2500, "railyard": 2000, "rail_yard": 2000, "power_station": 1200,
+                            "food_depot": 900, "airfield": 1500}[k],
                         side=other_side(side), name=f"{names[k]} at {c.name}", sector=(c.x, c.y), dead=False))
     ss.ground += out
     return out
@@ -140,16 +148,28 @@ def launch_air(game, kind, at_id=None, station="pilot", base=None):
     yr = game.year
     if at_id is None:
         cands = _planes_of(nat, yr, AIR_ROLE_TYPES.get(kind, ("fighter",)))
+        if kind == "resupply" and not cands:
+            game.msg("No transport aircraft is available for an air supply sortie.", "info")
+            return None
         if not cands:
             cands = _planes_of(nat, yr, ("fighter", "fighterbomber"))
         if not cands:
             return None
         at_id = rng.choices([a.id for a in cands], [max(1, a.freq) for a in cands])[0]
     base = base or _base_sector(game, side)
+    if kind == "resupply":
+        from .sustain import stores
+        if AIRCRAFT[at_id].role != "transport" or min(stores(base, side)[k] for k in ("ammo", "food", "medical")) < 1 / 3:
+            game.msg("Air supply needs a transport and ammunition, food and medical stores to load.", "warn")
+            return None
     ss = SkySea(game, base.x, base.y)
     bx, by = (base.x + 0.5) * SEC, (base.y + 0.5) * SEC
     tgt_c = _target_sector(game, side, {"strategic": rng.randint(4, 7), "recon": rng.randint(2, 4),
                                         "attack": rng.randint(1, 2), "dive": rng.randint(1, 3)}.get(kind, 1), base)
+    if kind == "resupply":
+        candidates = [s for s in game.strategic.sectors() if s.control == side and s.playable and s is not base]
+        tgt_c = min(candidates, key=lambda s: (game.strategic.supply_of(side, s),
+                    abs(s.x - base.x) + abs(s.y - base.y)), default=base)
     tx, ty = (tgt_c.x + 0.5) * SEC, (tgt_c.y + 0.5) * SEC
     hdg = bearing(bx, by, tx, ty)
     me = Plane(at_id, side, nat, bx, by, hdg, 600, rng=rng)
@@ -175,7 +195,7 @@ def launch_air(game, kind, at_id=None, station="pilot", base=None):
             e.ai = dict(role=role, station=(x, y), alt=alt)
             ss.planes.append(e)
 
-    if kind in ("sweep", "recon", "attack", "dive"):
+    if kind in ("sweep", "recon", "attack", "dive", "resupply"):
         enemy_fighters(rng.randint(1, 4) if kind != "recon" else rng.randint(0, 2), tx, ty, 3000)
     if kind == "sweep":
         mission["need"] = rng.randint(1, 3)
@@ -241,10 +261,16 @@ def launch_air(game, kind, at_id=None, station="pilot", base=None):
         mission["ships"] = [s.id for s in ss.ships if s.side == enemy]
     if not me.ai:
         # the aircraft flies its mission whoever's at the controls (the pilot, when you're elsewhere in her)
-        role = {"strategic": "bomber", "dive": "dive", "torpedo": "torpedo", "attack": "attack", "recon": "recon",
+        role = {"resupply": "resupply", "strategic": "bomber", "dive": "dive", "torpedo": "torpedo", "attack": "attack", "recon": "recon",
                 "kamikaze": "kamikaze"}.get(kind, "cap" if kind in ("sweep", "intercept", "escort") else "fighter")
         me.ai = dict(role=role, wp=mission["target_pt"], home_pt=(bx, by),
                      alt=5500 if role == "bomber" else 3000, station=mission["target_pt"])
+    if kind == "resupply":
+        from .airlogistics import load
+        me.ai["alt"] = 350
+        me.alt = 350
+        me.throttle = .65
+        load(game, base, me)
     ss.mission = mission
     game.skysea = ss
     game.domain = "air"
@@ -590,6 +616,12 @@ def check(ss: SkySea):
     if k in AIR_MISSIONS and me is not None:
         tx, ty = m["target_pt"]
         d = math.hypot(tx - me.x, ty - me.y)
+        if k == "resupply" and m["stage"] == "outbound":
+            dest = g.strategic.at(*m["target_sector"])
+            if dest is None or dest.control != me.side:
+                m.update(stage="home", aborted=True, text="The dropping zone has fallen. Bring the load home.")
+                me.ai.update(role="home", wp=me.home)
+                g.msg(m["text"], "warn")
         if k == "sweep" and me.kills - m["kills0"] >= m.get("need", 1) and m["stage"] != "home":
             m["stage"] = "home"
             m["text"] = "Good hunting. Now get home."
@@ -638,6 +670,21 @@ def check(ss: SkySea):
                 g.msg("You make your runs over the target, cameras clicking. Now get home.", "good")
         # landing (or the autopilot put it down)
         bx, by = m["base_pt"]
+        landed = me.state == "landed" or (math.hypot(bx - me.x, by - me.y) < 2 and me.alt < 150 and me.kmh < 320)
+        if k == "resupply" and me.state == "landed":
+            m["stage"] = "home"
+        if k == "resupply" and m["stage"] == "home" and landed:
+            from .sustain import deliver
+            base = g.strategic.at(*m["base"])
+            cargo = me.ai.get("cargo", 0)
+            if base is not None and base.control == me.side and cargo:
+                for resource in ("ammo", "food", "medical"):
+                    deliver(base, me.side, resource, cargo / 3)
+                me.ai["cargo"] = 0
+            done("Transport home. " + ("The stores reached our troops." if m.get("delivered") else
+                                        "The sortie ended without a delivery."), 8 if m.get("delivered") else 0)
+            ss.over = ("landed", m["base"])
+            return
         if me.state == "landed" and m["stage"] == "home":
             done(f"{'The pilot puts' if g.__dict__.get('domain') == 'aboard' and ss.station != 'pilot' else 'You bring'} "
                  f"the {me.name} down onto the field. Mission complete.", 8)

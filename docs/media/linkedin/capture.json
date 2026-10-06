@@ -1,0 +1,75 @@
+{
+  "duration_seconds": 28,
+  "frames": 840,
+  "fps": 30,
+  "width": 1080,
+  "height": 1350,
+  "theatre": "kursk43",
+  "nation": "ussr",
+  "seed": 5,
+  "simulation_speed": 5,
+  "sound_events_mixed": 217,
+  "shots": [
+    {
+      "name": "CONTACT",
+      "start": 8,
+      "end": 42,
+      "a": [
+        76,
+        88
+      ],
+      "b": [
+        79,
+        81
+      ],
+      "title": "THE WAR DOESN'T WAIT.",
+      "sub": "One soldier. A whole battlefield moving around you."
+    },
+    {
+      "name": "ARMOUR",
+      "start": 43,
+      "end": 77,
+      "a": [
+        135,
+        70
+      ],
+      "b": [
+        130,
+        62
+      ],
+      "title": "ARMOUR MEETS INFANTRY.",
+      "sub": "Crews and squads fight under their own orders."
+    },
+    {
+      "name": "BARRAGE",
+      "start": 78,
+      "end": 112,
+      "a": [
+        129,
+        60
+      ],
+      "b": [
+        127,
+        57
+      ],
+      "title": "THE GROUND DOESN'T SURVIVE.",
+      "sub": "Shells crater the ground. Buildings become rubble."
+    },
+    {
+      "name": "ADVANCE",
+      "start": 113,
+      "end": 147,
+      "a": [
+        81,
+        70
+      ],
+      "b": [
+        84,
+        63
+      ],
+      "title": "ONE TURN. ONE SECOND.",
+      "sub": "A Second World War roguelike. The battle goes on."
+    }
+  ],
+  "capture": "Native sprite layers and procedural audio; observer visibility; protected camera soldier"
+}

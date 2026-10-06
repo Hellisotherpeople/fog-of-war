@@ -1,0 +1,112 @@
+{
+  "passed": true,
+  "vllm": "0.30.0",
+  "context_window": 1048576,
+  "invalid_config_rejected": true,
+  "cases": [
+    {
+      "chain": [
+        "xtc"
+      ],
+      "params": {
+        "xtc_probability": 1,
+        "xtc_threshold": 0.1
+      },
+      "cuda_matches_cpu": true,
+      "completion_tokens": 52,
+      "seconds": 21.175
+    },
+    {
+      "chain": [
+        "dry"
+      ],
+      "params": {
+        "dry_multiplier": 0.8,
+        "dry_allowed_length": 2,
+        "dry_sequence_breakers": []
+      },
+      "cuda_matches_cpu": true,
+      "completion_tokens": 55,
+      "seconds": 5.345
+    },
+    {
+      "chain": [
+        "top_n_sigma"
+      ],
+      "params": {
+        "top_n_sigma": 1
+      },
+      "cuda_matches_cpu": true,
+      "completion_tokens": 53,
+      "seconds": 5.076
+    },
+    {
+      "chain": [
+        "p_less"
+      ],
+      "params": {
+        "p_less_exponent": 3,
+        "p_less_norm": true
+      },
+      "cuda_matches_cpu": true,
+      "completion_tokens": 51,
+      "seconds": 5.577
+    },
+    {
+      "chain": [
+        "min_k"
+      ],
+      "params": {
+        "min_k_tau": 3
+      },
+      "cuda_matches_cpu": true,
+      "completion_tokens": 55,
+      "seconds": 6.08
+    },
+    {
+      "chain": [
+        "top_n_sigma",
+        "temperature"
+      ],
+      "params": {
+        "top_n_sigma": 1,
+        "temperature": 10
+      },
+      "cuda_matches_cpu": true,
+      "completion_tokens": 53,
+      "seconds": 5.904
+    },
+    {
+      "chain": [
+        "top_n_sigma",
+        "temperature"
+      ],
+      "params": {
+        "top_n_sigma": 1,
+        "temperature": "inf"
+      },
+      "cuda_matches_cpu": true,
+      "completion_tokens": 61,
+      "seconds": 6.75
+    },
+    {
+      "chain": [
+        "dry",
+        "top_n_sigma",
+        "xtc",
+        "p_less",
+        "min_k",
+        "temperature"
+      ],
+      "params": {
+        "dry_allowed_length": 2,
+        "top_n_sigma": 2,
+        "xtc_probability": 0.5,
+        "temperature": "inf"
+      },
+      "cuda_matches_cpu": true,
+      "completion_tokens": 64,
+      "seconds": 7.047
+    }
+  ]
+}

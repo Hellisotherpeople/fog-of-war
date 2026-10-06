@@ -1,0 +1,1758 @@
+diff --git a/common/arg.cpp b/common/arg.cpp
+index c4c4e143c..bbb470def 100644
+--- a/common/arg.cpp
++++ b/common/arg.cpp
+@@ -2048,6 +2048,76 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
+             params.sampling.top_n_sigma = std::stof(value);
+         }
+     ).set_sampling());
++    add_opt(common_arg(
++        {"--min-k-tau"}, "N",
++        string_format("min-k sampling fallback constant tau, used only for near-uniform distributions (default: %.2f, < 0 = disable fallback). Enable min-k by adding 'min_k' to --samplers", (double)params.sampling.min_k_tau),
++        [](common_params & params, const std::string & value) {
++            params.sampling.min_k_tau = std::stof(value);
++        }
++    ).set_sampling());
++    add_opt(common_arg(
++        {"--p-less-norm"},
++        "p-less sampling: use the relaxed, diversity-favoring p-less_norm threshold. Enable p-less by adding 'p_less' to --samplers",
++        [](common_params & params) {
++            params.sampling.p_less_norm = true;
++        }
++    ).set_sampling());
++    add_opt(common_arg(
++        {"--p-less-exponent"}, "N",
++        string_format("p-less sampling: Renyi order q of the threshold L = sum_i p_i^q (default: %.2f = collision probability; q > 1, higher keeps more / more diverse). Enable p-less by adding 'p_less' to --samplers", (double)params.sampling.p_less_exponent),
++        [](common_params & params, const std::string & value) {
++            params.sampling.p_less_exponent = std::stof(value);
++        }
++    ).set_sampling());
++    add_opt(common_arg(
++        {"--kl-budget"}, "N",
++        "Maximum reverse KL in nats for entropy maximization (default: 0.1). Use kl_budget last in --samplers",
++        [](common_params & params, const std::string & value) {
++            params.sampling.kl_budget = std::stof(value);
++        }
++    ).set_sampling());
++    add_opt(common_arg(
++        {"--kl-opt-lambda"}, "N",
++        "KL* entropy weight (default: 1 = reverse KL). Enable with --samplers kl_opt",
++        [](common_params & params, const std::string & value) {
++            params.sampling.kl_opt_lambda = std::stof(value);
++        }
++    ).set_sampling());
++    add_opt(common_arg(
++        {"--kl-opt-first-local"},
++        "Use the first local KL* minimum instead of the global optimum",
++        [](common_params & params) {
++            params.sampling.kl_opt_global = false;
++        }
++    ).set_sampling());
++    add_opt(common_arg(
++        {"--top-h-alpha"}, "N",
++        string_format("top-H sampling entropy bound coefficient, valid range (0.0, 1.0) (default: %.2f, <= 0 or >= 1 = disabled). Enable top-H by adding 'top_h' to --samplers", (double)params.sampling.top_h_alpha),
++        [](common_params & params, const std::string & value) {
++            params.sampling.top_h_alpha = std::stof(value);
++        }
++    ).set_sampling());
++    add_opt(common_arg(
++        {"--hill-order"}, "N",
++        string_format("hill sampling: Renyi/Hill order q; keeps top ceil(D_q) tokens (default: %.2f = perplexity-many). Enable by adding 'hill' to --samplers", (double)params.sampling.hill_order),
++        [](common_params & params, const std::string & value) {
++            params.sampling.hill_order = std::stof(value);
++        }
++    ).set_sampling());
++    add_opt(common_arg(
++        {"--geo-mean-coeff"}, "N",
++        string_format("geo-mean sampling: keep p_i >= coeff*exp(-H) (default: %.2f; < 1 = more diverse). Enable by adding 'geo_mean' to --samplers", (double)params.sampling.geo_mean_coeff),
++        [](common_params & params, const std::string & value) {
++            params.sampling.geo_mean_coeff = std::stof(value);
++        }
++    ).set_sampling());
++    add_opt(common_arg(
++        {"--robust-z-coeff"}, "N",
++        string_format("robust-z sampling: keep logits >= median + coeff*MAD (default: %.2f). Enable by adding 'robust_z' to --samplers", (double)params.sampling.robust_z_coeff),
++        [](common_params & params, const std::string & value) {
++            params.sampling.robust_z_coeff = std::stof(value);
++        }
++    ).set_sampling());
+     add_opt(common_arg(
+         {"--xtc-probability"}, "N",
+         string_format("xtc probability (default: %.2f, 0.0 = disabled)", (double)params.sampling.xtc_probability),
+diff --git a/common/common.h b/common/common.h
+index 63d0badd0..2f37ccd35 100644
+--- a/common/common.h
++++ b/common/common.h
+@@ -126,6 +126,17 @@ enum common_sampler_type {
+     COMMON_SAMPLER_TYPE_PENALTIES   = 10,
+     COMMON_SAMPLER_TYPE_TOP_N_SIGMA = 11,
+     COMMON_SAMPLER_TYPE_ADAPTIVE_P  = 12,
++    COMMON_SAMPLER_TYPE_MIN_K       = 13,
++    COMMON_SAMPLER_TYPE_P_LESS      = 14,
++    COMMON_SAMPLER_TYPE_TOP_H       = 15,
++    COMMON_SAMPLER_TYPE_HILL        = 16,
++    COMMON_SAMPLER_TYPE_GEO_MEAN    = 17,
++    COMMON_SAMPLER_TYPE_OTSU        = 18,
++    COMMON_SAMPLER_TYPE_KNEEDLE     = 19,
++    COMMON_SAMPLER_TYPE_TOP_GAP     = 20,
++    COMMON_SAMPLER_TYPE_ROBUST_Z    = 21,
++    COMMON_SAMPLER_TYPE_KL_OPT      = 22,
++    COMMON_SAMPLER_TYPE_KL_BUDGET   = 23,
+ };
+ 
+ // dimensionality reduction methods, used by cvector-generator
+@@ -248,6 +259,16 @@ struct common_params_sampling {
+     float   adaptive_decay     = 0.90f;  // EMA decay for adaptation; history ≈ 1/(1-decay) tokens (0.0 - 0.99)
+     int32_t mirostat           = 0;      // 0 = disabled, 1 = mirostat, 2 = mirostat 2.0
+     float   top_n_sigma        = -1.00f; // -1.0 = disabled
++    float   min_k_tau          = 3.00f;  // min-k fallback constant for near-uniform distributions (< 0 = disabled)
++    float   p_less_exponent    = 2.00f;  // p-less: Renyi order q of the threshold L = sum_i p_i^q (2 = collision prob; > 1, higher = more diverse)
++    bool    p_less_norm        = false;  // p-less: use the relaxed, diversity-favoring p-less_norm threshold
++    float   kl_budget          = 0.10f;  // max reverse KL (nats) on the incoming support
++    float   kl_opt_lambda      = 1.00f;  // KL*: entropy weight; 1 = reverse KL
++    bool    kl_opt_global      = true;   // global rather than first local minimum
++    float   top_h_alpha        = 0.40f;  // top-H entropy bound coefficient, valid range (0.0, 1.0)
++    float   hill_order         = 1.00f;  // hill: Renyi/Hill order q; keep top ceil(D_q) tokens (q=1 -> perplexity-many)
++    float   geo_mean_coeff     = 1.00f;  // geo-mean: keep p_i >= coeff*exp(-H) (< 1 = more diverse)
++    float   robust_z_coeff     = 3.00f;  // robust-z: keep logits >= median + coeff*MAD
+     float   mirostat_tau       = 5.00f;  // target entropy
+     float   mirostat_eta       = 0.10f;  // learning rate
+     bool    ignore_eos         = false;
+diff --git a/common/sampling.cpp b/common/sampling.cpp
+index 06dea1e1c..244fae90e 100644
+--- a/common/sampling.cpp
++++ b/common/sampling.cpp
+@@ -362,6 +362,39 @@ struct common_sampler * common_sampler_init(
+                 case COMMON_SAMPLER_TYPE_TOP_N_SIGMA:
+                     samplers.push_back(llama_sampler_init_top_n_sigma(params.top_n_sigma));
+                     break;
++                case COMMON_SAMPLER_TYPE_MIN_K:
++                    samplers.push_back(llama_sampler_init_min_k(params.min_k_tau, params.min_keep));
++                    break;
++                case COMMON_SAMPLER_TYPE_P_LESS:
++                    samplers.push_back(llama_sampler_init_p_less(params.p_less_exponent, params.p_less_norm, params.min_keep));
++                    break;
++                case COMMON_SAMPLER_TYPE_KL_BUDGET:
++                    samplers.push_back(llama_sampler_init_kl_budget(params.kl_budget));
++                    break;
++                case COMMON_SAMPLER_TYPE_KL_OPT:
++                    samplers.push_back(llama_sampler_init_kl_opt(params.kl_opt_lambda, params.kl_opt_global, params.min_keep));
++                    break;
++                case COMMON_SAMPLER_TYPE_TOP_H:
++                    samplers.push_back(llama_sampler_init_top_h(params.top_h_alpha, params.min_keep));
++                    break;
++                case COMMON_SAMPLER_TYPE_HILL:
++                    samplers.push_back(llama_sampler_init_hill(params.hill_order, params.min_keep));
++                    break;
++                case COMMON_SAMPLER_TYPE_GEO_MEAN:
++                    samplers.push_back(llama_sampler_init_geo_mean(params.geo_mean_coeff, params.min_keep));
++                    break;
++                case COMMON_SAMPLER_TYPE_OTSU:
++                    samplers.push_back(llama_sampler_init_otsu(params.min_keep));
++                    break;
++                case COMMON_SAMPLER_TYPE_KNEEDLE:
++                    samplers.push_back(llama_sampler_init_kneedle(params.min_keep));
++                    break;
++                case COMMON_SAMPLER_TYPE_TOP_GAP:
++                    samplers.push_back(llama_sampler_init_top_gap(params.min_keep));
++                    break;
++                case COMMON_SAMPLER_TYPE_ROBUST_Z:
++                    samplers.push_back(llama_sampler_init_robust_z(params.robust_z_coeff, params.min_keep));
++                    break;
+                 case COMMON_SAMPLER_TYPE_MIN_P:
+                     samplers.push_back(llama_sampler_init_min_p(params.min_p, params.min_keep));
+                     break;
+@@ -805,6 +838,17 @@ char common_sampler_type_to_chr(enum common_sampler_type cnstr) {
+         case COMMON_SAMPLER_TYPE_INFILL:      return 'i';
+         case COMMON_SAMPLER_TYPE_PENALTIES:   return 'e';
+         case COMMON_SAMPLER_TYPE_ADAPTIVE_P:  return 'a';
++        case COMMON_SAMPLER_TYPE_MIN_K:       return 'K';
++        case COMMON_SAMPLER_TYPE_P_LESS:      return 'L';
++        case COMMON_SAMPLER_TYPE_TOP_H:       return 'H';
++        case COMMON_SAMPLER_TYPE_HILL:        return 'N';
++        case COMMON_SAMPLER_TYPE_GEO_MEAN:    return 'G';
++        case COMMON_SAMPLER_TYPE_OTSU:        return 'O';
++        case COMMON_SAMPLER_TYPE_KNEEDLE:     return 'E';
++        case COMMON_SAMPLER_TYPE_TOP_GAP:     return 'J';
++        case COMMON_SAMPLER_TYPE_ROBUST_Z:    return 'Z';
++        case COMMON_SAMPLER_TYPE_KL_OPT:      return 'Q';
++        case COMMON_SAMPLER_TYPE_KL_BUDGET:   return 'B';
+         default : return '?';
+     }
+ }
+@@ -822,6 +866,17 @@ std::string common_sampler_type_to_str(enum common_sampler_type cnstr) {
+         case COMMON_SAMPLER_TYPE_INFILL:      return "infill";
+         case COMMON_SAMPLER_TYPE_PENALTIES:   return "penalties";
+         case COMMON_SAMPLER_TYPE_ADAPTIVE_P:  return "adaptive_p";
++        case COMMON_SAMPLER_TYPE_MIN_K:       return "min_k";
++        case COMMON_SAMPLER_TYPE_P_LESS:      return "p_less";
++        case COMMON_SAMPLER_TYPE_TOP_H:       return "top_h";
++        case COMMON_SAMPLER_TYPE_HILL:        return "hill";
++        case COMMON_SAMPLER_TYPE_GEO_MEAN:    return "geo_mean";
++        case COMMON_SAMPLER_TYPE_OTSU:        return "otsu";
++        case COMMON_SAMPLER_TYPE_KNEEDLE:     return "kneedle";
++        case COMMON_SAMPLER_TYPE_TOP_GAP:     return "top_gap";
++        case COMMON_SAMPLER_TYPE_ROBUST_Z:    return "robust_z";
++        case COMMON_SAMPLER_TYPE_KL_OPT:      return "kl_opt";
++        case COMMON_SAMPLER_TYPE_KL_BUDGET:   return "kl_budget";
+         default : return "";
+     }
+ }
+@@ -841,7 +896,18 @@ std::vector<common_sampler_type> common_sampler_types_from_names(const std::vect
+             { "xtc",         COMMON_SAMPLER_TYPE_XTC         },
+             { "infill",      COMMON_SAMPLER_TYPE_INFILL      },
+             { "penalties",   COMMON_SAMPLER_TYPE_PENALTIES   },
+-            { "adaptive_p",  COMMON_SAMPLER_TYPE_ADAPTIVE_P  }
++            { "adaptive_p",  COMMON_SAMPLER_TYPE_ADAPTIVE_P  },
++            { "min_k",       COMMON_SAMPLER_TYPE_MIN_K       },
++            { "p_less",      COMMON_SAMPLER_TYPE_P_LESS      },
++            { "top_h",       COMMON_SAMPLER_TYPE_TOP_H       },
++            { "hill",        COMMON_SAMPLER_TYPE_HILL        },
++            { "geo_mean",    COMMON_SAMPLER_TYPE_GEO_MEAN    },
++            { "otsu",        COMMON_SAMPLER_TYPE_OTSU        },
++            { "kneedle",     COMMON_SAMPLER_TYPE_KNEEDLE     },
++            { "top_gap",     COMMON_SAMPLER_TYPE_TOP_GAP     },
++            { "robust_z",    COMMON_SAMPLER_TYPE_ROBUST_Z    },
++            { "kl_opt",      COMMON_SAMPLER_TYPE_KL_OPT      },
++            { "kl_budget",   COMMON_SAMPLER_TYPE_KL_BUDGET   }
+         };
+         std::unordered_map<std::string, common_sampler_type> alias_name_map;
+         for (const auto & entry : canonical_name_map) {
+@@ -901,6 +967,17 @@ std::vector<common_sampler_type> common_sampler_types_from_chars(const std::stri
+         { common_sampler_type_to_chr(COMMON_SAMPLER_TYPE_INFILL),      COMMON_SAMPLER_TYPE_INFILL },
+         { common_sampler_type_to_chr(COMMON_SAMPLER_TYPE_PENALTIES),   COMMON_SAMPLER_TYPE_PENALTIES },
+         { common_sampler_type_to_chr(COMMON_SAMPLER_TYPE_ADAPTIVE_P),  COMMON_SAMPLER_TYPE_ADAPTIVE_P },
++        { common_sampler_type_to_chr(COMMON_SAMPLER_TYPE_MIN_K),       COMMON_SAMPLER_TYPE_MIN_K },
++        { common_sampler_type_to_chr(COMMON_SAMPLER_TYPE_P_LESS),      COMMON_SAMPLER_TYPE_P_LESS },
++        { common_sampler_type_to_chr(COMMON_SAMPLER_TYPE_TOP_H),       COMMON_SAMPLER_TYPE_TOP_H },
++        { common_sampler_type_to_chr(COMMON_SAMPLER_TYPE_HILL),        COMMON_SAMPLER_TYPE_HILL },
++        { common_sampler_type_to_chr(COMMON_SAMPLER_TYPE_GEO_MEAN),    COMMON_SAMPLER_TYPE_GEO_MEAN },
++        { common_sampler_type_to_chr(COMMON_SAMPLER_TYPE_OTSU),        COMMON_SAMPLER_TYPE_OTSU },
++        { common_sampler_type_to_chr(COMMON_SAMPLER_TYPE_KNEEDLE),     COMMON_SAMPLER_TYPE_KNEEDLE },
++        { common_sampler_type_to_chr(COMMON_SAMPLER_TYPE_TOP_GAP),     COMMON_SAMPLER_TYPE_TOP_GAP },
++        { common_sampler_type_to_chr(COMMON_SAMPLER_TYPE_ROBUST_Z),    COMMON_SAMPLER_TYPE_ROBUST_Z },
++        { common_sampler_type_to_chr(COMMON_SAMPLER_TYPE_KL_OPT),      COMMON_SAMPLER_TYPE_KL_OPT },
++        { common_sampler_type_to_chr(COMMON_SAMPLER_TYPE_KL_BUDGET),   COMMON_SAMPLER_TYPE_KL_BUDGET },
+     };
+ 
+     std::vector<common_sampler_type> samplers;
+diff --git a/include/llama.h b/include/llama.h
+index 3ab935939..1bec0fd07 100644
+--- a/include/llama.h
++++ b/include/llama.h
+@@ -1394,6 +1394,36 @@ extern "C" {
+     /// @details Top n sigma sampling as described in academic paper "Top-nσ: Not All Logits Are You Need" https://arxiv.org/pdf/2411.07641
+     LLAMA_API struct llama_sampler * llama_sampler_init_top_n_sigma(float   n);
+ 
++    /// @details Min-k sampling: temperature-invariant truncation that locates the "semantic cliff" in the sorted
++    ///          logit distribution via a position-weighted relative decay rate. See "Min-k Sampling: Decoupling
++    ///          Truncation from Temperature Scaling via Relative Logit Dynamics" (arXiv:2604.11012).
++    /// @param tau fallback candidate-size constant, activated only for near-uniform distributions (default 3.0, <= 0 = fallback disabled)
++    LLAMA_API struct llama_sampler * llama_sampler_init_min_k(float   tau, size_t min_keep);
++
++    /// @details p-less sampling: hyperparameter-free truncation. Keeps tokens whose probability is at least the
++    ///          collision-probability threshold L = sum_i p_i^2 (Renyi entropy of order 2). With norm=true uses the
++    ///          relaxed p-less_norm threshold. See "p-less Sampling: A Robust Hyperparameter-Free Approach for LLM
++    ///          Decoding" (arXiv:2509.23234).
++    /// @param norm if true, use the diversity-favoring p-less_norm threshold instead of the base p-less threshold
++    LLAMA_API struct llama_sampler * llama_sampler_init_p_less(float   exponent, bool    norm, size_t min_keep);
++
++    /// @details Top-H decoding: entropy-constrained greedy truncation. Greedily grows the candidate set in
++    ///          descending-probability order until the entropy of the renormalized subset would exceed
++    ///          alpha * H(p). See "Top-H Decoding: Adapting the Creativity and Coherence with Bounded Entropy in
++    ///          Text Generation" (arXiv:2509.02510).
++    /// @param alpha entropy bound coefficient in (0, 1) (default 0.4, <= 0 or >= 1 = disabled)
++    /// Maximize entropy within a reverse-KL budget (nats). Apply last, after truncation.
++    LLAMA_API struct llama_sampler * llama_sampler_init_kl_budget(float budget);
++    /// KL*: global reverse-KL optimum at lambda=1; global=false uses the first local minimum.
++    LLAMA_API struct llama_sampler * llama_sampler_init_kl_opt(float lambda, bool global, size_t min_keep);
++    LLAMA_API struct llama_sampler * llama_sampler_init_top_h(float   alpha, size_t min_keep);
++    LLAMA_API struct llama_sampler * llama_sampler_init_hill(float   order, size_t min_keep);
++    LLAMA_API struct llama_sampler * llama_sampler_init_geo_mean(float coeff, size_t min_keep);
++    LLAMA_API struct llama_sampler * llama_sampler_init_otsu(size_t min_keep);
++    LLAMA_API struct llama_sampler * llama_sampler_init_kneedle(size_t min_keep);
++    LLAMA_API struct llama_sampler * llama_sampler_init_top_gap(size_t min_keep);
++    LLAMA_API struct llama_sampler * llama_sampler_init_robust_z(float coeff, size_t min_keep);
++
+     /// @details Mirostat 1.0 algorithm described in the paper https://arxiv.org/abs/2007.14966. Uses tokens instead of words.
+     /// @param candidates A vector of `llama_token_data` containing the candidate tokens, their probabilities (p), and log-odds (logit) for the current position in the generated text.
+     /// @param tau  The target cross-entropy (or surprise) value you want to achieve for the generated text. A higher value corresponds to more surprising or less predictable text, while a lower value corresponds to less surprising or more predictable text.
+diff --git a/src/llama-sampler.cpp b/src/llama-sampler.cpp
+index 61d28ad8a..1411d186a 100644
+--- a/src/llama-sampler.cpp
++++ b/src/llama-sampler.cpp
+@@ -3312,6 +3312,1035 @@ struct llama_sampler * llama_sampler_init_top_n_sigma(float n) {
+     );
+ }
+ 
++// min-k
++
++struct llama_sampler_min_k {
++    const float  tau;      // fallback constant, activated only for near-uniform distributions
++    const size_t min_keep;
++};
++
++static const char * llama_sampler_min_k_name(const struct llama_sampler * /*smpl*/) {
++    return "min-k";
++}
++
++static void llama_sampler_min_k_apply(struct llama_sampler * smpl, llama_token_data_array * cur_p) {
++    auto * ctx = (llama_sampler_min_k *) smpl->ctx;
++
++    if (cur_p->size <= 1) {
++        return;
++    }
++
++    // sort logits in descending order (temperature-invariant: operates on raw logits)
++    if (!cur_p->sorted) {
++        llama_token_data_array_partial_sort_inplace(cur_p, cur_p->size);
++    }
++
++    // dynamic range R = l_1 - l_min over finite logits (Eq. 1). A tiny epsilon keeps the
++    // near-uniform case (l_1 == l_min) numerically stable.
++    const float l1 = cur_p->data[0].logit;
++    float lmin = l1;
++    for (size_t i = 0; i < cur_p->size; ++i) {
++        const float l = cur_p->data[i].logit;
++        if (l != -INFINITY) {
++            lmin = std::min(lmin, l);
++        }
++    }
++    const float range = (l1 - lmin) + 1e-8f;
++
++    // weighted relative decay w_i = (l_i - l_{i+1}) / R * (1/i), with i 1-indexed (Eq. 2).
++    // The 1/i weighting emphasizes drops near the head; the cliff is the position of the
++    // steepest weighted decay (Eq. 3).
++    size_t k_cliff = 1;
++    float  best_w  = -INFINITY;
++    for (size_t i = 0; i + 1 < cur_p->size; ++i) {
++        const float li  = cur_p->data[i].logit;
++        const float li1 = cur_p->data[i + 1].logit;
++        if (li == -INFINITY) {
++            break; // remaining tokens are masked; no meaningful cliff beyond here
++        }
++        const float drop = (li1 == -INFINITY) ? (li - lmin) : (li - li1);
++        const float w    = (drop / range) / (float) (i + 1);
++        if (w > best_w) {
++            best_w  = w;
++            k_cliff = i + 1; // keep tokens 1..(i+1)
++        }
++    }
++
++    // fallback candidate size for near-uniform distributions (Eq. 4): k_fallback = floor(tau / R).
++    // The +1e-8 above bounds this; tau < 0 disables the fallback.
++    size_t k_fallback = 0;
++    if (ctx->tau > 0.0f) {
++        const float kf = ctx->tau / range;
++        if (kf > 0.0f) {
++            k_fallback = (size_t) kf;
++        }
++    }
++
++    // final candidate size k = max(k_cliff, k_fallback) (Eq. 5)
++    size_t k = std::max(k_cliff, k_fallback);
++    k = std::max(k, ctx->min_keep);
++    k = std::max<size_t>(k, 1);
++    k = std::min(k, cur_p->size);
++
++    cur_p->size = k;
++}
++
++static struct llama_sampler * llama_sampler_min_k_clone(const struct llama_sampler * smpl) {
++    const auto * ctx = (const llama_sampler_min_k *) smpl->ctx;
++    return llama_sampler_init_min_k(ctx->tau, ctx->min_keep);
++}
++
++static void llama_sampler_min_k_free(struct llama_sampler * smpl) {
++    delete (llama_sampler_min_k *) smpl->ctx;
++}
++
++static struct llama_sampler_i llama_sampler_min_k_i = {
++    /* .name              = */ llama_sampler_min_k_name,
++    /* .accept            = */ nullptr,
++    /* .apply             = */ llama_sampler_min_k_apply,
++    /* .reset             = */ nullptr,
++    /* .clone             = */ llama_sampler_min_k_clone,
++    /* .free              = */ llama_sampler_min_k_free,
++    /* .backend_init      = */ nullptr,
++    /* .backend_accept    = */ nullptr,
++    /* .backend_apply     = */ nullptr,
++    /* .backend_set_input = */ nullptr,
++    /* .backend_reset     = */ nullptr,
++    /* .copy_state        = */ nullptr,
++};
++
++struct llama_sampler * llama_sampler_init_min_k(float tau, size_t min_keep) {
++    // min-k is enabled by its presence in the sampler chain; tau only controls the
++    // near-uniform fallback (tau <= 0 disables the fallback, leaving pure cliff detection).
++    return llama_sampler_init(
++        /* .iface = */ &llama_sampler_min_k_i,
++        /* .ctx   = */ new llama_sampler_min_k {
++            /* .tau      = */ tau,
++            /* .min_keep = */ min_keep,
++        }
++    );
++}
++
++// p-less
++
++struct llama_sampler_p_less {
++    const float  exponent; // Renyi order q of the threshold L = sum_i p_i^q (q = 2 -> classic collision probability)
++    const bool   norm;
++    const size_t min_keep;
++};
++
++static const char * llama_sampler_p_less_name(const struct llama_sampler * /*smpl*/) {
++    return "p-less";
++}
++
++static void llama_sampler_p_less_apply(struct llama_sampler * smpl, llama_token_data_array * cur_p) {
++    auto * ctx = (llama_sampler_p_less *) smpl->ctx;
++
++    if (cur_p->size <= 1) {
++        return;
++    }
++
++    // compute probabilities (and sort descending)
++    llama_sampler_softmax_impl(cur_p, true);
++
++    // generalized collision-probability threshold L = sum_i p_i^q, where q = ctx->exponent is the
++    // Renyi order (q = 2 recovers the classic collision probability / Eq. 2 of p-less). For q > 1,
++    // larger q shrinks L, lowering the threshold and keeping more tokens (more diverse); q -> 1+
++    // tightens L toward 1 (greedy). q = 2 keeps the exact original numerics via a p*p fast path.
++    const double q = (double) ctx->exponent;
++    double l = 0.0;
++    for (size_t i = 0; i < cur_p->size; ++i) {
++        const double p = cur_p->data[i].p;
++        if (p > 0.0) {
++            l += (q == 2.0) ? (p * p) : std::pow(p, q);
++        }
++    }
++
++    // p-less_norm rescales L from its natural [n^(1-q), 1] range to [0, 1] (diversity-favoring),
++    // where n^(1-q) = sum_i p_i^q for the uniform distribution. For q = 2 this reduces to the
++    // classic L_norm = (n/(n-1)) L - 1/(n-1) (Eq. 6).
++    if (ctx->norm) {
++        const double n = (double) cur_p->size;
++        if (n > 1.0) {
++            const double l_min = std::pow(n, 1.0 - q);
++            if (l_min < 1.0) {
++                l = (l - l_min) / (1.0 - l_min);
++            }
++        }
++    }
++
++    // keep tokens whose probability is at least the threshold (Eq. 3). Since the array is sorted
++    // descending and the max probability is guaranteed >= L, at least one token survives.
++    size_t k = 0;
++    for (size_t i = 0; i < cur_p->size; ++i) {
++        if ((double) cur_p->data[i].p >= l) {
++            k = i + 1;
++        } else {
++            break;
++        }
++    }
++
++    k = std::max(k, ctx->min_keep);
++    k = std::max<size_t>(k, 1);
++    k = std::min(k, cur_p->size);
++
++    cur_p->size = k;
++}
++
++static struct llama_sampler * llama_sampler_p_less_clone(const struct llama_sampler * smpl) {
++    const auto * ctx = (const llama_sampler_p_less *) smpl->ctx;
++    return llama_sampler_init_p_less(ctx->exponent, ctx->norm, ctx->min_keep);
++}
++
++static void llama_sampler_p_less_free(struct llama_sampler * smpl) {
++    delete (llama_sampler_p_less *) smpl->ctx;
++}
++
++static struct llama_sampler_i llama_sampler_p_less_i = {
++    /* .name              = */ llama_sampler_p_less_name,
++    /* .accept            = */ nullptr,
++    /* .apply             = */ llama_sampler_p_less_apply,
++    /* .reset             = */ nullptr,
++    /* .clone             = */ llama_sampler_p_less_clone,
++    /* .free              = */ llama_sampler_p_less_free,
++    /* .backend_init      = */ nullptr,
++    /* .backend_accept    = */ nullptr,
++    /* .backend_apply     = */ nullptr,
++    /* .backend_set_input = */ nullptr,
++    /* .backend_reset     = */ nullptr,
++    /* .copy_state        = */ nullptr,
++};
++
++struct llama_sampler * llama_sampler_init_p_less(float exponent, bool norm, size_t min_keep) {
++    return llama_sampler_init(
++        /* .iface = */ &llama_sampler_p_less_i,
++        /* .ctx   = */ new llama_sampler_p_less {
++            /* .exponent = */ exponent,
++            /* .norm     = */ norm,
++            /* .min_keep = */ min_keep,
++        }
++    );
++}
++
++// Maximum entropy within KL(q || p) <= budget on the incoming support.
++
++struct llama_sampler_kl_budget {
++    const float budget;
++    std::vector<double> gaps;
++};
++
++static const char * llama_sampler_kl_budget_name(const struct llama_sampler * /*smpl*/) {
++    return "kl-budget";
++}
++
++static void llama_sampler_kl_budget_apply(struct llama_sampler * smpl, llama_token_data_array * cur_p) {
++    auto * ctx = (llama_sampler_kl_budget *) smpl->ctx;
++    if (cur_p->size <= 1 || ctx->budget == 0.0f) {
++        return;
++    }
++    double top = -INFINITY;
++    for (size_t i = 0; i < cur_p->size; ++i) {
++        if (std::isfinite(cur_p->data[i].logit)) {
++            top = std::max(top, (double) cur_p->data[i].logit);
++        }
++    }
++    if (!std::isfinite(top)) {
++        return;
++    }
++    auto & gaps = ctx->gaps;
++    gaps.clear();
++    double z_ref = 0.0;
++    for (size_t i = 0; i < cur_p->size; ++i) {
++        if (std::isfinite(cur_p->data[i].logit)) {
++            double gap = cur_p->data[i].logit - top;
++            gaps.push_back(gap);
++            z_ref += std::exp(gap);
++        }
++    }
++    const double log_z_ref = std::log(z_ref);
++    // q_i = p_i^beta / Z. KL decreases as beta goes from 0 (uniform) to 1 (p).
++    auto divergence = [&](double beta) {
++        double z = 0.0, moment = 0.0;
++        for (double gap : gaps) {
++            double w = std::exp(beta * gap);
++            z += w;
++            moment += w * gap;
++        }
++        return (beta - 1.0) * moment / z + log_z_ref - std::log(z);
++    };
++    double beta = 0.0;
++    if (divergence(0.0) > ctx->budget) {
++        double lo = 0.0, hi = 1.0;
++        for (int iteration = 0; iteration < 32; ++iteration) {
++            double mid = (lo + hi) / 2.0;
++            if (divergence(mid) > ctx->budget) {
++                lo = mid;
++            } else {
++                hi = mid;
++            }
++        }
++        beta = hi;
++    }
++    for (size_t i = 0; i < cur_p->size; ++i) {
++        // A uniform draw must not unmask grammar bans or other excluded tokens.
++        if (std::isfinite(cur_p->data[i].logit)) {
++            cur_p->data[i].logit = (float) (beta * (cur_p->data[i].logit - top));
++        }
++    }
++}
++
++static struct llama_sampler * llama_sampler_kl_budget_clone(const struct llama_sampler * smpl) {
++    const auto * ctx = (const llama_sampler_kl_budget *) smpl->ctx;
++    return llama_sampler_init_kl_budget(ctx->budget);
++}
++
++static void llama_sampler_kl_budget_free(struct llama_sampler * smpl) {
++    delete (llama_sampler_kl_budget *) smpl->ctx;
++}
++
++static struct llama_sampler_i llama_sampler_kl_budget_i = {
++    /* .name              = */ llama_sampler_kl_budget_name,
++    /* .accept            = */ nullptr,
++    /* .apply             = */ llama_sampler_kl_budget_apply,
++    /* .reset             = */ nullptr,
++    /* .clone             = */ llama_sampler_kl_budget_clone,
++    /* .free              = */ llama_sampler_kl_budget_free,
++    /* .backend_init      = */ nullptr,
++    /* .backend_accept    = */ nullptr,
++    /* .backend_apply     = */ nullptr,
++    /* .backend_set_input = */ nullptr,
++    /* .backend_reset     = */ nullptr,
++    /* .copy_state        = */ nullptr,
++};
++
++struct llama_sampler * llama_sampler_init_kl_budget(float budget) {
++    if (!std::isfinite(budget) || budget < 0.0f) {
++        throw std::invalid_argument("kl_budget must be finite and >= 0");
++    }
++    return llama_sampler_init(&llama_sampler_kl_budget_i, new llama_sampler_kl_budget { budget, {} });
++}
++
++// KL*: minimize -lambda*log(k) - mean(log p) over sorted prefixes.
++
++struct llama_sampler_kl_opt {
++    const float  lambda;
++    const bool   global;    // scan the whole vector for the global minimum instead of stopping early
++    const size_t min_keep;
++};
++
++static const char * llama_sampler_kl_opt_name(const struct llama_sampler * /*smpl*/) {
++    return "kl-opt";
++}
++
++static void llama_sampler_kl_opt_apply(struct llama_sampler * smpl, llama_token_data_array * cur_p) {
++    auto * ctx = (llama_sampler_kl_opt *) smpl->ctx;
++
++    if (cur_p->size <= 1) {
++        return;
++    }
++
++    if (!cur_p->sorted) {
++        llama_token_data_array_partial_sort_inplace(cur_p, cur_p->size);
++    }
++
++    // log Z cancels across k. Logit gaps avoid softmax underflow in the tail.
++    const double top = cur_p->data[0].logit;
++    if (!std::isfinite(top)) {
++        return;
++    }
++    double sum_gap = 0.0;
++    double best_j = 0.0;
++    double previous_j = 0.0;
++    size_t best_k = 1;
++    size_t finite_count = 0;
++    for (size_t i = 0; i < cur_p->size; ++i) {
++        if (!std::isfinite(cur_p->data[i].logit)) {
++            break;
++        }
++        ++finite_count;
++        sum_gap += top - (double) cur_p->data[i].logit;
++        const size_t k = i + 1;
++        const double j = sum_gap / k - ctx->lambda * std::log((double) k);
++        if (!ctx->global && i > 0 && j > previous_j) {
++            break;
++        }
++        if (!ctx->global || j < best_j) {
++            best_j = j;
++            best_k = k;
++        }
++        previous_j = j;
++    }
++    // min_keep must never bring back a masked token.
++    while (finite_count < cur_p->size && finite_count < ctx->min_keep &&
++           std::isfinite(cur_p->data[finite_count].logit)) {
++        ++finite_count;
++    }
++    cur_p->size = std::min(finite_count, std::max(best_k, std::max<size_t>(1, ctx->min_keep)));
++}
++
++static struct llama_sampler * llama_sampler_kl_opt_clone(const struct llama_sampler * smpl) {
++    const auto * ctx = (const llama_sampler_kl_opt *) smpl->ctx;
++    return llama_sampler_init_kl_opt(ctx->lambda, ctx->global, ctx->min_keep);
++}
++
++static void llama_sampler_kl_opt_free(struct llama_sampler * smpl) {
++    delete (llama_sampler_kl_opt *) smpl->ctx;
++}
++
++static struct llama_sampler_i llama_sampler_kl_opt_i = {
++    /* .name              = */ llama_sampler_kl_opt_name,
++    /* .accept            = */ nullptr,
++    /* .apply             = */ llama_sampler_kl_opt_apply,
++    /* .reset             = */ nullptr,
++    /* .clone             = */ llama_sampler_kl_opt_clone,
++    /* .free              = */ llama_sampler_kl_opt_free,
++    /* .backend_init      = */ nullptr,
++    /* .backend_accept    = */ nullptr,
++    /* .backend_apply     = */ nullptr,
++    /* .backend_set_input = */ nullptr,
++    /* .backend_reset     = */ nullptr,
++    /* .copy_state        = */ nullptr,
++};
++
++struct llama_sampler * llama_sampler_init_kl_opt(float lambda, bool global, size_t min_keep) {
++    if (!std::isfinite(lambda) || lambda < 0.0f) {
++        throw std::invalid_argument("kl_opt_lambda must be finite and >= 0");
++    }
++    return llama_sampler_init(
++        /* .iface = */ &llama_sampler_kl_opt_i,
++        /* .ctx   = */ new llama_sampler_kl_opt {
++            /* .lambda   = */ lambda,
++            /* .global   = */ global,
++            /* .min_keep = */ min_keep,
++        }
++    );
++}
++
++// top-H
++
++struct llama_sampler_top_h {
++    const float  alpha;    // entropy bound coefficient in (0, 1)
++    const size_t min_keep;
++};
++
++static const char * llama_sampler_top_h_name(const struct llama_sampler * /*smpl*/) {
++    return "top-h";
++}
++
++static void llama_sampler_top_h_apply(struct llama_sampler * smpl, llama_token_data_array * cur_p) {
++    auto * ctx = (llama_sampler_top_h *) smpl->ctx;
++
++    if (ctx->alpha <= 0.0f || ctx->alpha >= 1.0f || cur_p->size <= 1) {
++        return;
++    }
++
++    // compute probabilities (and sort descending)
++    llama_sampler_softmax_impl(cur_p, true);
++
++    // entropy of the full (renormalized) distribution H(p)
++    double h_p = 0.0;
++    for (size_t i = 0; i < cur_p->size; ++i) {
++        const double p = cur_p->data[i].p;
++        if (p > 0.0) {
++            h_p -= p * std::log(p);
++        }
++    }
++
++    const double bound = (double) ctx->alpha * h_p;
++
++    // greedily grow the candidate set in descending-probability order, tracking the entropy of the
++    // renormalized subset via incremental accumulation (Alg. 2): with cumulative mass G and
++    // partial sum s = sum p_i ln p_i, H(q) = ln(G) - s/G. Stop before H(q) would exceed alpha*H(p).
++    double gamma = 0.0; // cumulative selected mass
++    double s     = 0.0; // running sum of p_i * ln(p_i) over selected tokens
++    size_t k     = 0;
++    for (size_t i = 0; i < cur_p->size; ++i) {
++        const double p = cur_p->data[i].p;
++        const double gamma_new = gamma + p;
++        const double s_new     = s + (p > 0.0 ? p * std::log(p) : 0.0);
++        const double h_q       = gamma_new > 0.0 ? (std::log(gamma_new) - s_new / gamma_new) : 0.0;
++
++        if (k >= 1 && h_q > bound) {
++            break;
++        }
++
++        gamma = gamma_new;
++        s     = s_new;
++        k     = i + 1;
++    }
++
++    k = std::max(k, ctx->min_keep);
++    k = std::max<size_t>(k, 1);
++    k = std::min(k, cur_p->size);
++
++    cur_p->size = k;
++}
++
++static struct llama_sampler * llama_sampler_top_h_clone(const struct llama_sampler * smpl) {
++    const auto * ctx = (const llama_sampler_top_h *) smpl->ctx;
++    return llama_sampler_init_top_h(ctx->alpha, ctx->min_keep);
++}
++
++static void llama_sampler_top_h_free(struct llama_sampler * smpl) {
++    delete (llama_sampler_top_h *) smpl->ctx;
++}
++
++static struct llama_sampler_i llama_sampler_top_h_i = {
++    /* .name              = */ llama_sampler_top_h_name,
++    /* .accept            = */ nullptr,
++    /* .apply             = */ llama_sampler_top_h_apply,
++    /* .reset             = */ nullptr,
++    /* .clone             = */ llama_sampler_top_h_clone,
++    /* .free              = */ llama_sampler_top_h_free,
++    /* .backend_init      = */ nullptr,
++    /* .backend_accept    = */ nullptr,
++    /* .backend_apply     = */ nullptr,
++    /* .backend_set_input = */ nullptr,
++    /* .backend_reset     = */ nullptr,
++    /* .copy_state        = */ nullptr,
++};
++
++struct llama_sampler * llama_sampler_init_top_h(float alpha, size_t min_keep) {
++    if (alpha <= 0.0f || alpha >= 1.0f) {
++        return llama_sampler_init_empty("?top-h");
++    }
++
++    return llama_sampler_init(
++        /* .iface = */ &llama_sampler_top_h_i,
++        /* .ctx   = */ new llama_sampler_top_h {
++            /* .alpha    = */ alpha,
++            /* .min_keep = */ min_keep,
++        }
++    );
++}
++
++// hill (effective-support-size / Hill-number truncation; keeps top ceil(D_q) tokens,
++// where D_q = (sum_i p_i^q)^(1/(1-q)) is the order-q Hill number. q=1 -> keep exp(H)
++// (perplexity-many) tokens; q=2 -> keep 1/sum(p_i^2) (inverse Simpson). A self-tuning top-k.)
++
++struct llama_sampler_hill {
++    const float  order;
++    const size_t min_keep;
++};
++
++static const char * llama_sampler_hill_name(const struct llama_sampler * /*smpl*/) {
++    return "hill";
++}
++
++static void llama_sampler_hill_apply(struct llama_sampler * smpl, llama_token_data_array * cur_p) {
++    auto * ctx = (llama_sampler_hill *) smpl->ctx;
++
++    if (cur_p->size <= 1) {
++        return;
++    }
++
++    llama_sampler_softmax_impl(cur_p, true);
++
++    const double q = (double) ctx->order;
++    double D;
++    if (std::fabs(q - 1.0) < 1e-6) {
++        double h = 0.0;
++        for (size_t i = 0; i < cur_p->size; ++i) {
++            const double p = cur_p->data[i].p;
++            if (p > 0.0) {
++                h -= p * std::log(p);
++            }
++        }
++        D = std::exp(h); // exp(Shannon entropy) = perplexity
++    } else {
++        double s = 0.0;
++        for (size_t i = 0; i < cur_p->size; ++i) {
++            const double p = cur_p->data[i].p;
++            if (p > 0.0) {
++                s += std::pow(p, q);
++            }
++        }
++        D = (s > 0.0) ? std::pow(s, 1.0 / (1.0 - q)) : 1.0;
++    }
++
++    size_t k = (size_t) std::ceil(D);
++    k = std::max(k, ctx->min_keep);
++    k = std::max<size_t>(k, 1);
++    k = std::min(k, cur_p->size);
++
++    cur_p->size = k;
++}
++
++static struct llama_sampler * llama_sampler_hill_clone(const struct llama_sampler * smpl) {
++    const auto * ctx = (const llama_sampler_hill *) smpl->ctx;
++    return llama_sampler_init_hill(ctx->order, ctx->min_keep);
++}
++
++static void llama_sampler_hill_free(struct llama_sampler * smpl) {
++    delete (llama_sampler_hill *) smpl->ctx;
++}
++
++static struct llama_sampler_i llama_sampler_hill_i = {
++    /* .name              = */ llama_sampler_hill_name,
++    /* .accept            = */ nullptr,
++    /* .apply             = */ llama_sampler_hill_apply,
++    /* .reset             = */ nullptr,
++    /* .clone             = */ llama_sampler_hill_clone,
++    /* .free              = */ llama_sampler_hill_free,
++    /* .backend_init      = */ nullptr,
++    /* .backend_accept    = */ nullptr,
++    /* .backend_apply     = */ nullptr,
++    /* .backend_set_input = */ nullptr,
++    /* .backend_reset     = */ nullptr,
++    /* .copy_state        = */ nullptr,
++};
++
++struct llama_sampler * llama_sampler_init_hill(float order, size_t min_keep) {
++    return llama_sampler_init(
++        /* .iface = */ &llama_sampler_hill_i,
++        /* .ctx   = */ new llama_sampler_hill {
++            /* .order    = */ order,
++            /* .min_keep = */ min_keep,
++        }
++    );
++}
++
++// geo-mean (geometric-mean-probability threshold; keep p_i >= coeff * exp(-H),
++// i.e. every token more probable than the "typical" token. coeff < 1 relaxes
++// (more diverse), coeff > 1 tightens. Threshold-form dual of hill at q=1.)
++
++struct llama_sampler_geo_mean {
++    const float  coeff;
++    const size_t min_keep;
++};
++
++static const char * llama_sampler_geo_mean_name(const struct llama_sampler * /*smpl*/) {
++    return "geo-mean";
++}
++
++static void llama_sampler_geo_mean_apply(struct llama_sampler * smpl, llama_token_data_array * cur_p) {
++    auto * ctx = (llama_sampler_geo_mean *) smpl->ctx;
++
++    if (cur_p->size <= 1) {
++        return;
++    }
++
++    llama_sampler_softmax_impl(cur_p, true);
++
++    double h = 0.0;
++    for (size_t i = 0; i < cur_p->size; ++i) {
++        const double p = cur_p->data[i].p;
++        if (p > 0.0) {
++            h -= p * std::log(p);
++        }
++    }
++    const double thr = (double) ctx->coeff * std::exp(-h);
++
++    size_t k = 0;
++    for (size_t i = 0; i < cur_p->size; ++i) {
++        if ((double) cur_p->data[i].p >= thr) {
++            k = i + 1;
++        } else {
++            break;
++        }
++    }
++
++    k = std::max(k, ctx->min_keep);
++    k = std::max<size_t>(k, 1);
++    k = std::min(k, cur_p->size);
++
++    cur_p->size = k;
++}
++
++static struct llama_sampler * llama_sampler_geo_mean_clone(const struct llama_sampler * smpl) {
++    const auto * ctx = (const llama_sampler_geo_mean *) smpl->ctx;
++    return llama_sampler_init_geo_mean(ctx->coeff, ctx->min_keep);
++}
++
++static void llama_sampler_geo_mean_free(struct llama_sampler * smpl) {
++    delete (llama_sampler_geo_mean *) smpl->ctx;
++}
++
++static struct llama_sampler_i llama_sampler_geo_mean_i = {
++    /* .name              = */ llama_sampler_geo_mean_name,
++    /* .accept            = */ nullptr,
++    /* .apply             = */ llama_sampler_geo_mean_apply,
++    /* .reset             = */ nullptr,
++    /* .clone             = */ llama_sampler_geo_mean_clone,
++    /* .free              = */ llama_sampler_geo_mean_free,
++    /* .backend_init      = */ nullptr,
++    /* .backend_accept    = */ nullptr,
++    /* .backend_apply     = */ nullptr,
++    /* .backend_set_input = */ nullptr,
++    /* .backend_reset     = */ nullptr,
++    /* .copy_state        = */ nullptr,
++};
++
++struct llama_sampler * llama_sampler_init_geo_mean(float coeff, size_t min_keep) {
++    return llama_sampler_init(
++        /* .iface = */ &llama_sampler_geo_mean_i,
++        /* .ctx   = */ new llama_sampler_geo_mean {
++            /* .coeff    = */ coeff,
++            /* .min_keep = */ min_keep,
++        }
++    );
++}
++
++// otsu (parameter-free bipartition of the RAW logits, maximizing between-class
++// variance w0*w1*(mu0-mu1)^2 over all split points; keeps the high class. Finds the
++// natural "signal vs noise" break with no hyperparameter. Temperature-invariant.)
++
++struct llama_sampler_otsu {
++    const size_t min_keep;
++};
++
++static const char * llama_sampler_otsu_name(const struct llama_sampler * /*smpl*/) {
++    return "otsu";
++}
++
++static void llama_sampler_otsu_apply(struct llama_sampler * smpl, llama_token_data_array * cur_p) {
++    auto * ctx = (llama_sampler_otsu *) smpl->ctx;
++
++    if (cur_p->size <= 2) {
++        return;
++    }
++    if (!cur_p->sorted) {
++        llama_token_data_array_partial_sort_inplace(cur_p, cur_p->size);
++    }
++
++    // restrict to finite logits (masked -inf tokens sink to the bottom of the desc sort)
++    size_t n = cur_p->size;
++    while (n > 0 && cur_p->data[n - 1].logit == -INFINITY) {
++        --n;
++    }
++    if (n <= 2) {
++        return;
++    }
++
++    double sum_all = 0.0;
++    for (size_t i = 0; i < n; ++i) {
++        sum_all += (double) cur_p->data[i].logit;
++    }
++
++    double sum0 = 0.0, best = -1.0;
++    size_t kbest = 1;
++    for (size_t t = 1; t < n; ++t) {
++        sum0 += (double) cur_p->data[t - 1].logit;
++        const double w0  = (double) t / (double) n;
++        const double w1  = 1.0 - w0;
++        const double mu0 = sum0 / (double) t;
++        const double mu1 = (sum_all - sum0) / (double) (n - t);
++        const double b   = w0 * w1 * (mu0 - mu1) * (mu0 - mu1);
++        if (b > best) {
++            best  = b;
++            kbest = t;
++        }
++    }
++
++    size_t k = std::max(kbest, ctx->min_keep);
++    k = std::max<size_t>(k, 1);
++    k = std::min(k, cur_p->size);
++
++    cur_p->size = k;
++}
++
++static struct llama_sampler * llama_sampler_otsu_clone(const struct llama_sampler * smpl) {
++    const auto * ctx = (const llama_sampler_otsu *) smpl->ctx;
++    return llama_sampler_init_otsu(ctx->min_keep);
++}
++
++static void llama_sampler_otsu_free(struct llama_sampler * smpl) {
++    delete (llama_sampler_otsu *) smpl->ctx;
++}
++
++static struct llama_sampler_i llama_sampler_otsu_i = {
++    /* .name              = */ llama_sampler_otsu_name,
++    /* .accept            = */ nullptr,
++    /* .apply             = */ llama_sampler_otsu_apply,
++    /* .reset             = */ nullptr,
++    /* .clone             = */ llama_sampler_otsu_clone,
++    /* .free              = */ llama_sampler_otsu_free,
++    /* .backend_init      = */ nullptr,
++    /* .backend_accept    = */ nullptr,
++    /* .backend_apply     = */ nullptr,
++    /* .backend_set_input = */ nullptr,
++    /* .backend_reset     = */ nullptr,
++    /* .copy_state        = */ nullptr,
++};
++
++struct llama_sampler * llama_sampler_init_otsu(size_t min_keep) {
++    return llama_sampler_init(
++        /* .iface = */ &llama_sampler_otsu_i,
++        /* .ctx   = */ new llama_sampler_otsu {
++            /* .min_keep = */ min_keep,
++        }
++    );
++}
++
++// kneedle (parameter-free elbow: on the sorted-logit survival curve normalized to the
++// unit square, keep up to the point of maximum distance from the chord joining the
++// endpoints, i.e. the knee / max-curvature point. Temperature-invariant.)
++
++struct llama_sampler_kneedle {
++    const size_t min_keep;
++};
++
++static const char * llama_sampler_kneedle_name(const struct llama_sampler * /*smpl*/) {
++    return "kneedle";
++}
++
++static void llama_sampler_kneedle_apply(struct llama_sampler * smpl, llama_token_data_array * cur_p) {
++    auto * ctx = (llama_sampler_kneedle *) smpl->ctx;
++
++    if (cur_p->size <= 2) {
++        return;
++    }
++    if (!cur_p->sorted) {
++        llama_token_data_array_partial_sort_inplace(cur_p, cur_p->size);
++    }
++
++    size_t n = cur_p->size;
++    while (n > 0 && cur_p->data[n - 1].logit == -INFINITY) {
++        --n;
++    }
++    if (n < 3) {
++        return;
++    }
++
++    const double lmax  = (double) cur_p->data[0].logit;
++    const double lmin  = (double) cur_p->data[n - 1].logit;
++    const double range = lmax - lmin;
++    if (range <= 0.0) {
++        return;
++    }
++
++    double best = -1.0;
++    size_t kbest = 1;
++    for (size_t i = 0; i < n; ++i) {
++        const double x = (double) i / (double) (n - 1);
++        const double y = ((double) cur_p->data[i].logit - lmin) / range;
++        const double d = std::fabs(x + y - 1.0); // proportional to distance from the (0,1)->(1,0) chord
++        if (d > best) {
++            best  = d;
++            kbest = i + 1;
++        }
++    }
++
++    size_t k = std::max(kbest, ctx->min_keep);
++    k = std::max<size_t>(k, 1);
++    k = std::min(k, cur_p->size);
++
++    cur_p->size = k;
++}
++
++static struct llama_sampler * llama_sampler_kneedle_clone(const struct llama_sampler * smpl) {
++    const auto * ctx = (const llama_sampler_kneedle *) smpl->ctx;
++    return llama_sampler_init_kneedle(ctx->min_keep);
++}
++
++static void llama_sampler_kneedle_free(struct llama_sampler * smpl) {
++    delete (llama_sampler_kneedle *) smpl->ctx;
++}
++
++static struct llama_sampler_i llama_sampler_kneedle_i = {
++    /* .name              = */ llama_sampler_kneedle_name,
++    /* .accept            = */ nullptr,
++    /* .apply             = */ llama_sampler_kneedle_apply,
++    /* .reset             = */ nullptr,
++    /* .clone             = */ llama_sampler_kneedle_clone,
++    /* .free              = */ llama_sampler_kneedle_free,
++    /* .backend_init      = */ nullptr,
++    /* .backend_accept    = */ nullptr,
++    /* .backend_apply     = */ nullptr,
++    /* .backend_set_input = */ nullptr,
++    /* .backend_reset     = */ nullptr,
++    /* .copy_state        = */ nullptr,
++};
++
++struct llama_sampler * llama_sampler_init_kneedle(size_t min_keep) {
++    return llama_sampler_init(
++        /* .iface = */ &llama_sampler_kneedle_i,
++        /* .ctx   = */ new llama_sampler_kneedle {
++            /* .min_keep = */ min_keep,
++        }
++    );
++}
++
++// top-gap (keep the head above the single largest logit gap l_i - l_{i+1}. Parameter-free
++// and temperature-invariant. Aggressive/tight by nature -- a coherence floor, not a
++// creativity lever -- since the biggest gap often sits right below the dominant tokens.)
++
++struct llama_sampler_top_gap {
++    const size_t min_keep;
++};
++
++static const char * llama_sampler_top_gap_name(const struct llama_sampler * /*smpl*/) {
++    return "top-gap";
++}
++
++static void llama_sampler_top_gap_apply(struct llama_sampler * smpl, llama_token_data_array * cur_p) {
++    auto * ctx = (llama_sampler_top_gap *) smpl->ctx;
++
++    if (cur_p->size <= 1) {
++        return;
++    }
++    if (!cur_p->sorted) {
++        llama_token_data_array_partial_sort_inplace(cur_p, cur_p->size);
++    }
++
++    size_t n = cur_p->size;
++    while (n > 0 && cur_p->data[n - 1].logit == -INFINITY) {
++        --n;
++    }
++    if (n < 2) {
++        return;
++    }
++
++    double best = -1.0;
++    size_t kbest = 1;
++    for (size_t i = 0; i + 1 < n; ++i) {
++        const double gap = (double) cur_p->data[i].logit - (double) cur_p->data[i + 1].logit;
++        if (gap > best) {
++            best  = gap;
++            kbest = i + 1;
++        }
++    }
++
++    size_t k = std::max(kbest, ctx->min_keep);
++    k = std::max<size_t>(k, 1);
++    k = std::min(k, cur_p->size);
++
++    cur_p->size = k;
++}
++
++static struct llama_sampler * llama_sampler_top_gap_clone(const struct llama_sampler * smpl) {
++    const auto * ctx = (const llama_sampler_top_gap *) smpl->ctx;
++    return llama_sampler_init_top_gap(ctx->min_keep);
++}
++
++static void llama_sampler_top_gap_free(struct llama_sampler * smpl) {
++    delete (llama_sampler_top_gap *) smpl->ctx;
++}
++
++static struct llama_sampler_i llama_sampler_top_gap_i = {
++    /* .name              = */ llama_sampler_top_gap_name,
++    /* .accept            = */ nullptr,
++    /* .apply             = */ llama_sampler_top_gap_apply,
++    /* .reset             = */ nullptr,
++    /* .clone             = */ llama_sampler_top_gap_clone,
++    /* .free              = */ llama_sampler_top_gap_free,
++    /* .backend_init      = */ nullptr,
++    /* .backend_accept    = */ nullptr,
++    /* .backend_apply     = */ nullptr,
++    /* .backend_set_input = */ nullptr,
++    /* .backend_reset     = */ nullptr,
++    /* .copy_state        = */ nullptr,
++};
++
++struct llama_sampler * llama_sampler_init_top_gap(size_t min_keep) {
++    return llama_sampler_init(
++        /* .iface = */ &llama_sampler_top_gap_i,
++        /* .ctx   = */ new llama_sampler_top_gap {
++            /* .min_keep = */ min_keep,
++        }
++    );
++}
++
++// robust-z (keep logits >= median + coeff*MAD, a median/MAD robust cousin of top-n-sigma;
++// the fat low-probability tail inflates the mean/std that top-n-sigma uses, whereas the
++// median and MAD are unaffected by it. Temperature-invariant.)
++
++struct llama_sampler_robust_z {
++    const float  coeff;
++    const size_t min_keep;
++};
++
++static const char * llama_sampler_robust_z_name(const struct llama_sampler * /*smpl*/) {
++    return "robust-z";
++}
++
++static void llama_sampler_robust_z_apply(struct llama_sampler * smpl, llama_token_data_array * cur_p) {
++    auto * ctx = (llama_sampler_robust_z *) smpl->ctx;
++
++    if (cur_p->size <= 2) {
++        return;
++    }
++    if (!cur_p->sorted) {
++        llama_token_data_array_partial_sort_inplace(cur_p, cur_p->size);
++    }
++
++    size_t n = cur_p->size;
++    while (n > 0 && cur_p->data[n - 1].logit == -INFINITY) {
++        --n;
++    }
++    if (n < 2) {
++        return;
++    }
++
++    std::vector<float> v;
++    v.reserve(n);
++    for (size_t i = 0; i < n; ++i) {
++        v.push_back(cur_p->data[i].logit);
++    }
++    const size_t mid = n / 2;
++    std::nth_element(v.begin(), v.begin() + mid, v.end());
++    const double median = (double) v[mid];
++
++    std::vector<float> dev;
++    dev.reserve(n);
++    for (size_t i = 0; i < n; ++i) {
++        dev.push_back(std::fabs((double) v[i] - median));
++    }
++    std::nth_element(dev.begin(), dev.begin() + mid, dev.end());
++    const double mad = (double) dev[mid];
++
++    const double thr = median + (double) ctx->coeff * mad;
++
++    size_t k = 0;
++    for (size_t i = 0; i < n; ++i) {
++        if ((double) cur_p->data[i].logit >= thr) {
++            k = i + 1;
++        } else {
++            break;
++        }
++    }
++
++    k = std::max(k, ctx->min_keep);
++    k = std::max<size_t>(k, 1);
++    k = std::min(k, cur_p->size);
++
++    cur_p->size = k;
++}
++
++static struct llama_sampler * llama_sampler_robust_z_clone(const struct llama_sampler * smpl) {
++    const auto * ctx = (const llama_sampler_robust_z *) smpl->ctx;
++    return llama_sampler_init_robust_z(ctx->coeff, ctx->min_keep);
++}
++
++static void llama_sampler_robust_z_free(struct llama_sampler * smpl) {
++    delete (llama_sampler_robust_z *) smpl->ctx;
++}
++
++static struct llama_sampler_i llama_sampler_robust_z_i = {
++    /* .name              = */ llama_sampler_robust_z_name,
++    /* .accept            = */ nullptr,
++    /* .apply             = */ llama_sampler_robust_z_apply,
++    /* .reset             = */ nullptr,
++    /* .clone             = */ llama_sampler_robust_z_clone,
++    /* .free              = */ llama_sampler_robust_z_free,
++    /* .backend_init      = */ nullptr,
++    /* .backend_accept    = */ nullptr,
++    /* .backend_apply     = */ nullptr,
++    /* .backend_set_input = */ nullptr,
++    /* .backend_reset     = */ nullptr,
++    /* .copy_state        = */ nullptr,
++};
++
++struct llama_sampler * llama_sampler_init_robust_z(float coeff, size_t min_keep) {
++    return llama_sampler_init(
++        /* .iface = */ &llama_sampler_robust_z_i,
++        /* .ctx   = */ new llama_sampler_robust_z {
++            /* .coeff    = */ coeff,
++            /* .min_keep = */ min_keep,
++        }
++    );
++}
++
+ // DRY
+ 
+ struct llama_sampler_dry {
+diff --git a/tests/test-sampling.cpp b/tests/test-sampling.cpp
+index 353a5a1a1..b62540c02 100644
+--- a/tests/test-sampling.cpp
++++ b/tests/test-sampling.cpp
+@@ -91,6 +91,111 @@ static void test_dist_singleton_rng() {
+     llama_sampler_free(control);
+ }
+ 
++static void test_kl_budget() {
++    const std::vector<float> logits = {0.0f, -1.0f, -3.0f, -INFINITY};
++    double previous_h = -1.0;
++    for (float budget : {0.0f, 0.00001f, 0.01f, 0.1f, 0.3f, 1.0f, 20.0f}) {
++        std::vector<llama_token_data> data;
++        for (size_t i = 0; i < logits.size(); ++i) data.push_back({(llama_token) i, logits[i], 0});
++        llama_token_data_array cur = {data.data(), data.size(), -1, false};
++        auto * smpl = llama_sampler_init_kl_budget(budget);
++        auto * clone = llama_sampler_clone(smpl);
++        llama_sampler_free(smpl);
++        llama_sampler_apply(clone, &cur);
++        llama_sampler_free(clone);
++        GGML_ASSERT(cur.data[3].logit == -INFINITY);
++        auto * dist = llama_sampler_init_dist(0);
++        llama_sampler_apply(dist, &cur);
++        llama_sampler_free(dist);
++        const double log_z = std::log(1.0 + std::exp(-1.0) + std::exp(-3.0));
++        double kl = 0, h = 0;
++        for (size_t i = 0; i < 3; ++i) {
++            double q = cur.data[i].p;
++            kl += q * (std::log(q) - logits[i] + log_z);
++            h -= q * std::log(q);
++        }
++        GGML_ASSERT(kl <= budget + 1e-6);
++        GGML_ASSERT(h >= previous_h - 1e-6);
++        previous_h = h;
++        const double uniform_kl = 4.0 / 3.0 + log_z - std::log(3.0);
++        if (budget < uniform_kl) {
++            GGML_ASSERT(std::abs(kl - budget) < 1e-6);
++        } else {
++            GGML_ASSERT(std::abs(h - std::log(3.0)) < 1e-6);
++        }
++        // Check the entropy optimum against all points on a three-token simplex grid.
++        for (int a = 1; a < 100; ++a) {
++            for (int b = 1; b < 100 - a; ++b) {
++                double q[] = {a / 100.0, b / 100.0, (100 - a - b) / 100.0};
++                double grid_kl = 0, grid_h = 0;
++                for (int i = 0; i < 3; ++i) {
++                    grid_kl += q[i] * (std::log(q[i]) - logits[i] + log_z);
++                    grid_h -= q[i] * std::log(q[i]);
++                }
++                if (grid_kl <= budget) GGML_ASSERT(grid_h <= h + 1e-6);
++            }
++        }
++    }
++    // Large finite gaps must remain usable even when reference softmax underflows.
++    std::vector<llama_token_data> tail = {{0, 0.0f, 0}, {1, -1000.0f, 0}};
++    llama_token_data_array cur = {tail.data(), tail.size(), -1, false};
++    auto * smpl = llama_sampler_init_kl_budget(0.1f);
++    llama_sampler_apply(smpl, &cur);
++    llama_sampler_free(smpl);
++    GGML_ASSERT(std::isfinite(cur.data[1].logit));
++    GGML_ASSERT(cur.data[1].logit < -8.0f);
++}
++
++static void test_kl_opt() {
++    auto check = [](std::vector<float> logits, float lambda, bool global, size_t min_keep, size_t expected) {
++        std::vector<llama_token_data> data;
++        for (size_t i = 0; i < logits.size(); ++i) {
++            data.push_back({(llama_token) i, logits[i], 0.0f});
++        }
++        llama_token_data_array cur = {data.data(), data.size(), -1, false};
++        auto * sampler = llama_sampler_init_kl_opt(lambda, global, min_keep);
++        auto * clone = llama_sampler_clone(sampler);
++        llama_sampler_free(sampler);
++        llama_sampler_apply(clone, &cur);
++        GGML_ASSERT(cur.size == expected);
++        GGML_ASSERT(cur.sorted || cur.size <= 1);
++        for (size_t i = 0; i < cur.size; ++i) {
++            GGML_ASSERT(std::isfinite(cur.data[i].logit));
++        }
++        llama_sampler_free(clone);
++    };
++    check({0}, 1, true, 1, 1);
++    check({0, 0, 0, 0}, 1, true, 1, 4);
++    check({0, -20, -40}, 1, true, 1, 1);
++    check({std::log(0.4f), std::log(0.3f), std::log(0.2f), std::log(0.07f), std::log(0.03f)}, 1, true, 1, 3);
++    check({0, -2, -2, -2, -2, -2, -2, -2}, 1, true, 1, 8);
++    check({0, -2, -2, -2, -2, -2, -2, -2}, 1, false, 1, 1);
++    check({0, -1000, -2000}, 1, true, 2, 2);
++    check({0, -INFINITY, -INFINITY}, 1, true, 3, 1);
++    check({0, -1, -2}, 0, true, 1, 1);
++    check({0, 0, 0}, 0, true, 1, 1);
++    check({0, 0, 0}, 0, false, 1, 3);
++    // Exhaustive prefix objective on deterministic distributions, including underflowing tails.
++    for (int trial = 0; trial < 100; ++trial) {
++        std::vector<float> z;
++        for (int i = 0; i < 37; ++i) {
++            z.push_back(-float((trial * 17 + i * 29) % 131) / (trial % 3 == 0 ? 0.1f : 10.0f));
++        }
++        auto sorted = z;
++        std::sort(sorted.begin(), sorted.end(), std::greater<float>());
++        for (float lambda : {0.0f, 0.5f, 1.0f, 1.5f, 3.0f}) {
++            double sum = 0, best = INFINITY;
++            size_t k_best = 1;
++            for (size_t k = 1; k <= sorted.size(); ++k) {
++                sum += sorted[0] - (double) sorted[k - 1];
++                double objective = sum / k - lambda * std::log((double) k);
++                if (objective < best) { best = objective; k_best = k; }
++            }
++            check(z, lambda, true, 1, k_best);
++        }
++    }
++}
++
+ static void test_temp(const std::vector<float> & probs, const std::vector<float> & probs_expected, float temp) {
+     sampler_tester tester(probs, probs_expected);
+ 
+@@ -222,6 +327,39 @@ static void test_top_n_sigma(const std::vector<float> & probs, const std::vector
+     tester.check();
+ }
+ 
++static void test_min_k(const std::vector<float> & probs, const std::vector<float> & probs_expected, float tau) {
++    sampler_tester tester(probs, probs_expected);
++
++    DUMP(&tester.cur_p);
++    tester.apply(llama_sampler_init_min_k(tau, 0));
++    tester.apply(llama_sampler_init_dist (0));
++    DUMP(&tester.cur_p);
++
++    tester.check();
++}
++
++static void test_p_less(const std::vector<float> & probs, const std::vector<float> & probs_expected, bool norm) {
++    sampler_tester tester(probs, probs_expected);
++
++    DUMP(&tester.cur_p);
++    tester.apply(llama_sampler_init_p_less(2.0f, norm, 0));
++    tester.apply(llama_sampler_init_dist (0));
++    DUMP(&tester.cur_p);
++
++    tester.check();
++}
++
++static void test_top_h(const std::vector<float> & probs, const std::vector<float> & probs_expected, float alpha) {
++    sampler_tester tester(probs, probs_expected);
++
++    DUMP(&tester.cur_p);
++    tester.apply(llama_sampler_init_top_h(alpha, 0));
++    tester.apply(llama_sampler_init_dist (0));
++    DUMP(&tester.cur_p);
++
++    tester.check();
++}
++
+ static void test_sampler_queue(const size_t n_vocab, const std::string & samplers_sequence, const int top_k, const float top_p, const float min_p
+ ) {
+     sampler_tester tester(n_vocab);
+@@ -338,6 +476,8 @@ static void test_perf() {
+ int main(void) {
+     ggml_time_init();
+ 
++    test_kl_budget();
++    test_kl_opt();
+     test_dist_singleton_rng();
+ 
+     test_temp({0.1f, 0.2f, 0.3f, 0.4f}, {0.1f, 0.2f, 0.3f, 0.4f}, 1.0f);
+@@ -396,6 +536,18 @@ int main(void) {
+     test_top_n_sigma({0.1f, 0.2f, 0.3f, 0.4f}, {0.1f, 0.2f, 0.3f, 0.4f}, 0.00f); // top_n_sigma == 0 now represents a no-op rather than greedy decoding as of PR#13345
+     test_top_n_sigma({0.1f, 0.2f, 0.3f, 0.4f}, {0.1f, 0.2f, 0.3f, 0.4f}, 3.00f);
+ 
++    // min-k: cliff at the head keeps 1 token, tau=3 fallback widens to 2 for this range; tau<0 disables fallback -> just the cliff
++    test_min_k({0.1f, 0.2f, 0.3f, 0.4f}, {0.571429f, 0.428571f}, 3.00f);
++    test_min_k({0.1f, 0.2f, 0.3f, 0.4f}, {1.0f},                 -1.00f);
++
++    // p-less: threshold L = sum p_i^2 = 0.295 keeps {0.4, 0.3}; p-less_norm relaxes to L_norm = 0.06, keeping all
++    test_p_less({0.15f, 0.15f, 0.3f, 0.4f}, {0.571429f, 0.428571f},          false);
++    test_p_less({0.15f, 0.15f, 0.3f, 0.4f}, {0.4f, 0.3f, 0.15f, 0.15f},      true);
++
++    // top-H: alpha=0.6 admits the second token but not the third; alpha=0 is a no-op (unsorted, order preserved)
++    test_top_h({0.15f, 0.15f, 0.3f, 0.4f}, {0.571429f, 0.428571f},           0.60f);
++    test_top_h({0.15f, 0.15f, 0.3f, 0.4f}, {0.15f, 0.15f, 0.3f, 0.4f},       0.00f);
++
+     test_sampler_queue(10000, "k", 10000, 1.0f, 1.0f);
+     test_sampler_queue(10000, "k",     1, 1.0f, 1.0f);
+     test_sampler_queue(10000, "p", 10000, 1.0f, 1.0f);
+diff --git a/tools/server/server-common.cpp b/tools/server/server-common.cpp
+index 7bf1138c8..a631a294b 100644
+--- a/tools/server/server-common.cpp
++++ b/tools/server/server-common.cpp
+@@ -1560,9 +1560,9 @@ std::vector<llama_token_data> get_token_probabilities(llama_context * ctx, int i
+             max_l = std::max(max_l, t.logit);
+         }
+     }
+-    float cum_sum = 0.0f;
++    double cum_sum = 0.0;
+     for (auto & t : cur) {
+-        float p = expf(t.logit - max_l);
++        const double p = std::exp(double(t.logit) - double(max_l));
+         t.p = p;
+         cum_sum += p;
+     }
+diff --git a/tools/server/server-context.cpp b/tools/server/server-context.cpp
+index b6835e434..59808998d 100644
+--- a/tools/server/server-context.cpp
++++ b/tools/server/server-context.cpp
+@@ -468,7 +468,8 @@ struct server_slot {
+     }
+ 
+     bool can_speculate() const {
+-        return !!spec;
++        // Speculative verification does not retain per-token probability arrays.
++        return !!spec && (!task || task->params.sampling.n_probs == 0);
+     }
+ 
+     void add_token(const completion_token_output & token) {
+@@ -1787,7 +1788,7 @@ private:
+                 return false;
+             }
+ 
+-            const bool need_pre_sample_logits = task.params.sampling.n_probs > 0 && !task.params.post_sampling_probs;
++            const bool need_pre_sample_logits = task.params.sampling.n_probs > 0;
+ 
+             bool use_backend_sampling = task.params.sampling.backend_sampling;
+ 
+@@ -1964,8 +1965,64 @@ private:
+     void populate_token_probs(const server_slot & slot, completion_token_output & result, bool post_sampling, bool special, int idx) const {
+         const size_t n_probs_request = slot.task->params.sampling.n_probs;
+ 
++        const float * logits = llama_get_logits_ith(ctx_tgt, idx);
++        const int n_vocab = llama_vocab_n_tokens(llama_model_get_vocab(model_tgt));
++        result.vocab_size = n_vocab;
++        if (logits && result.tok >= 0 && result.tok < n_vocab && std::isfinite(logits[result.tok])) {
++            result.raw_rank = 1;
++            for (int i = 0; i < n_vocab; ++i) {
++                result.raw_rank += logits[i] > logits[result.tok];
++            }
++        }
++
++        const auto * cur_p = common_sampler_get_candidates(slot.smpl.get(), post_sampling);
++        result.candidate_count = 0;
++        for (size_t i = 0; i < cur_p->size; ++i) {
++            // Count admitted tokens even if their softmax probabilities underflow.
++            result.candidate_count += std::isfinite(cur_p->data[i].logit);
++            if (cur_p->data[i].id == result.tok) {
++                result.post_rank = 1;
++                for (size_t j = 0; j < cur_p->size; ++j) {
++                    result.post_rank += cur_p->data[j].logit > cur_p->data[i].logit;
++                }
++            }
++        }
++
++        // Compute moments over the full distribution, independent of the preview size.
++        if (post_sampling || logits) {
++            const size_t count = post_sampling ? cur_p->size : (size_t) n_vocab;
++            const auto logit_at = [&](size_t i) -> double {
++                return post_sampling ? cur_p->data[i].logit : logits[i];
++            };
++            double peak = -INFINITY;
++            for (size_t i = 0; i < count; ++i) {
++                if (std::isfinite(logit_at(i))) {
++                    peak = std::max(peak, logit_at(i));
++                }
++            }
++            double z = 0.0, first = 0.0, second = 0.0;
++            for (size_t i = 0; i < count; ++i) {
++                if (!std::isfinite(logit_at(i))) {
++                    continue;
++                }
++                const double gap = logit_at(i) - peak;
++                const double weight = std::exp(gap);
++                z += weight;
++                first += weight * gap;
++                second += weight * gap * gap;
++            }
++            if (z > 0.0) {
++                const double mean = first / z;
++                const double ln2 = std::log(2.0);
++                result.entropy_bits = std::max(0.0, (std::log(z) - mean) / ln2);
++                result.varentropy_bits2 = std::max(0.0, (second / z - mean * mean) / (ln2 * ln2));
++                if (!post_sampling && result.tok >= 0 && result.tok < n_vocab) {
++                    result.prob = std::exp(logits[result.tok] - peak) / z;
++                }
++            }
++        }
++
+         if (post_sampling) {
+-            const auto * cur_p = common_sampler_get_candidates(slot.smpl.get(), true);
+             const size_t max_probs = cur_p->size;
+             const size_t n_probs = std::min(max_probs, n_probs_request);
+ 
+@@ -1997,15 +2054,6 @@ private:
+             const size_t max_probs = cur.size();
+             const size_t n_probs = std::min(max_probs, n_probs_request);
+ 
+-            // set probability for sampled token
+-            for (size_t i = 0; i < max_probs; i++) {
+-                // set probability for sampled token
+-                if (cur[i].id == result.tok) {
+-                    result.prob = cur[i].p;
+-                    break;
+-                }
+-            }
+-
+             // set probability for top n_probs tokens
+             result.probs.reserve(n_probs);
+             for (size_t i = 0; i < n_probs; i++) {
+diff --git a/tools/server/server-schema.cpp b/tools/server/server-schema.cpp
+index 27ecafb7a..ecb05826d 100644
+--- a/tools/server/server-schema.cpp
++++ b/tools/server/server-schema.cpp
+@@ -101,6 +101,38 @@ std::vector<std::unique_ptr<field>> make_llama_cmpl_schema(const common_params &
+     add((new field_num("top_n_sigma", params.sampling.top_n_sigma))
+         ->set_desc("Keep tokens within n standard deviations of the top token logit (< 0 = disabled)"));
+ 
++    add((new field_num("min_k_tau", params.sampling.min_k_tau))
++        ->set_desc("Set the min-k fallback constant for near-uniform distributions (< 0 = disabled)"));
++
++    add((new field_bool("p_less_norm", params.sampling.p_less_norm))
++        ->set_desc("Use the relaxed, diversity-favoring p-less_norm threshold"));
++
++    add((new field_num("p_less_exponent", params.sampling.p_less_exponent))
++        ->set_desc("Set the Renyi order used by p-less sampling"));
++
++    add((new field_num("kl_budget", params.sampling.kl_budget))
++        ->set_hard_limits(0.0f, 1e6f)
++        ->set_desc("Maximum reverse KL in nats for kl_budget entropy maximization on the incoming support"));
++
++    add((new field_num("kl_opt_lambda", params.sampling.kl_opt_lambda))
++        ->set_hard_limits(0.0f, 1e6f)
++        ->set_desc("KL* entropy weight; 1 minimizes reverse KL for a uniform top-k draw"));
++
++    add((new field_bool("kl_opt_global", params.sampling.kl_opt_global))
++        ->set_desc("KL* global minimum (false selects the first local minimum)"));
++
++    add((new field_num("top_h_alpha", params.sampling.top_h_alpha))
++        ->set_desc("Set the top-H entropy bound coefficient"));
++
++    add((new field_num("hill_order", params.sampling.hill_order))
++        ->set_desc("Set the Renyi/Hill order used to choose the candidate count"));
++
++    add((new field_num("geo_mean_coeff", params.sampling.geo_mean_coeff))
++        ->set_desc("Set the geometric-mean probability threshold coefficient"));
++
++    add((new field_num("robust_z_coeff", params.sampling.robust_z_coeff))
++        ->set_desc("Set the robust-z median absolute deviation coefficient"));
++
+     add((new field_num("xtc_probability", params.sampling.xtc_probability))
+         ->set_limits(0.0f, 1.0f)
+         ->set_desc("Set the chance for token removal via XTC sampler (0 = disabled)"));
+@@ -151,8 +183,8 @@ std::vector<std::unique_ptr<field>> make_llama_cmpl_schema(const common_params &
+         ->set_desc("Tokens that extend repetition beyond this length receive exponentially increasing penalty: multiplier * base ^ (sequence_length - allowed_length)"));
+ 
+     add((new field_num("dry_penalty_last_n", params.sampling.dry_penalty_last_n))
+-        ->set_hard_limits(0, INT32_MAX)
+-        ->set_desc("How many tokens to scan for repetitions (0 = disabled)"));
++        ->set_hard_limits(-1, INT32_MAX)
++        ->set_desc("How many tokens to scan for repetitions (0 = disabled, -1 = context size)"));
+ 
+     add((new field_num("mirostat", params.sampling.mirostat))
+         ->set_limits(0, 2)
+@@ -552,6 +584,11 @@ task_params eval_llama_cmpl_schema(
+ 
+     // post-processing
+     {
++        // OMP and older llama.cpp clients use -1 to request the full context.
++        if (params.sampling.dry_penalty_last_n == -1) {
++            params.sampling.dry_penalty_last_n = params_base.n_ctx > 0 ? params_base.n_ctx : 64;
++        }
++
+         // if "reasoning_format" is not provided, its handler will not be called, we will need to handle it here
+         auto reasoning_format = params.chat_parser_params.reasoning_format;
+         params.chat_parser_params.reasoning_in_content = params.stream && (reasoning_format == COMMON_REASONING_FORMAT_DEEPSEEK_LEGACY);
+diff --git a/tools/server/server-task.cpp b/tools/server/server-task.cpp
+index 0d3beb313..49665a23d 100644
+--- a/tools/server/server-task.cpp
++++ b/tools/server/server-task.cpp
+@@ -49,6 +49,16 @@ json task_params::to_json(bool only_metrics) const {
+             {"top_p",                     sampling.top_p},
+             {"min_p",                     sampling.min_p},
+             {"top_n_sigma",               sampling.top_n_sigma},
++            {"min_k_tau",                 sampling.min_k_tau},
++            {"p_less_norm",               sampling.p_less_norm},
++            {"p_less_exponent",           sampling.p_less_exponent},
++            {"kl_budget",                 sampling.kl_budget},
++            {"kl_opt_lambda",             sampling.kl_opt_lambda},
++            {"kl_opt_global",             sampling.kl_opt_global},
++            {"top_h_alpha",               sampling.top_h_alpha},
++            {"hill_order",                sampling.hill_order},
++            {"geo_mean_coeff",            sampling.geo_mean_coeff},
++            {"robust_z_coeff",            sampling.robust_z_coeff},
+             {"xtc_probability",           sampling.xtc_probability},
+             {"xtc_threshold",             sampling.xtc_threshold},
+             {"typical_p",                 sampling.typ_p},
+@@ -101,6 +111,16 @@ json task_params::to_json(bool only_metrics) const {
+         {"top_p",                     sampling.top_p},
+         {"min_p",                     sampling.min_p},
+         {"top_n_sigma",               sampling.top_n_sigma},
++        {"min_k_tau",                 sampling.min_k_tau},
++        {"p_less_norm",               sampling.p_less_norm},
++        {"p_less_exponent",           sampling.p_less_exponent},
++        {"kl_budget",                 sampling.kl_budget},
++        {"kl_opt_lambda",             sampling.kl_opt_lambda},
++        {"kl_opt_global",             sampling.kl_opt_global},
++        {"top_h_alpha",               sampling.top_h_alpha},
++        {"hill_order",                sampling.hill_order},
++        {"geo_mean_coeff",            sampling.geo_mean_coeff},
++        {"robust_z_coeff",            sampling.robust_z_coeff},
+         {"xtc_probability",           sampling.xtc_probability},
+         {"xtc_threshold",             sampling.xtc_threshold},
+         {"typical_p",                 sampling.typ_p},
+@@ -288,6 +308,12 @@ json completion_token_output::probs_vector_to_json(const std::vector<completion_
+             {"id",           p.tok},
+             {"token",        txt},
+             {"bytes",        str_to_bytes(p.text_to_send)},
++            {"raw_rank",     p.raw_rank > 0 ? json(p.raw_rank) : json(nullptr)},
++            {"post_rank",    p.post_rank > 0 ? json(p.post_rank) : json(nullptr)},
++            {"candidate_count",  p.candidate_count >= 0 ? json(p.candidate_count) : json(nullptr)},
++            {"vocab_size",       p.vocab_size > 0 ? json(p.vocab_size) : json(nullptr)},
++            {"entropy_bits",     p.entropy_bits >= 0.0 ? json(p.entropy_bits) : json(nullptr)},
++            {"varentropy_bits2", p.varentropy_bits2 >= 0.0 ? json(p.varentropy_bits2) : json(nullptr)},
+             {
+                 post_sampling_probs ? "prob" : "logprob",
+                 post_sampling_probs ? p.prob : logarithm(p.prob)
+diff --git a/tools/server/server-task.h b/tools/server/server-task.h
+index 9c99143f8..d247fb9f3 100644
+--- a/tools/server/server-task.h
++++ b/tools/server/server-task.h
+@@ -299,6 +299,12 @@ using server_task_result_ptr = std::unique_ptr<server_task_result>;
+ struct completion_token_output {
+     llama_token tok;
+     float prob;
++    int32_t raw_rank = 0;
++    int32_t post_rank = 0;
++    int32_t candidate_count = -1;
++    int32_t vocab_size = 0;
++    double entropy_bits = -1.0;
++    double varentropy_bits2 = -1.0;
+     std::string text_to_send;
+     struct prob_info {
+         llama_token tok;

@@ -256,7 +256,7 @@ def draw_map(con, game, cam, frame=0, going=False):
     if game.weather == "fog":
         fg = fg * 0.8 + 40
         bg = bg * 0.8 + 30
-    elif game.weather == "snow":
+    elif game.weather in ("snow", "blizzard"):
         fg = fg * 0.9 + 20
     elif game.weather == "sandstorm":
         fg = fg * 0.75 + np.array([60, 45, 20])
@@ -281,6 +281,9 @@ def draw_map(con, game, cam, frame=0, going=False):
     con.rgb["ch"][ox:ox + w, oy:oy + h] = glyph
     con.rgb["fg"][ox:ox + w, oy:oy + h] = np.clip(fg, 0, 255).astype(np.uint8)
     con.rgb["bg"][ox:ox + w, oy:oy + h] = np.clip(bg, 0, 255).astype(np.uint8)
+    from .weather import particles
+    for x, y, ch, col in particles(game, cam):
+        put(con, *cam.to_screen(x, y), ch, col)
 
 
 def put(con, sx, sy, ch, fg=None, bg=None):
@@ -358,6 +361,18 @@ def draw_entities(con, game, cam, frame=0):
         if cam.on_screen(v.x, v.y):
             sx, sy = cam.to_screen(v.x, v.y)
             put(con, sx, sy, v.vt.glyph, col, hull_bg)
+        # At text resolution an occupied area gets one crew marker. Keep the type
+        # letter readable; sprites resolve individual men within that same tile.
+        from .vehicle_figures import occupants
+        marked = set()
+        for figure in occupants(v, m.climate, game.turn):
+            cx, cy = v.x + round(figure.x), v.y + round(figure.y)
+            if (cx, cy) == v.pos or (cx, cy) in marked or (cx, cy) in game.soldier_at:
+                continue
+            if cam.on_screen(cx, cy) and m.in_bounds(cx, cy) and (p.vehicle is v or m.visible[cx, cy]):
+                sx, sy = cam.to_screen(cx, cy)
+                put(con, sx, sy, "@", col, hull_bg if (cx, cy) in cells else None)
+                marked.add((cx, cy))
     # soldiers
     for a in game.actors:
         if not a.alive or a.vehicle is not None or not cam.on_screen(a.x, a.y):
@@ -368,6 +383,8 @@ def draw_entities(con, game, cam, frame=0):
         bg = None
         if a is p:
             col = PLAYER_COLOR
+        elif a.ai.get("civilian"):
+            col = (220, 200, 155)
         elif a.side == p.side:
             col = SQUAD_COLOR if (p.squad is not None and a.squad is p.squad) else FRIEND_COLOR
         else:
@@ -841,6 +858,8 @@ def draw_panel(con, game):
         y += 1
         spd = p.speed(game.turn)
         why = []
+        from .sustain import needs_words
+        why.extend(needs_words(p))
         if p.encumbrance(game.turn) < 0.98:
             why.append("load")
         if p.body.speed_mult() < 0.97:
@@ -974,8 +993,8 @@ def draw_panel(con, game):
         tstr = game.now().strftime("%H:%M")
     else:
         tstr = game.time_feel()
-    wx = {"clear": "clear", "overcast": "overcast", "rain": "raining", "snow": "snowing", "fog": "foggy",
-          "sandstorm": "sandstorm"}.get(game.weather, game.weather)
+    from .weather import description as weather_description
+    wx = weather_description(game)
     if pics:
         from .senses import daylight
         n = game.now()
@@ -992,18 +1011,27 @@ def draw_panel(con, game):
     else:
         con.print(x, y, f"{tstr}, {wx}"[:wdt], fg=UI_TEXT, bg=UI_BG)
         y += 2
+    rt = game.__dict__.get("_realtime_label")
+    if rt:
+        for line in textwrap.wrap(rt, wdt)[:2]:
+            con.print(x, y, line, fg=(140, 205, 210), bg=UI_BG)
+            y += 1
     # orders: the one you're on, and the others you hold (T: the orders book)
     book = _book(game)
+    from .orders import summary as order_summary
+    order_text = (order_summary(game, book) if game.__dict__.get("domain", "land") == "land" and
+                  not getattr(game, "renegade", False) else None) or game.player_orders
     con.print(x, y, "Orders" + (f" ({len(book)})  T: all" if len(book) > 1 else ""), fg=UI_FRAME, bg=UI_BG)
     y += 1
-    for line in textwrap.wrap(game.player_orders or "None.", wdt)[:9 if game.__dict__.get("aboard") else 4]:
+    for line in textwrap.wrap(order_text or "None.", wdt)[:9 if game.__dict__.get("aboard") else 4]:
         con.print(x, y, line, fg=(200, 190, 150), bg=UI_BG)
         y += 1
-    shown = game.player_orders or ""
+    shown = order_text or ""
     more = [o for o in book if (o["text"] or "")[:30] not in shown][:2]
     for o in more:
         who = o["who"].split(",")[0]
-        con.print(x, y, f"· {who}: {o['text']}"[:wdt], fg=(240, 170, 110) if o["urgent"] else (160, 150, 120), bg=UI_BG)
+        con.print(x, y, f"{o['status']}: {who}: {o['text']}"[:wdt],
+                  fg=(160, 150, 120) if o["deferred"] else (190, 200, 150), bg=UI_BG)
         y += 1
     hint = game.__dict__.get("_order_hint")
     if hint:
@@ -1022,7 +1050,7 @@ def draw_panel(con, game):
         dxo, dyo = ptr[0] - px, ptr[1] - py
         yd = int(round(math.hypot(dxo, dyo) * 2.2 / 50.0) * 50) or 50
         known = p.has_tool("map") or p.has_tool("compass")
-        way = f"{direction_word(dxo, dyo)}, {yd} yards" if known else "your leader pointed"
+        way = f"{direction_word(dxo, dyo)}, {yd} yards" if known else "the ordered direction"
         if pics:
             ang = math.degrees(math.atan2(dxo, -dyo)) % 360
             icons.pic(x, y, 3, 2, f"pointer|{int(ang)}|{'compass' if p.has_tool('compass') else 'hand'}")

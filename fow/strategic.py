@@ -199,6 +199,9 @@ class Strategic:
         for c in self.cells.values():
             c.lang = LANG.get(th.get("id", ""), "en")
             self._index(c)
+        from .homefront import prepare
+        for c in self.cells.values():
+            prepare(self, c)
 
     def _depth_from(self, s, edge):
         return {"N": s.y, "S": self.h - 1 - s.y, "W": s.x, "E": self.w - 1 - s.x}[edge]
@@ -377,6 +380,8 @@ class Strategic:
         self.cells[(x, y)] = c
         self._index(c)
         self._outer_forces(c, rng)
+        from .homefront import prepare
+        prepare(self, c)
         self.scale_units(c.units, rng)
         self._fd = None
         return c
@@ -680,7 +685,8 @@ class Strategic:
                     if n.control != side and not (n.biome == "sea" and side == self.attacker):
                         continue
                     # every sector the supplies pass through costs a little; a cut road there, a lot
-                    nv = v - 0.12 - 0.55 * cut.get((side, n.x, n.y), 0.0)
+                    nv = v - 0.12 / max(.35, self.__dict__.get("weather_transport", 1.0)) - \
+                        0.55 * cut.get((side, n.x, n.y), 0.0)
                     if nv > best.get((n.x, n.y), 0.0) + 1e-6:
                         best[(n.x, n.y)] = nv
                         par[(side, n.x, n.y)] = (s.x, s.y)
@@ -825,6 +831,8 @@ class Strategic:
                 del cut[k]
         self._raid_the_roads(player_sector)
         self.compute_supply()
+        from .sustain import strategic_tick as stock_tick
+        stock_tick(self)
         # pockets wither: no food, no ammunition, no way out
         for s in act:
             for side in SIDES:
@@ -1073,16 +1081,27 @@ class Strategic:
 
     def _capture(self, s, side):
         prev = s.control
+        from .sustain import stores, deliver
+        if prev is not None and prev != side:
+            stores(s, prev)
+            stores(s, side)
         s.control = side
         self._fd = None
         if prev != side:
             s.captured_tick = self.ticks
         s.fort = max(0, s.fort - 1)
         s.contested = False
+        from .homefront import FACILITIES
         for inst in s.installations:
             if inst[1] != side and inst[2]:
-                inst[2] = False
+                if inst[0] in FACILITIES:
+                    inst[1] = side     # intact works and hospitals survive a change of hands
+                else:
+                    inst[2] = False
         if prev is not None and prev != side:
+            for kind, amount in stores(s, prev).items():
+                deliver(s, side, kind, amount * .5)
+                stores(s, prev)[kind] = 0.
             self.news.append(f"{s.name} has fallen to the {'Allies' if side == ALLIES else 'Axis'}.")
 
     def _move_reserves(self, player_sector, events):

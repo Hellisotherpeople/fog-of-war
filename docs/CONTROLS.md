@@ -44,7 +44,7 @@ direction keys.
 | Shift + direction, or `H J K L U N` | run until something happens (`Y` and `B` are shout and bandage, not moves) |
 | `.` `s` numpad 5, numpad `.` | wait a second |
 | `z` | wait a minute, watching |
-| `Z` | the wait menu: until something happens (up to three hours), a set time (to the minute with a watch; without one, "a few minutes", "a while", "hours"), until first light or dark, until there are new orders. Every second is simulated, for everyone, as fast as your machine can manage (the banner shows how much faster than life); anything that matters stops it - an enemy seen, a round close, a hit, new orders, bad news - and any key does |
+| `Z` | the wait menu: ordinary waits stop for danger or new orders. **Pass time regardless of events...** runs for 15 minutes, 1, 6 or 12 hours, or a day, through combat, wounds, unconsciousness and orders. Every second is simulated as fast as your machine can manage. Any key cancels; death or succession ends the wait |
 | `c` | crouch (again: stand) |
 | `p` | prone (again: crouch) |
 | `W` | pace: creep / walk / run / sprint |
@@ -53,9 +53,10 @@ direction keys.
 | `<` / `>` | on stairs: up a floor / down one (a church tower, a flat roof, a hayloft at the top); on a cellar trapdoor: `>` down into the cellar, `<` up again |
 | `o` | shut an open door beside you (walk through a door to open it) |
 | Enter | carry out your current order: walk there and do it (the panel says what Enter will do) |
-| `T` | the orders book: every order you hold, with who gave it and how, when it's due, and what doing it or not doing it brings; Enter on one makes it the order Enter carries out |
+| `T` | the orders book: issuer, authority, priority, deadline and consequences. Enter selects a supporting instruction; a deferred order cannot replace your higher orders |
 | `E` | talk to whoever's beside you (a list if there are several; right-click a man for the same). Comrades: where he's from, how he's holding up, what he's seen (he points, and it's marked on your map), the latest rumour, a smoke, ammunition, water, covering fire, a trade. The wounded: where he's hit, keeping him going, his last wishes. Prisoners: name and unit, and - for a cigarette, or when he's frightened enough - where his guns are. |
 | `A` | autopilot (on land): your soldier acts on his training and his orders, the same AI as every man on the field; `A` or Esc takes him back (looking, the map, the books and help still work meanwhile). Aboard ship or aircraft there's none: Enter gets on with your orders, `Z` lets the watch go by |
+| F6 | optional real time: everyone moves on a shared clock, including while you stand still. F6 again returns to turn based time |
 | `!` | safe mode off / on |
 | `'` | ignore the dangers you can see now (safe mode won't stop you for them) |
 | `X` | read the ground: red where there's no way through, amber where it's slow (for you, or the vehicle you're in); `X` again to stop |
@@ -74,6 +75,28 @@ Moving into things:
 
 **Safe mode:** with the enemy in sight, or rounds coming in, a step stops with a warning. Step again
 to go anyway.
+
+**Real time:** off by default. Options > Play offers normal (one game second per real second),
+deliberate (one per two, the default), and slow (one per four). The HUD shows the pace and whether
+you're ready or still finishing an action. Movement, reloads, firing and wounds use their normal
+simulation rules for everyone; repeated inputs cannot skip an action's remaining time, and standing
+idle cannot bank extra moves. Menus and loss of window focus pause the clock; aiming and looking
+across the field keep it running. Actions taken through a menu still charge their full time cost.
+Walking and autopilot keep the selected pace; `z` and `Z` deliberately pass time quickly. Aircraft
+and ships use the same clock; naval actions retain their usual ten-second cost.
+
+**Order priority:** the scenario briefing governs the HUD, arrow and Enter. A squad leader can direct
+you among the mission's objectives, or ask for immediate help beside you, without replacing it.
+Conflicting errands are marked **Deferred** in `T`, with deadlines paused and no failure penalty
+while higher duty prevents compliance. A newer received order can take precedence only if its issuer
+has equal or greater authority. A headquarters recall names the issuer and the battlefield reason.
+Return/exfiltration stages point home and authorize leaving the squad; missions with no known single
+destination, such as observing enemy positions, do not display an unrelated attack arrow.
+
+**Decorations:** the post-game report shows illustrated medals and ribbons alongside the award's
+citation, date, place, supporting deeds and any posthumous status. Left/Right browse additional
+awards. Citations also remain in the service record and memorial. Older saves still show their
+decorations, with an explicit notice when their original citation was not recorded.
 
 **Fighting and kit**
 
@@ -329,7 +352,7 @@ sergeant) fires your rounds himself, and it counts against you.
   - a situation report;
   - medical evacuation, when you're badly hit and out of the enemy's sight and fire (a private
     next to a radioman can ask him for this one).
-- **`Y`** is a shout: Medic!, Grenade!, Covering fire!, *Hands up!* (with an enemy close), or
+- **`Y`** is a shout: Medic!, Need ammunition!, Grenade!, Covering fire!, *Hands up!* (with an enemy close), or
   surrender.
 
 Orders travel by voice, hand signal, radio, relay or runner, and take time to arrive.
@@ -399,7 +422,7 @@ Their orders show in your orders, and Enter gets on with them, even across secto
 |---|---|
 | `<` / `>` | up / down a ladder (or `e` on it) |
 | Enter | your job: to your station, the ammunition, a fire, sickbay |
-| `Z` | let the hours go by, until something matters (`z` too, when all's quiet); with something going on, the wait menu |
+| `Z` | the wait menu, including **Pass time regardless of events...**; **Ship's routine: until needed** is available when quiet (`z` also follows the quiet ship's routine) |
 | `e` | whatever's in front of you (below) |
 
 What `e` does, by what you're facing:
@@ -465,6 +488,42 @@ At damage control, `f` or Space fights the fire or the flooding. At the plot (if
 officer), you watch: `t`, zoom, Space and `z` work, and the orders aren't yours to give. Adrift on
 a raft or under a parachute, Space or `.` lets time pass.
 
+The force signalling menu (`o`) can ask an accompanying oiler or repair ship to stop. Steer
+within 300 metres at six knots or less to transfer its finite fuel or repair stores. Rough seas
+prevent transfers. Another fleet order releases the support ship.
+
+## Weather, civilians and supplies
+
+In `V` → Items, **green [P]** means ammunition or magazines compatible with your primary,
+**blue [S]** your secondary or holstered weapon, and **violet [P/S]** both. Empty compatible
+magazines count. Mixed piles show a compatible item first; live explosives retain their red warning.
+
+Rain and snow accumulate: mud, flooded trenches and drifts slow movement after a front passes.
+Wind, visibility and sea state affect spotting, hearing, shooting, flying, sailing and deliveries.
+Wear a rain cape; use a blanket while resting; get under a roof to dry out. Storms have rain,
+wind and thunder audio, muffled by shelter.
+
+Further behind either army are inhabited towns, food warehouses, workshops, hospitals,
+power stations and railway goods yards. Undamaged facilities survive capture. Civilians
+flee gunfire from either side and can be caught in it. Use `E` beside one to talk, share supplies,
+treat wounds or ask them to follow you to an aid post or hospital.
+
+Quartermasters show finite stocks of ammunition, fuel, food, medical supplies and parts.
+Road connections, convoys, aircraft deliveries and intact facilities sustain them; isolation
+and destroyed stores deplete them. Ammunition draws, treatment and repairs consume stock.
+Use antiseptic for infection, splints for injured limbs, a tool roll plus spare parts beside a
+damaged vehicle, and a fuel can beside a vehicle with a low tank. Fitters are still needed for
+skilled repairs. Hunger, thirst and infected wounds slow recovery.
+
+Intelligence officers offer **Counterintelligence reports and security patrols**. An intercept
+frequency log opens the same menu when applied. Patrols investigate coarse witness reports and
+wireless bearings, check papers and can detain enemy saboteurs. Local alerts and circulated
+identities make an agent's papers less convincing.
+
+**Air supply** is available among bomber flying scenarios/orders where a transport is available.
+Use `b` at the dropping zone, within 800 metres, at 80–600 metres altitude and below 300 km/h.
+The load comes from the departure sector's stores; wind and visibility affect how much is recovered.
+
 ## Other screens
 
 | screen | keys |
@@ -479,3 +538,25 @@ a raft or under a parachute, Space or `.` lets time pass.
 | the log, chain of command | up / down, PgUp / PgDn, the wheel; Esc, Enter or `q` close |
 | prison camp | Enter or Space a day, `w` a week, `e` try to escape, Esc the menu |
 | game over | Enter, Space, Esc or a click: back to the main menu |
+
+## Papers checks, body searches and damaged kit
+
+A sentry's papers check opens a conversation. Choose answers with the arrows/Enter or the listed
+letters. **Review your legend and documents** opens scrollable notes; Esc returns to the same check.
+Documents may disagree with your intended cover. Observant guards compare details, remember answers
+and ask follow-up questions. Explaining a discrepancy, submitting to a search, offering money or breaking
+away has consequences; ordinary answers take three seconds and a bag search takes eight.
+The `@` cover page also carries your legend and the printed details of your documents.
+
+Intelligence mission orders in `T`, the direction marker and Enter navigation include the briefing's
+search area or lead. **Last reported area** means search around that point, not that the target is standing
+on it now. Photography advances between unphotographed installations; rescue/exfiltration points home.
+
+`V` → Items includes visible weapons and equipment on bodies, with the same ammo compatibility colours.
+Select a body item and Enter to approach its inventory. In the inventory, **s** searches pockets and
+opens the closed pack; this takes six seconds. Obvious worn kit and webbing need no full search first.
+The footer lists every key; `Tab` changes sides, `[`/`]` changes sources, and `PgUp`/`PgDn` changes sections.
+
+Inspect an item with **x** to see its condition and how damage affects it. Blasts can scatter equipment,
+fire can destroy supplies, and torn bags lose usable storage. The armourer repairs damaged equipment
+using parts and time. Cleaning a weapon does not replace broken parts; destroyed items need replacement.

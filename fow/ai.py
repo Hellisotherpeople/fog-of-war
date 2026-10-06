@@ -690,6 +690,8 @@ def squad_update(game, sq: Squad):
         call_smoke(game, sq)
     if sq.state == "hold" and t % 10 == 0:
         beaten_zone(game, sq)
+    from .squadcare import dispatch
+    dispatch(game, sq)
     return True
 
 
@@ -1050,6 +1052,9 @@ def assign_positions(game, sq):
 # ====================================================================== soldier AI
 
 def soldier_act(game, a) -> int:
+    if a.ai.get("civilian"):
+        from .homefront import act
+        return act(game, a) if a.alive and a.body.conscious else 100
     if not a.alive:
         return 100
     b = a.body
@@ -1094,6 +1099,11 @@ def soldier_act(game, a) -> int:
     # ---- wounded
     if a.downed:
         return downed_act(game, a)
+    check = game.__dict__.get("identity_check")
+    if check and check["guard"] == a.id:
+        from .identity import observer
+        if observer(game, check) is a:
+            return 100
     sstate0 = sq.state if sq is not None else "hold"
     if a.stance != 2 and game.turn - a.ai.get("near_shell", -99) <= 2 and sstate0 not in (
             "assault", "banzai", "flank", "bound", "retreat", "rout") and m.water[a.x, a.y] < 1 and not (T.FLOOR[m.t[a.x, a.y]] and m.pos_cover[a.x, a.y] >= 45):
@@ -1204,6 +1214,11 @@ def soldier_act(game, a) -> int:
     # ---- carrying a message
     if a.ai.get("runner"):
         c = runner_act(game, a, vis)
+        if c:
+            return c
+    if a.ai.get("support_job"):
+        from .squadcare import act as support_act
+        c = support_act(game, a, vis)
         if c:
             return c
     # ---- roles
@@ -1608,6 +1623,14 @@ def move_with_squad(game, a, sq, sstate) -> int:
     m = game.map
     if a.ai.get("to_aid") is not None:
         return 100                                    # (the walking wounded are going back, not with the squad)
+    if a.is_player and game.__dict__.get("autopilot"):
+        from .orders import active, navigation
+        current = active(game)
+        if current and current["key"] in ("mission", "field"):
+            pt = navigation(game)
+            if pt and max(abs(pt[0] - a.x), abs(pt[1] - a.y)) > 2:
+                return path_step(game, a, pt[0], pt[1]) or 100
+            return 100             # no unrelated squad attack when the briefing says observe, hold or withdraw
     if sq is None:
         fix_stance(game, a, want_stance(game, a, False, False, False))
         return 100
@@ -2137,22 +2160,23 @@ def evade_explosive(game, a, ex) -> int:
 # ====================================================================== roles
 
 def _willing(game, receiver) -> bool:
-    """Your standing decides whether they'll bother with you."""
+    """Routine help is dependable; a renegade or badly distrusted man can be refused."""
     if not receiver.is_player:
         return True
     if getattr(game, "renegade", False):
         return False
     rep = getattr(game, "duty", None).rep if getattr(game, "duty", None) is not None else 0.0
-    return game.rng.random() < max(0.1, min(0.97, 0.75 + rep / 120))
+    return rep > -40 or game.rng.random() < max(0.1, 0.75 + rep / 120)
 
 
 def buddy_aid_act(game, a, vis) -> int | None:
     """A mate bleeding near you and no medic about: patch him up.  Your buddy, you go to further, and sooner
     (social.wounded: he called his name)."""
+    from .squadcare import sees, claimed
     hb = a.ai.get("help_buddy")
     if hb is not None and game.turn - hb[1] < 150 and not (vis and min(dist(a, e) for e in vis) < 6):
         o = next((m for m in game.near(a.x, a.y, 12, a.side) if m.id == hb[0]), None)
-        if o is None or not o.alive or o.state != "ok" or o.ai.get("carried_by") or \
+        if o is None or not o.alive or o.state != "ok" or o.ai.get("carried_by") or not sees(game, a, o, 12) or \
                 (not o.downed and o.body.bleed_rate() < 0.5):
             a.ai.pop("help_buddy", None)
         elif dist(a, o) <= 1.5:
@@ -2177,7 +2201,10 @@ def buddy_aid_act(game, a, vis) -> int | None:
             continue
         if max(abs(o.x - a.x), abs(o.y - a.y)) > 4 or o.body.bleed_rate() < 0.8 or o.ai.get("carried_by"):
             continue
-        if any(m is not o and m.role in ("medic", "surgeon") and m.active for m in game.near(o.x, o.y, 6, a.side)):
+        if not sees(game, a, o, 4) or (dist(a, o) > 1.5 and claimed(game, o, "aid", a)):
+            continue
+        if any(m is not o and m.role in ("medic", "surgeon") and m.active and not m.downed and
+               m.ai.get("patient") == o.id for m in game.near(o.x, o.y, 6, a.side)):
             continue
         if best is None or o.body.bleed_rate() > best.body.bleed_rate():
             best = o
@@ -2197,6 +2224,7 @@ def buddy_aid_act(game, a, vis) -> int | None:
 def share_ammo_act(game, a, vis) -> int | None:
     """A gunner running dry and you carry his calibre: take it over."""
     from .ammo import hand_over_possible, hand_over, spare_rounds
+    from .squadcare import sees, claimed
     if vis and min(dist(a, e) for e in vis) < 12:
         return None
     if a.ai.get("ammo_cd", -99) > game.turn - 40:
@@ -2211,6 +2239,8 @@ def share_ammo_act(game, a, vis) -> int | None:
         if max(abs(o.x - a.x), abs(o.y - a.y)) > 6:
             continue
         if w.loaded > w.t.mag // 2 or spare_rounds(o, w) >= w.t.mag:
+            continue
+        if not sees(game, a, o, 6) or (dist(a, o) > 1.5 and claimed(game, o, "ammo", a)):
             continue
         if hand_over_possible(a, w):
             best = o
@@ -2305,6 +2335,7 @@ def role_act(game, a, vis, sq, sstate) -> int | None:
 def medic_act(game, a, vis) -> int | None:
     """Triage: the worst case you can reach first.  Treat, then get him out."""
     from . import medical as MED
+    from .squadcare import sees, claimed
     if a.carrying is not None:
         return evacuate_act(game, a, vis)
     near_enemy = min((dist(a, e) for e in vis), default=999)
@@ -2331,6 +2362,8 @@ def medic_act(game, a, vis) -> int | None:
                 (calm or (committed == o.id and near_enemy > 5)):
             need = max(need, 12.0)
         if need < 1.0:
+            continue
+        if not sees(game, a, o, 30) or (d > 1.5 and claimed(game, o, "aid", a)):
             continue
         s = need / (1.0 + d * 0.12)
         if s > bs:

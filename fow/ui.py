@@ -25,7 +25,7 @@ SPECIAL_KEYS = {
     E.KeySym.UP, E.KeySym.DOWN, E.KeySym.LEFT, E.KeySym.RIGHT, E.KeySym.RETURN, E.KeySym.KP_ENTER,
     E.KeySym.ESCAPE, E.KeySym.TAB, E.KeySym.BACKSPACE, E.KeySym.HOME, E.KeySym.END, E.KeySym.PAGEUP,
     E.KeySym.PAGEDOWN, E.KeySym.SPACE, E.KeySym.DELETE, E.KeySym.F1, E.KeySym.F2, E.KeySym.F3,
-    E.KeySym.F12, E.KeySym.F5, E.KeySym.KP_1, E.KeySym.KP_2, E.KeySym.KP_3, E.KeySym.KP_4, E.KeySym.KP_5,
+    E.KeySym.F12, E.KeySym.F5, E.KeySym.F6, E.KeySym.KP_1, E.KeySym.KP_2, E.KeySym.KP_3, E.KeySym.KP_4, E.KeySym.KP_5,
     E.KeySym.KP_6, E.KeySym.KP_7, E.KeySym.KP_8, E.KeySym.KP_9, E.KeySym.KP_PERIOD, E.KeySym.KP_0,
 }
 
@@ -676,6 +676,7 @@ class GameOverState:
     def __init__(self, app, game):
         self.app = app
         self.game = game
+        self.award_page = 0
         from .game import Game
         Game.delete_save()
 
@@ -684,7 +685,7 @@ class GameOverState:
         g = self.game
         p = g.player
         lines = []
-        for w in textwrap.wrap(g.death_text or "The war goes on without you.", 84):
+        for w in textwrap.wrap(g.death_text or g.victory_text or "The war goes on without you.", 49):
             lines.append((w, (230, 200, 160)))
         lines.append(("", None))
         lines.append((f"{g.theatre['name']}: {g.theatre['battle']}", UI_DIM))
@@ -702,15 +703,45 @@ class GameOverState:
                 lines.append(("On the body: " + ", ".join(keep) + ".", UI_DIM))
         lines.append(("", None))
         lines.append(("Your name has been added to the memorial.", UI_DIM))
-        draw_center_box(con, "In memoriam" if "Killed" in (g.death_text or "") else "The end", lines, width=92,
-                        footer="Enter: return to the main menu")
+        from .awards import records, draw_card
+        awards = records(g.command, p.nation)
+        pages = max(1, (len(awards) + 2) // 3)
+        self.award_page = min(self.award_page, pages - 1)
+        con.draw_frame(1, 1, SCREEN_W - 2, SCREEN_H - 2, fg=UI_FRAME, bg=UI_BG, clear=True)
+        title = "IN MEMORIAM" if "Killed" in (g.death_text or "") else "AFTER ACTION REPORT"
+        con.print(4, 2, title, fg=UI_HI, bg=UI_BG)
+        con.print(4, 4, f"{p.rank_full} {p.name}"[:50], fg=(230, 216, 177), bg=UI_BG)
+        y = 6
+        for line, col in lines:
+            for wrapped in textwrap.wrap(line, 49) or [""]:
+                if y >= SCREEN_H - 5:
+                    break
+                con.print(4, y, wrapped, fg=col or UI_TEXT, bg=UI_BG)
+                y += 1
+        con.print(58, 4, f"DECORATIONS & CITATIONS   {len(awards)} awarded", fg=(235, 209, 139), bg=UI_BG)
+        if not awards:
+            con.print(60, 8, "No decorations awarded.", fg=UI_DIM, bg=UI_BG)
+        for i, award in enumerate(awards[self.award_page * 3:self.award_page * 3 + 3]):
+            draw_card(con, award, 58, 6 + i * 13, SCREEN_W - 61)
+        con.print(4, SCREEN_H - 3, "Enter / Esc: main menu", fg=UI_DIM, bg=UI_BG)
+        if pages > 1:
+            con.print(59, SCREEN_H - 3, f"Left / Right: awards   {self.award_page + 1}/{pages}", fg=UI_HI, bg=UI_BG)
 
     def on_key(self, key):
-        if key.sym in (E.KeySym.RETURN, E.KeySym.KP_ENTER, E.KeySym.ESCAPE, E.KeySym.SPACE):
+        if key.sym in (E.KeySym.RIGHT, E.KeySym.DOWN, E.KeySym.PAGEDOWN):
+            from .awards import records
+            pages = max(1, (len(records(self.game.command, self.game.player.nation)) + 2) // 3)
+            self.award_page = (self.award_page + 1) % pages
+        elif key.sym in (E.KeySym.LEFT, E.KeySym.UP, E.KeySym.PAGEUP):
+            self.award_page = max(0, self.award_page - 1)
+        elif key.sym in (E.KeySym.RETURN, E.KeySym.KP_ENTER, E.KeySym.ESCAPE, E.KeySym.SPACE):
             self.app.reset_to_menu()
 
     def on_click(self, tx, ty, b):
-        self.app.reset_to_menu()
+        if b == 3 or (ty >= SCREEN_H - 4 and tx < 55):
+            self.app.reset_to_menu()
+        elif b == 1 and ty >= SCREEN_H - 4:
+            self.on_key(Key(sym=E.KeySym.RIGHT))
 
 
 class TextState:
@@ -772,16 +803,16 @@ class OrdersState:
         watch = g.player.has_tool("watch") is not None
         con.print(3, 2, f"ORDERS - {g.now().strftime('%H:%M, %d %B %Y' if watch else '%d %B %Y')}", fg=self.INK,
                   bg=self.PAPER)
-        con.print(3, 3, "(the ones you hold; Enter: get on with this one; Esc: close)", fg=self.FAINT, bg=self.PAPER)
+        con.print(3, 3, "Higher orders govern. Enter: follow a compatible order. Esc: close.", fg=self.FAINT, bg=self.PAPER)
         if not self.orders:
             con.print(3, 6, "Nothing. For once, nobody wants anything of you.", fg=self.INK, bg=self.PAPER)
             return
         y = 5
         for k, o in enumerate(self.orders):
             who = o["who"].split(",")[0]
-            due = _left(g, o["due"]) if o["due"] is not None else ""
-            mark = "!" if o["urgent"] else "-"
-            fg = (250, 200, 120) if o["urgent"] else self.INK
+            due = "paused" if o["deferred"] and o["due"] is not None else _left(g, o["due"]) if o["due"] is not None else ""
+            mark = "*" if o["governing"] else ">" if o["active"] else "~" if o["deferred"] else "-"
+            fg = self.FAINT if o["deferred"] else (180, 220, 150) if o["governing"] else self.INK
             bg = (95, 82, 55) if k == self.sel else self.PAPER
             con.print(3, y, f"{mark} {who}"[:self.LEFT - 4], fg=fg, bg=bg)
             if due:
@@ -812,17 +843,21 @@ class OrdersState:
         wdt = wdt - (15 if icons.on() else 0)
         put("From", o["who"])
         put("How", o["how"])
+        put("Authority", o["authority_name"])
+        put("Priority", o["status"] + (" / Enter follows this" if o["active"] else ""))
+        put("Why", o["reason"])
         put("Given", _clock(g, o["issued"]) if o.get("issued") is not None and o["issued"] <= g.turn else "")
         if o["due"] is not None:
             clk = _clock(g, o["due"])
-            put("By", f"{clk} ({_left(g, o['due'])})" if clk else _left(g, o["due"]),
+            put("By", "Paused while higher orders apply" if o["deferred"] else
+                f"{clk} ({_left(g, o['due'])})" if clk else _left(g, o["due"]),
                 (250, 200, 120) if o["due"] - g.turn < 120 else None)
         put("Order", o["text"], (240, 230, 190))
         put("If done", o["reward"], (180, 220, 150))
-        put("If not", o["penalty"], (240, 160, 130))
-        foc = g.__dict__.get("order_focus")
-        if foc == o["key"]:
-            con.print(x, y, "This is the order you're getting on with.", fg=(180, 220, 150), bg=self.PAPER)
+        put("If not", "No penalty while deferred. Once active: " + o["penalty"] if o["deferred"] else o["penalty"],
+            (240, 160, 130))
+        con.print(3, H - 2, "* governing   > following   ~ deferred   |   Equal or higher authority can issue new orders.",
+                  fg=self.FAINT, bg=self.PAPER)
 
     def on_key(self, key):
         from .orders import focus
@@ -834,8 +869,9 @@ class OrdersState:
             self.sel = (self.sel - 1) % max(1, len(self.orders))
         elif key.sym in (E.KeySym.RETURN, E.KeySym.KP_ENTER) and self.orders:
             o = self.orders[self.sel % len(self.orders)]
-            focus(self.play.game, o["key"])
-            self.play.game.msg(f"You'll see to it: {o['text']}", "info")
+            accepted = focus(self.play.game, o["key"])
+            self.play.game.msg(f"You'll see to it: {o['text']}" if accepted else
+                               "That order is deferred. Your higher orders still govern the arrow and Enter.", "info")
             self.play.game.update_orders(force=True)
             self.app.pop()
 
@@ -1430,6 +1466,9 @@ class CharState(TextState):
             lines.append((f"  {len(cmd.chain_squads(game))} units answer to you on this field.", UI_DIM))
         if cmd.medals:
             lines.append(("Decorations: " + ", ".join(cmd.medals), (240, 210, 110)))
+            from .awards import records
+            for award in records(cmd, p.nation):
+                lines.append((f"  {award['name']}: {award['why']}.", (200, 199, 166)))
         for entry in (cmd.__dict__.get("record") or [])[-8:]:
             lines.append(("  " + entry, (220, 190, 150) if "report" in entry or "penal" in entry else (190, 210, 160)))
         if cmd.promotions:
@@ -1557,6 +1596,12 @@ class OptionsState:
             ("Pictures in the interface", "pictures", "toggle", "Your kit, your body, your watch and the sky, the "
              "map sheet: drawn as well as named. Off: words only, as in a terminal.", None),
             ("PLAY", None, "head", "", None),
+            ("Real time", "realtime", "toggle", "F6: the world moves while you stand still. Everyone shares one "
+             "clock and normal action costs. Menus and an unfocused window pause; aiming does not. "
+             "z/Z still deliberately pass time quickly.", None),
+            ("Real-time pace", "realtime_pace", "cycle", "normal: one game second per real second. deliberate: "
+             "one per two seconds (default). slow: one per four. This changes the pace for everyone equally; "
+             "health, accuracy and movement costs stay the same.", ("normal", "deliberate", "slow")),
             ("Key hints", "hints", "toggle", "A line under your orders with the keys for what's beside you: a "
              "vehicle, a door, a wounded man, someone to talk to, your seat in a tank. F1 or ? for all the keys.",
              None),
@@ -1700,7 +1745,9 @@ class OptionsState:
                 app.pop()
             return
         if kind == "toggle":
-            if key == "sound":
+            if key == "realtime" and self.play is not None:
+                self.play.cmd_realtime()
+            elif key == "sound":
                 app.toggle_sound()
             elif key == "sprites":
                 app.toggle_sprites()
@@ -2463,6 +2510,7 @@ class App:
         self.console = tcod.console.Console(SCREEN_W, SCREEN_H, order="F")
         self.states = [MainMenuState(self)]
         self.running = True
+        self.focused = True
         self.context = None
         self.gfx = None
         self.audio = None
@@ -2489,6 +2537,8 @@ class App:
             self.states.pop()
         if not self.states:
             self.running = False
+        elif hasattr(self.states[-1], "reset_realtime_clock"):
+            self.states[-1].reset_realtime_clock()
 
     def replace(self, st):
         if self.states:
@@ -2652,6 +2702,12 @@ class App:
         if not self.states:
             return
         st = self.states[-1]
+        if event.type in ("WindowFocusLost", "WindowFocusGained", "WindowMinimized", "WindowRestored"):
+            self.focused = event.type in ("WindowFocusGained", "WindowRestored")
+            for state in self.states:
+                if hasattr(state, "reset_realtime_clock"):
+                    state.reset_realtime_clock()
+            return
         if isinstance(event, E.Quit):
             g = self.current_game()
             if g is not None and not g.game_over:

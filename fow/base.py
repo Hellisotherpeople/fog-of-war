@@ -560,10 +560,13 @@ def _armourer(ps, who):
     ammo_why = "" if ammo_ok else " (you've no gun)" if not gun else " (he's nothing for a captured gun)" if not own \
         else " (you drew some not long ago)"
     opts = [(f"Strip, clean and check your {w.t.name}" if gun else "Strip and clean your weapon (you've no gun)",
-             "clean", None, gun),
+             "clean", None, bool(gun and w.functional)),
             ("Draw ammunition for it" + ammo_why, "ammo", None, ammo_ok),
             ("Swap your captured weapon for an issue one" + ("" if (gun and not own) else " (yours is issue)"),
              "swap", None, bool(gun and not own))]
+    from .equipment import repairable
+    opts += [(f"Repair {i.name} ({round(i.condition * 100)}%; parts and workshop time)", ("repair", i), None, True)
+             for i in p.inv if repairable(i) and 0 < i.condition < .999]
     _menu(ps, who, "Armourer", lines, opts, lambda v: _armourer_choice(ps, who, v))
 
 
@@ -576,6 +579,19 @@ def _armourer_choice(ps, who, v):
     g = ps.game
     p = g.player
     w = p.weapon
+    if isinstance(v, tuple) and v[0] == "repair":
+        it = v[1]
+        if it not in p.inv or not (0 < it.condition < 1):
+            return
+        from .sustain import take
+        deficit = 1 - it.condition
+        if not take(g.sector, p.side, "parts", max(1., deficit * 5)):
+            g.msg("The armourer has no spare parts for this repair.", "warn")
+            return
+        it.condition = 1.
+        it.jammed = False
+        g.msg(f"{who.last_name} repairs the {it.t.name} with parts from the stores.", "good")
+        return _time_passes(ps, int(600 + 1800 * deficit))
     if v == "clean" and w is not None:
         w.jammed = False
         w.heat = 0
@@ -1007,7 +1023,8 @@ def _patrol_target(game):
 
 
 def _issuer(game, who):
-    return dict(name=_name(who), role=who.role, sector=(game.sector.x, game.sector.y), base=who.ai.get("base"))
+    return dict(name=_name(who), role=who.role, rank=max(10, who.rank),
+                sector=(game.sector.x, game.sector.y), base=who.ai.get("base"))
 
 
 def _order_rejoin(game, who, s):
@@ -1095,6 +1112,7 @@ def give_order(ps, who, o):
     g = ps.game
     o = dict(o)
     o["issued"] = g.turn
+    o["_priority_checked"] = g.turn
     o["deadline"] = g.turn + int(o.get("hours", 4) * HOUR)
     o.setdefault("stage", "go")
     if o["kind"] == "dispatch":
@@ -1149,6 +1167,11 @@ def update(game):
     """Every few seconds: how the adjutant's orders are going."""
     o = game.__dict__.get("base_order")
     if not o or _done(game, o):
+        return
+    from .orders import deferred, pause_deadline
+    blocked = deferred(game, "base")
+    pause_deadline(game, o, blocked)
+    if blocked:
         return
     p = game.player
     here = (game.sector.x, game.sector.y)
@@ -1471,7 +1494,8 @@ def order_point(game):
         e = _next_edge(game, tgt)
         if e is None:
             return None
-        x, y = game._edge_exit_point(e, (p.x, p.y), 6)
+        from .orders import exit_point
+        x, y = exit_point(game, e)
         return x, y, f"to {_sector_name(game, tgt)}"
     if o["kind"] == "guard" and not _done(game, o):
         x, y = o["post"]

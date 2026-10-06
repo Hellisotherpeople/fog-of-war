@@ -90,6 +90,29 @@ class Item:
 
     @property
     def name(self) -> str:
+        name = self._base_name
+        if self.t.kind != "corpse" and self.condition < .999:
+            label = "broken" if not self.functional else "badly damaged" if self.condition < .35 else \
+                    "damaged" if self.condition < .7 else "worn"
+            return f"{name} ({label})"
+        return name
+
+    @property
+    def condition(self) -> float:
+        return max(0., min(1., (self.data or {}).get("condition", 1.)))
+
+    @condition.setter
+    def condition(self, value):
+        if self.data is None:
+            self.data = {}
+        self.data["condition"] = max(0., min(1., float(value)))
+
+    @property
+    def functional(self) -> bool:
+        return self.condition > 0
+
+    @property
+    def _base_name(self) -> str:
         t = self.t
         if t.kind == "corpse" and self.data:
             return f"corpse of {self.data.get('name', 'a soldier')}"
@@ -133,6 +156,8 @@ class Item:
         t = self.t
         if t.kind != "gun":
             return ""
+        if not self.functional:
+            return "BROKEN"
         if t.cat in ("at_disposable",):
             return "ready" if self.loaded else "spent"
         if t.cat == "mortar":
@@ -167,6 +192,22 @@ def lose_count(it):
         it.known_rounds = False
         if t.kind == "gun" and it.mag_item is not None:
             it.mag_item.known_rounds = False
+
+
+def visible_body_items(body, distance=0):
+    """Worn/slung kit and obvious webbing; closed bags and pockets require a search."""
+    data = body.data or {}
+    inv = data.get("inv")
+    if inv is None or distance > 24:
+        return []
+    out = [(it, slot) for slot, it in inv.slots.items() if it is not None]
+    if inv.hands is not None:
+        out.append((inv.hands, "carried"))
+    if distance <= 8:
+        for grid, loc in inv.grids():
+            if loc == "rig" or data.get("searched"):
+                out.extend((it, loc) for it in grid.items)
+    return out
 
 
 def things_at(m, x, y) -> list:
@@ -282,6 +323,8 @@ class Actor:
 
     @property
     def full_name(self) -> str:
+        if self.ai.get("civilian"):
+            return self.name
         return f"{self.rank_short} {self.name}"
 
     @property
@@ -317,6 +360,8 @@ class Actor:
 
     @property
     def color(self):
+        if self.ai.get("civilian"):
+            return (220, 200, 155)
         return SIDE_COLOR[self.side]
 
     def is_officer(self) -> bool:
@@ -366,6 +411,8 @@ class Actor:
             item.count -= count
             new = Item(item.tid, count)
             new.loaded = item.loaded
+            from copy import deepcopy
+            new.data = deepcopy(item.data)
             return new
         self.invent.remove(item)
         if self.weapon is item:
@@ -391,12 +438,12 @@ class Actor:
         return spare_rounds(self, gun)
 
     def grenades(self, kinds=None) -> list[Item]:
-        return [i for i in self.inv if i.t.kind == "grenade" and (kinds is None or i.t.gtype in kinds)
+        return [i for i in self.inv if i.functional and i.t.kind == "grenade" and (kinds is None or i.t.gtype in kinds)
                 and not (i.data and i.data.get("dud"))]
 
     def has_tool(self, tool: str) -> Item | None:
         for i in self.inv:
-            if i.t.tool == tool or (tool == "shovel" and i.tid == "shovel"):
+            if i.functional and (i.t.tool == tool or (tool == "shovel" and i.tid == "shovel")):
                 return i
         return None
 
@@ -438,7 +485,7 @@ class Actor:
     def medical(self, med: str) -> Item | None:
         best = None
         for i in self.inv:
-            if i.t.kind == "medical" and (i.t.med == med or (med == "bandage" and i.t.med == "kit")):
+            if i.functional and i.t.kind == "medical" and (i.t.med == med or (med == "bandage" and i.t.med == "kit")):
                 if best is None or (best.t.med == "kit" and i.t.med != "kit"):
                     best = i
         return best
@@ -458,7 +505,10 @@ class Actor:
             from .thermal import speed_mult
             cold = speed_mult(self)
         tired = 1.0 - max(0.0, self.__dict__.get("fatigue", 0.0) - 60) / 200.0
-        return int(BASE_SPEED * self.body.speed_mult() * self.encumbrance(turn) * breath * cold * tired)
+        injury = self.body.speed_mult()
+        if self.ai.get("splinted") and injury < 1:
+            injury = min(1., injury * 1.12)
+        return int(BASE_SPEED * injury * self.encumbrance(turn) * breath * cold * tired)
 
     def weight_now(self, turn: int) -> float:
         """Carried weight, recomputed every few seconds (it doesn't change often)."""
@@ -488,7 +538,7 @@ class Actor:
 
     def weapon_ready(self) -> bool:
         w = self.weapon
-        return w is not None and w.t.kind == "gun" and not w.jammed and w.loaded > 0
+        return w is not None and w.functional and w.t.kind == "gun" and not w.jammed and w.loaded > 0
 
 
 def riding(a) -> bool:
@@ -655,6 +705,10 @@ class Vehicle:
         if self.abandoned:
             return "abandoned"
         bits = []
+        if not self.static and self.ai.get("fuel", 100) <= 0:
+            bits.append("out of fuel")
+        elif self.ai.get("fuel", 100) < 20:
+            bits.append("low fuel")
         if self.burning:
             bits.append("burning")
         from .vdamage import damage_list

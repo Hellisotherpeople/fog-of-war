@@ -1,0 +1,24 @@
+{
+  "passed": true,
+  "coding_tools": [
+    "bash",
+    "edit",
+    "read"
+  ],
+  "code_tests": 4,
+  "generations": 9,
+  "chain": [
+    "dry",
+    "top_n_sigma",
+    "p_less",
+    "min_k",
+    "xtc",
+    "min_p",
+    "temperature"
+  ],
+  "temperature_10_and_infinity": true,
+  "compaction_custom_chain": true,
+  "fixed_output_cap_absent": true,
+  "native_filters_neutral": true,
+  "llama_props_requests": 0
+}

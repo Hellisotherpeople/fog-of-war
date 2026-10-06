@@ -14,7 +14,7 @@ Rewards and punishments are the ones each army really used, and they really happ
   Department's attention and, at the end of it, a penal company.
 
 book(game) lists them; the panel shows the first few; T opens the book (ui.OrdersState), where you can
-choose which one Enter gets on with.
+choose a compatible local instruction. The governing order, navigation and Enter share one priority rule.
 """
 from __future__ import annotations
 
@@ -60,7 +60,7 @@ def _clock(game, turn):
     """The time of day - with a watch; without one, nothing to say."""
     if turn is None or not _watch(game):
         return ""
-    t = game.now() + __import__("datetime").timedelta(seconds=max(0, turn - game.turn))
+    t = game.now() + __import__("datetime").timedelta(seconds=turn - game.turn)
     return t.strftime("%H:%M")
 
 
@@ -85,8 +85,7 @@ def left_words(game, d) -> str:
 
 
 def book(game) -> list:
-    """The orders you hold: [dict(key, who, how, text, issued, due, reward, penalty, urgent, point)], the
-    most pressing first."""
+    """Received instructions, with authority, governing/active status and reasons; governing order first."""
     from .duty import REWARD, STRICT, TASK_TEXT
     p = game.player
     out = []
@@ -97,27 +96,38 @@ def book(game) -> list:
     strikes = duty.strikes if duty is not None else 0
     next_level = 0 if strikes < 2 else 1 if strikes < 4 else 2
     # the mission (a briefing: raids, patrols, agents, the navy's and the air force's jobs)
-    from .scenarios import mission_line
+    from .scenarios import mission_line, mission_point
     ml = mission_line(game)
     ms = game.__dict__.get("mission") or {}
     if ml:
-        who = {"agent": "your briefing officer, before you went in", "raid": "the raid commander's briefing",
-               "patrol": "the company commander's briefing"}.get(ms.get("kind"), "your briefing")
+        point = mission_point(game)
+        if point and ms.get("kind") == "agent" and ms.get("stage") in ("find", "kill", "photo", "send"):
+            from .senses import direction_word
+            dx, dy = point[0] - p.x, point[1] - p.y
+            distance = int(round(math.hypot(dx, dy) * 2.2 / 10) * 10)
+            ml += f" Lead: {point[2]}; {direction_word(dx, dy)}, about {distance} yards."
+        who = {"agent": "operations headquarters, your briefing officer", "raid": "the raid commander's briefing",
+               "patrol": "the company commander's briefing"}.get(ms.get("kind"),
+                   "battalion's briefing" if ms.get("authority", mission_authority(ms)) >= 12 else "company's briefing")
         out.append(dict(key="mission", who=who, how="briefing", text=ml, issued=ms.get("start"), due=None,
                         reward="a line in your record, and a medal recommendation if it's done well",
                         penalty="the mission fails - and the men who sent you will know why", urgent=False,
-                        point=None))
+                        point=point, authority=ms.get("authority", mission_authority(ms))))
     # the men who command you, in the field
     for t in (duty._tasks() if duty is not None else []):
         r = REWARD.get(t["kind"], 2)
         how = "shouted" if t["kind"] in ("down", "help", "fire", "come", "gun", "ammo") else "told you"
+        returning = (t["kind"] == "scout" and t.get("leg") == "back") or \
+            (t["kind"] == "fetch" and p.ai.get("resupplied_turn", -1) >= t["issued"])
+        text = f"Report back to {t['by_name']} with what you brought back." if returning else TASK_TEXT[t["kind"]]
         out.append(dict(key=f"duty:{t.get('uid')}", uid=t.get("uid"),
                         who=f"{t['by_name']}" + (f", {t['by_role'].lower()}" if t.get("by_role") else ""),
-                        how=how, text=TASK_TEXT[t["kind"]], issued=t["issued"], due=t["deadline"],
+                        how=how, text=text, issued=t["issued"], due=t["deadline"],
                         reward=("his trust" if r < 3 else "his trust, and a line in your record") +
                         f" ({PRAISE.get(nat, 'he will remember it')})",
                         penalty=f"a strike against you: {sanction(t.get('by_nation', nat), next_level, p.rank)}",
-                        urgent=t["kind"] in ("down", "help", "fire", "come"), point=duty.task_point(game, t)))
+                        urgent=t["kind"] in ("down", "help", "fire", "come"), point=duty.task_point(game, t),
+                        authority=t.get("authority", issuer_rank(game, t)), task=t))
     # a fire mission for your gun or tube
     if game.support is not None and game.map is not None:
         f = game.support.fires
@@ -127,7 +137,8 @@ def book(game) -> list:
             out.append(dict(key="fire", who="the section chief" if b.kind != "mortar" else "the platoon sergeant",
                             how="the fire direction centre's numbers", text=f.order_text(game), issued=m.get("start"),
                             due=m.get("deadline"), reward="your standing with the battery, and a line in your record",
-                            penalty="he fires your rounds himself - and you're on report", urgent=True, point=None))
+                            penalty="he fires your rounds himself - and you're on report", urgent=True, point=None,
+                            authority=9))
     # the adjutant's written orders
     from . import base as BASE
     bo = game.__dict__.get("base_order")
@@ -147,7 +158,8 @@ def book(game) -> list:
                         how="written orders" if bo["kind"] != "guard" else "detailed at the guardroom",
                         text=BASE.order_line(game), issued=bo.get("issued"), due=bo.get("deadline"),
                         reward=", ".join(bits) or "the adjutant's good opinion",
-                        penalty=f"a strike against you: {sanction(nat, next_level, p.rank)}", urgent=False, point=None))
+                        penalty=f"a strike against you: {sanction(nat, next_level, p.rank)}", urgent=False,
+                        point=BASE.order_point(game), authority=bo.get("authority", bo["by"].get("rank", 10))))
     # a sailor ashore
     if game.__dict__.get("ship_ashore"):
         ctx = game.ship_ashore
@@ -164,30 +176,240 @@ def book(game) -> list:
     # your unit's orders, as your leader gives them
     sq = p.squad
     if sq is not None and not sq.player_led and sq.leader is not None and not sq.leader.is_player and \
-            game.sector is not None and not ml:
+            game.sector is not None:
         o = sq.order
-        text = game.__dict__.get("_squad_order_text")
+        from .ai import order_target
+        text = o.describe(game)
         if text:
             out.append(dict(key="squad", who=f"{sq.leader.full_name}, your {sq.leader.role_name.lower()}",
                             how=_route(game, sq.leader), text=text, issued=o.issued, due=None,
                             reward="the section's opinion of you; merit for ground taken",
-                            penalty="leave the fight and it's desertion", urgent=False, point=None))
+                            penalty="leave the fight without authority and it's desertion", urgent=False,
+                            point=order_target(game, sq), authority=sq.leader.rank))
     cmd = game.command
-    if cmd.billet is not None and not ml:
-        text = game.__dict__.get("_command_order_text")
+    if cmd.billet is not None or (sq is not None and sq.player_led):
+        objs = [o for o in game.map.objectives if o.owner != p.side] if game.map is not None else []
+        ob = min(objs, key=lambda o: abs(o.x - p.x) + abs(o.y - p.y)) if objs else None
+        text = f"Take {ob.name}." if ob is not None else None
         if text:
-            out.append(dict(key="command", who="battalion" if cmd.billet.echelon in ("platoon", "company")
-                            else "higher headquarters", how="the battalion net" if p.has_tool("radio") else "a runner",
+            out.append(dict(key="command", who="battalion" if cmd.billet is not None else "company",
+                            how="the battalion net" if p.has_tool("radio") else "a runner",
                             text=text, issued=None, due=None, reward="merit for every objective held, and promotion",
-                            penalty="relieved of your command if it goes badly enough", urgent=False, point=None))
+                            penalty="relieved of your command if it goes badly enough", urgent=False,
+                            point=(ob.x, ob.y), authority=12 if cmd.billet is not None else 10))
+    field = game.__dict__.get("field_order")
+    if field and field.get("sector") == (game.sector.x, game.sector.y):
+        edge = field.get("edge")
+        pt = exit_point(game, edge) if edge else field.get("point")
+        out.append(dict(key="field", who=field["who"], how="headquarters recall", text=field["text"],
+                        issued=field["issued"], due=None, reward="an authorized withdrawal", penalty="-",
+                        urgent=True, point=pt, authority=field["authority"], reason=field["reason"]))
     # the medevac, if you called one
     from .medevac import order_line
     mv = order_line(game)
     if mv:
         out.insert(0, dict(key="medevac", who="the battalion aid post", how="the radio", text=mv, issued=None,
                            due=None, reward="a hospital bed", penalty="-", urgent=True, point=None))
-    out.sort(key=lambda o: (not o["urgent"], o["due"] if o["due"] is not None else 10 ** 12))
+    return _prioritize(game, out)
+
+
+def mission_authority(ms):
+    """Common rank grades; old saves retain the authority implied by their briefing."""
+    return 13 if ms.get("kind") == "agent" else 12 if ms.get("kind") in ("take", "hold", "rearguard") else 10
+
+
+def issuer_rank(game, task):
+    if "by_rank" in task:
+        return task["by_rank"]
+    who = next((a for a in game.actors if a.id == task.get("by")), None)
+    return who.rank if who is not None else 3
+
+
+def _supports(game, order, primary):
+    """Local execution of a mission is allowed; a different destination is not a new mission."""
+    t = order.get("task")
+    if t:
+        if t["kind"] == "down":
+            return True
+        pt = order.get("point")
+        if t["kind"] in ("help", "ammo") and pt:
+            return max(abs(pt[0] - game.player.x), abs(pt[1] - game.player.y)) <= 3
+    if primary["key"] != "mission":
+        return False
+    ms = game.__dict__.get("mission") or {}
+    k = ms.get("kind")
+    if ms.get("stage") in ("return", "exfil", "home", "withdraw", "away", "out"):
+        return False
+    if order["key"] in ("squad", "command"):
+        sq = game.player.squad
+        if k not in ("take", "hold", "rearguard") or not order["point"]:
+            return False
+        if order["key"] == "squad" and sq.order.kind not in (("attack", "assault", "move") if k == "take" else
+                                                            ("defend", "hold", "dig")):
+            return False
+        return any(max(abs(ob.x - order["point"][0]), abs(ob.y - order["point"][1])) <= ob.radius
+                   for ob in game.map.objectives if k != "take" or ob.owner != game.player.side)
+    if t:
+        if t["kind"] == "dig" and k in ("hold", "rearguard"):
+            pt = primary.get("point")
+            return pt is not None and max(abs(pt[0] - game.player.x), abs(pt[1] - game.player.y)) <= 8
+    return False
+
+
+def _prioritize(game, out):
+    if not out:
+        return out
+    from .data.ranks import COMMAND_LEVEL
+    for o in out:
+        o.setdefault("authority", 8 if o["key"] in ("medevac", "liberty", "awol") else 3)
+        o["authority_name"] = COMMAND_LEVEL.get(o["authority"], "section")
+    mission = next((o for o in out if o["key"] == "mission"), None)
+    directives = [o for o in out if o["key"] in ("mission", "base", "field")]
+    primary = mission
+    if primary is None and directives:
+        primary = max(directives, key=lambda o: (o["authority"], o["issued"] or 0))
+    if primary is not None:
+        # Only an actual received order can supersede the briefing, never the generic side AI's target.
+        for o in sorted(out, key=lambda o: o["issued"] or 0):
+            if o["key"] in ("squad", "command", "medevac", "liberty", "awol"):
+                continue
+            if o["authority"] >= primary["authority"] and (o["issued"] or 0) > (primary["issued"] or 0):
+                primary = o
+    else:
+        tasks = [o for o in out if o["key"] not in ("squad", "command")]
+        primary = min(tasks or out, key=lambda o: (-o["authority"], not o["urgent"], o["due"] or 10 ** 12))
+    protected = bool(directives)
+    for o in out:
+        o["governing"] = o is primary
+        o["deferred"] = protected and o is not primary and not _supports(game, o, primary)
+        o["status"] = "Governing" if o is primary else "Deferred" if o["deferred"] else "Supporting"
+        if o["deferred"]:
+            o["reason"] = f"{primary['who']} has priority. This order cannot redirect you." + \
+                (" Its deadline is paused." if o["due"] is not None else "")
+        elif o is primary and mission is not None and o is not mission:
+            o["reason"] = o.get("reason") or "Newer orders from an equal or higher authority take precedence."
+        elif o is primary:
+            o["reason"] = o.get("reason") or "This order governs the arrow and Enter. Local directions must support it."
+        else:
+            o["reason"] = "A local instruction you can follow without replacing the governing order."
+    chosen = next((o for o in out if o["key"] == game.__dict__.get("order_focus") and not o["deferred"]), primary)
+    for o in out:
+        o["active"] = o is chosen
+    out.sort(key=lambda o: (not o["governing"], o["deferred"], not o["active"], not o["urgent"],
+                            o["due"] or 10 ** 12))
     return out
+
+
+def governing(game):
+    return next((o for o in book(game) if o["governing"]), None)
+
+
+def active(game):
+    return next((o for o in book(game) if o["active"]), None)
+
+
+def summary(game, entries=None):
+    entries = book(game) if entries is None else entries
+    primary = next((o for o in entries if o["governing"]), None)
+    if primary is None:
+        return None
+    text = f"ORDERS ({primary['authority_name']}): {primary['text']}"
+    chosen = next((o for o in entries if o["active"]), None)
+    if chosen is not None and chosen["key"] != primary["key"]:
+        text += f" Local action: {chosen['text']}"
+    return text
+
+
+def navigation(game):
+    o = active(game)
+    if o is None or o["point"] is None:
+        return None
+    pt = o["point"]
+    label = pt[2] if len(pt) > 2 else o["text"].split("!")[0].split(".")[0]
+    return int(pt[0]), int(pt[1]), label
+
+
+def execution_signature(game):
+    """The instruction a walk started under; moving men and clocks are not new orders."""
+    o = active(game)
+    if o is None:
+        return None
+    key = o["key"]
+    detail = o["text"]
+    if key == "base":
+        bo = game.base_order
+        detail = (bo.get("kind"), bo.get("stage"), bo.get("sector"))
+    elif key == "mission":
+        point = o["point"]
+        detail = ((game.__dict__.get("mission") or {}).get("stage"),
+                  point[2] if point is not None and len(point) > 2 else None)
+    return key, o["issued"], detail
+
+
+def exit_point(game, edge):
+    """Reading an order cannot consume the simulation RNG or move the arrow at random."""
+    import random
+    p = game.player
+    return game._edge_exit_point(edge, p.pos, 6, rng=random.Random(p.x * 73856093 ^ p.y * 19349663))
+
+
+def authorized_departure(game, edge):
+    primary = governing(game)
+    if primary is None:
+        return False
+    if primary["key"] == "field":
+        return edge == game.field_order.get("edge")
+    if primary["key"] == "base":
+        from .base import _next_edge, _done
+        bo = game.base_order
+        target = bo["by"]["sector"] if _done(game, bo) else bo.get("sector")
+        return target is not None and edge == _next_edge(game, tuple(target))
+    if primary["key"] == "mission":
+        ms = game.mission
+        if ms.get("stage") in ("return", "exfil", "home", "withdraw", "away", "out") or \
+                ms.get("kind") in ("evader", "breakout"):
+            return edge == (ms.get("home") or game.home_edge(game.player.side))
+        if game.sector is not ms.get("_start_sector", game.sector):
+            from .base import _next_edge
+            start = ms["_start_sector"]
+            return edge == _next_edge(game, (start.x, start.y))
+        return ms.get("kind") in ("agent", "raid", "patrol", "sniper", "partisans")
+    return False
+
+
+def deferred(game, key):
+    return any(o["key"] == key and o["deferred"] for o in book(game))
+
+
+def pause_deadline(game, task, blocked):
+    """Pause deadlines while higher orders prevent compliance, including the last paused interval."""
+    last = task.get("_priority_checked", game.turn)
+    if blocked or task.get("_priority_paused"):
+        elapsed = max(0, game.turn - last)
+        task["deadline"] += elapsed
+        if task.get("kind") == "guard" and task.get("start") is not None:
+            task["start"] += elapsed  # higher duty does not count as time served on the guard post
+    task["_priority_checked"] = game.turn
+    task["_priority_paused"] = blocked
+
+
+def recall(game, authority, who, reason):
+    """An explicit battlefield recall, with the authority and circumstances preserved in the book."""
+    primary = governing(game)
+    if primary and (authority < primary["authority"] or game.turn <= (primary["issued"] or 0)):
+        game.msg(f"{who} orders a withdrawal, but your higher mission orders still stand.", "radio")
+        return False
+    edge = game.home_edge(game.player.side)
+    game.field_order = dict(authority=authority, who=who, reason=reason, issued=game.turn, edge=edge,
+                            sector=(game.sector.x, game.sector.y), text=f"Withdraw toward friendly lines. {reason}")
+    ms = game.__dict__.get("mission")
+    if ms and primary and primary["key"] == "mission":
+        ms["stage"] = "cancelled"
+        ms["cancelled_by"] = who
+        ms["cancel_reason"] = reason
+    game.order_focus = None
+    game.update_orders(force=True)
+    return True
 
 
 def _route(game, who) -> str:
@@ -210,11 +432,15 @@ def lines(game, n=3) -> list:
 
 
 def focus(game, key):
-    """Make one of your orders the one Enter gets on with."""
+    """Select an executable order, without silently overriding higher authority."""
+    o = next((o for o in book(game) if o["key"] == key), None)
+    if o is None or o["deferred"]:
+        return False
     duty = getattr(game, "duty", None)
     if key.startswith("duty:") and duty is not None:
         duty.focus = int(key.split(":")[1])
     game.__dict__["order_focus"] = key
+    return True
 
 
 # ============================================================================ the consequences, carried out
