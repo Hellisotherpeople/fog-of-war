@@ -104,8 +104,13 @@ Then:
   Right-click anything for what you can do with it.
 - Behind the line, walk into the men at their posts to talk: the adjutant has orders for you.
 - `C` includes acting appointments, command transfers, standing missions and engineer construction.
-  `T` marks workshop destinations and higher-HQ conferences. Map sheets contain dated reports;
-  visit HQ to copy newer intelligence. Skill, witnessed service credit and promotion are separate.
+  `T` automatically lists HQ debriefs, captured-intelligence hand-ins, workshop destinations and
+  higher-HQ conferences. `X` finds a known specialist; `Q` opens the HQ service desk when you reach staff.
+  Reviewed service, decorations and advancement earn support allocations: requisition authority,
+  finite vehicle supplies, or an available support unit. You can keep your tank job, or pursue
+  successive appointments all the way from private to five-star rank.
+  Officers receive dated map reports through radios, nearby vehicle crews or physical runners;
+  a broken connection or lost messenger leaves older intelligence in their hands.
   [Command and realism notes](docs/COMMAND_REALISM.md) explain the systems and historical approximations.
 - A line under your orders gives the keys for whatever's beside you. `?` or F1 opens the help at
   **Right now**: the keys for where you are, in bold, with every other key a section or a `/` search
@@ -202,7 +207,7 @@ name, traits, weapon and kit. Leave any of it to chance.</td>
   and they're the objectives.
 - **Ground you can read**: what you can't walk through stands up out of the ground with a dark rim and
   a shadow (trees, palms, hedgerows, walls, wagons); undergrowth, crops and rubble lie flat. The look
-  says the going ("Very slow going (x2.6 the time) - you can't see into it"), and `X` tints the ground:
+  says the going ("Very slow going (x2.6 the time) - you can't see into it"), and `X → Read the ground` tints the ground:
   red for no way through, amber for slow.
 - **Command at every level.** Orders travel by voice, hand signal, radio, relay or runner, and
   arrive late or not at all. When your leader falls, the next man takes over, and sometimes that's

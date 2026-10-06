@@ -170,7 +170,14 @@ def hand_over_papers(ps, officer, via_qm=False):
     """Intelligence reads what the enemy dead carried.  The more senior the man, the more it's worth."""
     g = ps.game
     p = g.player
-    docs = [i for i in p.inv if i.tid in L.DOCS]
+    from .intelligence import distance
+    from .senses import los_clear
+    if not officer.active or officer.downed or officer.side != p.side or officer.role not in ('intel', 'quartermaster') or \
+            distance(p.pos, officer.pos) > 3 or not los_clear(g, *p.pos, *officer.pos):
+        g.msg('You need a living friendly intelligence officer or quartermaster within speaking distance.', 'info')
+        return
+    from .contacts import documents
+    docs = documents(g)
     if not docs:
         g.msg("'Bring me papers off their officers. Maps, orders, anything with writing on it.'", "info")
         return
@@ -187,15 +194,23 @@ def hand_over_papers(ps, officer, via_qm=False):
         g.msg(f"The {it.name} {what}.", "radio" if L.DOCS[it.tid][0] >= 3 else "info")
     add_credit(g, total_c)
     g.command.merit += total_m
+    from .recognition import state
+    ledger = state(g)
+    ledger['credited'] += total_m  # physical papers handed to the receiving officer are corroboration
+    ledger.setdefault('reviewed', {})['intelligence'] = ledger.get('reviewed', {}).get('intelligence', 0) + len(docs)
     g.duty.rep += min(10, total_m * 1.5)
     g.msg(f"{officer.rank_short} {officer.last_name}: 'Good work.' (+{total_c} credit)", "good")
+    from .contacts import entry
+    entry(g)
+    g.update_orders(force=True)
     ps.act(120)
 
 
 def open_intel(ps, officer):
     g = ps.game
     p = g.player
-    docs = [i for i in p.inv if i.tid in L.DOCS]
+    from .contacts import documents
+    docs = documents(g)
     lines = [(f"{officer.rank_short} {officer.last_name}, intelligence.", UI_TEXT)]
     opts = [(f"Hand over {len(docs)} lot{'s' if len(docs) != 1 else ''} of enemy papers", "papers", None, bool(docs)),
             ("Ask what's known of the enemy", "brief", None, True),

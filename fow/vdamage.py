@@ -106,7 +106,10 @@ def gun_disp(v) -> float:
 
 
 def reload_mult(v) -> float:
-    return 1.3 if state(v, "gun") == DAMAGED else 1.0
+    from .crew import is_manned
+    loaders = v.vt.get("loaders", 1)
+    handling = 1.5 if loaders > 1 and not (is_manned(v, "loader") and is_manned(v, "loader2")) else 1.0
+    return handling * (1.3 if state(v, "gun") == DAMAGED else 1.0)
 
 
 def optics_mult(v) -> float:
@@ -208,7 +211,7 @@ LOCATIONS = {
     3: [("engine", 20), ("fuel", 10), ("turret", 12), ("optics", 10), ("commander", 10), ("loader", 8),
         ("gunner", 8), ("driver", 8), ("ammo", 10), ("radio", 4)],
 }
-SEATS = ("driver", "gunner", "loader", "commander", "mg0", "mg1", "mg2", "mg3")
+SEATS = ("driver", "gunner", "loader", "loader2", "commander", "mg0", "mg1", "mg2", "mg3")
 
 
 def _candidates(v, face):
@@ -217,6 +220,8 @@ def _candidates(v, face):
     men = manned(v)
     out = []
     for loc, w in LOCATIONS.get(face, LOCATIONS[1]):
+        if loc == "loader" and "loader2" in here and "loader2" in men:
+            out.append(("loader2", w))
         if loc in SEATS:
             if loc in here and (loc in men or v.player_crewed and v.player_station == loc):
                 out.append((loc, w))

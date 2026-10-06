@@ -17,8 +17,8 @@ from __future__ import annotations
 from .gamemap import octant
 
 NAMES = {"commander": "Commander", "gunner": "Gunner", "loader": "Loader", "driver": "Driver",
-         "mg1": "Bow gunner", "mg2": "Machine gunner", "mg3": "Machine gunner", "mg0": "Machine gunner"}
-SHORT = {"commander": "Cdr", "gunner": "Gun", "loader": "Ldr", "driver": "Drv", "mg0": "MG", "mg1": "Bow",
+         "mg1": "Bow gunner", "mg2": "Machine gunner", "mg3": "Machine gunner", "mg0": "Machine gunner", "loader2": "Second loader"}
+SHORT = {"commander": "Cdr", "gunner": "Gun", "loader": "Ldr", "loader2": "Ld2", "driver": "Drv", "mg0": "MG", "mg1": "Bow",
          "mg2": "MG", "mg3": "MG"}
 
 
@@ -40,6 +40,8 @@ def stations(vt) -> list[str]:
         out.append("gunner")
     if vt.main and vt.crew >= 3:
         out.append("loader")
+        if vt.get("loaders", 1) > 1:
+            out.append("loader2")
     for i in range(len(vt.mgs or ())):
         s = _mg_station(vt, i)
         if s not in out:
@@ -158,7 +160,7 @@ def can(v, action) -> tuple[bool, str]:
             return True, ""
         return False, f"You're the {name(vt, st).lower()} - there's no machine gun at your seat."
     if action == "ammo":
-        return (True, "") if st in ("loader", "gunner", "commander") else (False, "The loader chooses the rounds.")
+        return (True, "") if st in ("loader", "loader2", "gunner", "commander") else (False, "The loader chooses the rounds.")
     return True, ""
 
 
@@ -205,7 +207,7 @@ def seat_help(v, st) -> str:
             bits.append("v the " + ("coax" if vt.main else "machine gun"))
         s = "; ".join(bits) + "."
         return s[:1].upper() + s[1:] if bits else ""
-    if st == "loader":
+    if st in ("loader", "loader2"):
         return "r hurries the next round, F changes the round."
     if st.startswith("mg"):
         return "v fires your gun" + ("" if vt.open_top or vt.static else " (it points where the hull points)") + "."

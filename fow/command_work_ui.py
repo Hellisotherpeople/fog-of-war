@@ -93,6 +93,8 @@ def staff(ps):
     from .intelligence import headquarters
     g = ps.game
     lines = [(status(g), UI_DIM)]
+    from .dispatches import status as dispatch_status
+    lines.append((dispatch_status(g), UI_TEXT))
     if headquarters(g):
         lines += [("Local stores: " + ", ".join(f"{k} {v:.0f}" for k, v in stores(g.sector, g.player.side).items()), UI_TEXT)]
         hf = g.sector.__dict__.get("homefront", {})
@@ -106,10 +108,14 @@ def staff(ps):
             lines.append((f"{spec[0]} at {p['point']}: {p['status']}, {min(100, p['work'] / spec[2] * 100):.0f}%", UI_TEXT))
     if len(lines) == 1:
         lines.append(("No work parties assigned here. Select an engineer unit to start works.", UI_DIM))
-    opts = [("Request ammunition, spares and engineer stores", "truck", None, g.command.player_radio(g) or bool(headquarters(g))),
+    opts = [("HQ debrief, decorations and career / support requests (Q)", "debrief", None, True),
+            ("Request ammunition, spares and engineer stores", "truck", None, g.command.player_radio(g) or bool(headquarters(g))),
             ("Orders and workshop destinations (T)", "orders", None, True)]
     def pick(k):
-        if k == "orders":
+        if k == "debrief":
+            from .debrief import menu
+            menu(ps)
+        elif k == "orders":
             ps.cmd_orders_book()
         elif k == "truck":
             from .maintenance import call_truck

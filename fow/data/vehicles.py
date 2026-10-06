@@ -84,8 +84,11 @@ mount("90mm_m3", "90mm M3", 90, 150, 200, rng=110)
 mount("95mm_how", "95mm howitzer", 95, 40, 260, rng=85)
 mount("105mm_m4", "105mm M4 howitzer", 105, 50, 280, rng=90)
 mount("122mm_d25", "122mm D-25T", 122, 160, 380, rng=110, reload_cost=900)
+mount("128mm_pak44", "12.8 cm Pak 44", 128, 220, 320, rng=130, reload_cost=3000, he_radius=5)
 mount("152mm_ml20", "152mm ML-20S", 152, 130, 500, rng=100, reload_cost=1000)
 mount("152mm_m10", "152mm M-10T", 152, 90, 500, rng=90, reload_cost=1000)
+mount("380mm_rw61", "38 cm RW 61 rocket mortar", 380, 0, 1200, rng=115, reload_cost=18000,
+      he_radius=14, he_frags=120, disp=.65)
 mount("70mm_type92", "Type 92 battalion gun", 70, 25, 150, rng=80, reload_cost=350)
 mount("crocodile", "Crocodile flame projector", 0, 0, 0, rng=36, reload_cost=100, flame=True)
 mount("flame_hull", "flame projector", 0, 0, 0, rng=10, reload_cost=100, flame=True)
@@ -296,6 +299,16 @@ veh("hetzer", "Jagdpanzer 38(t) Hetzer", "td", ["germany", "hungary"], (1944.3, 
     turret=False, freq=6)
 veh("jagdpanther", "Jagdpanther", "td", ["germany"], (1944.5, 1950), (140, 50, 40, 25), speed=55,
     crush=3, crew=5, main="88mm_kwk43", mgs=("mg34",), ap=40, he=15, turret=False, freq=1)
+veh("jagdtiger", "Jagdtiger", "td", ["germany"], (1944.9, 1950), (250, 80, 80, 40), speed=110,
+    offroad=2.2, crush=3, crew=6, main="128mm_pak44", mgs=("mg34",), ap=20, he=20,
+    turret=False, freq=1, fuel_use=2.2, supply_load=2, loaders=2,
+    desc="Rare late-war heavy tank destroyer. A 128mm gun and formidable frontal armour, but slow handling, "
+         "two-piece ammunition, exposed flanks and a heavy fuel burden. Forty rounds; two loaders.")
+veh("sturmtiger", "Sturmtiger", "spg", ["germany"], (1944.65, 1950), (180, 80, 80, 40), speed=95,
+    offroad=2, crush=3, crew=5, main="380mm_rw61", mgs=("mg34",), ap=0, he=14,
+    turret=False, freq=1, fuel_use=2, supply_load=12,
+    desc="The operational 380mm rocket assault mortar on a Tiger chassis. Fourteen enormous demolition rounds, "
+         "a very slow loading cycle and dangerous blast. Built for fortifications; not a rapid-fire tank gun.")
 veh("elefant", "Elefant", "td", ["germany"], (1943.5, 1945), (200, 80, 80, 30), speed=110,
     crush=3, crew=6, main="88mm_pak43", ap=40, he=10, turret=False, freq=1,
     desc="Tank destroyer. No machine gun at Kursk - infantry swarmed it.")

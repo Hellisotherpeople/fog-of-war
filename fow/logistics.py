@@ -114,9 +114,9 @@ def rank_ok(player, t) -> tuple[bool, str]:
         if c == "sniper" and role != "sniper" and g < 8:
             return False, "snipers only"
     if t.kind == "tool":
-        if t.tool in ("radio",) and role not in ("radioman",) and g < 8:
+        if t.tool in ("radio",) and role not in ("radioman",) and g < 8 and not player.ai.get("hq_equipment"):
             return False, "officers and signallers"
-        if t.tool == "binoculars" and g < 3:
+        if t.tool == "binoculars" and g < 3 and not player.ai.get("hq_equipment"):
             return False, "NCOs and officers"
     return True, ""
 
@@ -202,7 +202,8 @@ def turn_in_papers(game, player, it):
         for report in reports.values():
             report["source"] = "captured map"
             report["enemy_known"] = True
-        player.ai.setdefault("map_reports", {}).update(reports)
+        from .intelligence import merge_map
+        merge_map(player, reports)
         info.append("dated enemy dispositions copied to your map")
     return credit, merit, info
 

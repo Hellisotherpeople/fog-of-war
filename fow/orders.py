@@ -117,6 +117,14 @@ def book(game) -> list:
     service = service_entry(game)
     if service:
         out.append(service)
+    from .debrief import entry as debrief_entry
+    personnel = debrief_entry(game)
+    if personnel:
+        out.append(personnel)
+    from .contacts import entry as intelligence_entry
+    intelligence = intelligence_entry(game)
+    if intelligence:
+        out.append(intelligence)
     # the men who command you, in the field
     for t in (duty._tasks() if duty is not None else []):
         r = REWARD.get(t["kind"], 2)
@@ -231,6 +239,9 @@ def issuer_rank(game, task):
 
 def _supports(game, order, primary):
     """Local execution of a mission is allowed; a different destination is not a new mission."""
+    if order["key"] in ("personnel", "intelligence"):
+        from .debrief import release_allowed
+        return release_allowed(game)
     if order["key"] == "service" and game.player.ai.get("service_order", {}).get("kind") == "repair":
         # A senior commander can release his own vehicle to the workshops in a quiet sector.
         return game.player.rank >= primary["authority"] and game.turn - game.player.fired_turn > 120
@@ -269,7 +280,8 @@ def _prioritize(game, out):
     from .data.ranks import COMMAND_LEVEL
     for o in out:
         o.setdefault("authority", 8 if o["key"] in ("medevac", "liberty", "awol") else 3)
-        o["authority_name"] = COMMAND_LEVEL.get(o["authority"], "section")
+        o["authority_name"] = ("reporting procedure" if o["key"] in ("personnel", "intelligence") else
+                               COMMAND_LEVEL.get(o["authority"], "section"))
     mission = next((o for o in out if o["key"] == "mission"), None)
     directives = [o for o in out if o["key"] in ("mission", "base", "field")]
     primary = mission
@@ -361,6 +373,13 @@ def exit_point(game, edge):
 
 
 def authorized_departure(game, edge):
+    chosen = active(game)
+    if chosen and chosen["key"] in ("personnel", "intelligence") and not chosen["deferred"]:
+        from .recognition import state
+        from .base import _next_edge
+        dest = (state(game).get("report_order", {}) if chosen["key"] == "personnel" else
+                game.player.ai.get("intelligence_order", {})).get("destination")
+        return bool(dest and edge == _next_edge(game, dest["sector"]))
     primary = governing(game)
     if primary is None:
         return False

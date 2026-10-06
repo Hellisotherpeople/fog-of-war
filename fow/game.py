@@ -3114,6 +3114,8 @@ class Game:
                 works_tick(self)
                 service_tick(self)
                 personnel_tick(self)
+                from .debrief import tick as debrief_tick
+                debrief_tick(self)
         if self.turn % 10 == 4:
             self.duty.update(self)
         if self.turn % 5 == 3 and self.__dict__.get("domain", "land") == "land":

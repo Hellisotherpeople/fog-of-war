@@ -4,15 +4,18 @@ from __future__ import annotations
 from .intelligence import distance, headquarters, map_report
 
 
-def destination(game, kinds):
+def destination(game, kinds, skip_local=False):
     p = game.player
+    marked = p.has_tool("map") is not None or bool(headquarters(game))
     local = [r for r in game.map.gen_positions if r.get("kind") in kinds and r.get("side") == p.side
-             and not r.get("destroyed")]
-    if local:
+             and not r.get("destroyed") and (marked or game.can_see(r["x"], r["y"]))]
+    if local and not skip_local:
         rec = min(local, key=lambda r: distance((r["x"], r["y"]), p.pos))
         return dict(sector=(game.sector.x, game.sector.y), point=(rec["x"], rec["y"]), kind=rec["kind"])
     choices = []
     for s in game.strategic.sectors():
+        if (s.x, s.y) == (game.sector.x, game.sector.y):
+            continue  # the loaded map overrides an old report of a now-absent post
         r = map_report(game, s)
         if r and r["control"] == p.side and any(k in kinds and side == p.side and ok
                                                 for k, side, ok in r["installations"]):
@@ -119,17 +122,17 @@ def conference(ps):
 
 
 def drive_step(ps, point):
-    """Enter follows the marked workshop route one driving action at a time."""
+    """Enter follows the marked service route one driving action at a time."""
     g, p = ps.game, ps.game.player
     v = p.vehicle
     from .crew import can
     if not v.mobile or not can(v, "drive")[0]:
-        g.msg("Take the driving or command station to follow the workshop route. If immobilized, wait for fitters.", "info")
+        g.msg("Take the driving or command station to follow the route. If immobilized, wait for fitters.", "info")
         return
     brain = g.brains[p.side]
     mp = brain.vehicle_map(*point, v.vt.crush, v.vt.vtype in ("car", "truck", "armcar"), wide=v.size[1] >= 2)
     if mp is None:
-        g.msg("No vehicle route to that workshop is known. Follow the marked direction and look for a road.", "info")
+        g.msg("No vehicle route to that destination is known. Follow the marked direction and look for a road.", "info")
         return
     choices = [(mp[v.x + dx, v.y + dy], dx, dy) for dx in (-1, 0, 1) for dy in (-1, 0, 1)
                if (dx or dy) and g.map.in_bounds(v.x + dx, v.y + dy) and mp[v.x + dx, v.y + dy] < mp[v.x, v.y]]
@@ -137,7 +140,7 @@ def drive_step(ps, point):
         _, dx, dy = min(choices)
         ps.drive(dx, dy)
     else:
-        g.msg("The workshop route is blocked here. Maneuver onto a clear approach.", "info")
+        g.msg("The route is blocked here. Maneuver onto a clear approach.", "info")
 
 
 def tick(game):

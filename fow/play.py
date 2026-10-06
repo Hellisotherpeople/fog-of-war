@@ -1418,7 +1418,8 @@ class PlayState:
             ("R", "Radio", "Communications and support requests."),
             ("D", "Dig / construction", "Cover, fortifications and engineer work."),
             ("S", "Resupply", "Ammunition, supplies and repairs."),
-            ("O", "Request orders", "Ask your superiors for instructions."),
+            ("O", "Squad orders", "Direct your squad's movement, fire and tasks."),
+            ("Q", "HQ debrief / promotion / support", "Report exploits, receive decorations and request career appointments or unit support."),
             ("g", "Pick up / loot", "Items and bodies within reach."),
             ("a", "Use an item", "Tools, food and equipment."),
             ("w", "Wield a weapon", "Change what is in your hands."),
@@ -1431,7 +1432,7 @@ class PlayState:
             ("W", "Movement pace", "Creep, walk, run or sprint."),
             ("Z", "Wait", "Choose how long to wait."),
             ("Y", "Yell", "Call out to nearby soldiers."),
-            ("X", "Going / travel", "Where you are going and how to get there."),
+            ("X", "Find nearest person / service", "Intelligence, quartermaster, medic, fitters, HQ and terrain passability."),
             ("A", "Autopilot", "Let your soldier follow orders, or take control again."),
             ("?", "Help / controls", "Search every key and learn how to play."),
         ]
@@ -1540,6 +1541,7 @@ class PlayState:
             return
         handler = {
             "/": self.cmd_search,
+            "Q": self.cmd_debrief,
             "f": self.begin_target, "F": self.cycle_mode, "r": self.cmd_reload, "t": self.cmd_throw,
             "c": self.cmd_crouch, "p": self.cmd_prone, "i": self.cmd_inventory, "g": self.cmd_pickup,
             ",": self.cmd_pickup, "d": self.cmd_drop, "w": self.cmd_wield, "a": self.cmd_apply,
@@ -1551,7 +1553,7 @@ class PlayState:
             "v": self.cmd_vehicle_mg, "s": lambda: self.act(100), "V": self.cmd_nearby,
             "+": lambda: self.zoom(1), "=": lambda: self.zoom(1), "-": lambda: self.zoom(-1),
             "G": self.cmd_staff, "W": self.cmd_pace, "!": self.cmd_safe_mode, "'": self.cmd_ignore_danger,
-            "T": self.cmd_orders_book, "A": self.cmd_autopilot, "E": self.cmd_talk, "X": self.cmd_going,
+            "T": self.cmd_orders_book, "A": self.cmd_autopilot, "E": self.cmd_talk, "X": self.cmd_contacts,
         }.get(c)
         if handler:
             return handler()
@@ -1807,13 +1809,21 @@ class PlayState:
         if seat == "commander":
             # you talk the driver through it; he does the driving
             d = octant(dx, dy)
-            if v.ai.get("cmd_dir") != d or g.turn - v.ai.get("cmd_dir_turn", -99) > 30:
+            if v.ai.get("cmd_dir") != d:
                 v.ai["cmd_dir"] = d
                 v.ai["cmd_dir_turn"] = g.turn
                 rel = (d - v.facing) % 8
                 word = {0: "Driver, advance!", 1: "Driver, half left!", 7: "Driver, half right!", 2: "Driver, left!",
                         6: "Driver, right!", 4: "Driver, reverse!", 3: "Driver, hard left!", 5: "Driver, hard right!"}[rel]
-                p.say(word, g.turn, 2)
+                # Steering taps still get a bubble; speech is a sparse acknowledgement.
+                # Use both clocks so rapid turn-based play cannot flood the audio queue.
+                now = time.monotonic()
+                if g.turn - v.ai.get("cmd_voice_turn", -999) >= 15 and \
+                        now - self.__dict__.get("_driver_voice_at", -999) >= 8:
+                    p.say(word, g.turn, 2, tone="talk")
+                    v.ai["cmd_voice_turn"], self._driver_voice_at = g.turn, now
+                else:
+                    p.shout = (word, g.turn + 2)
         # driving off the edge of the map: on to the next sector, vehicle and all
         m = g.map
         ahead = v.cells(v.x + dx, v.y + dy, octant(dx, dy))
@@ -2221,7 +2231,7 @@ class PlayState:
                                       if st["safe_mode"] else "off. Watch yourself."), "info")
 
     def cmd_going(self):
-        """Read the ground: tint what you can't get through red, and slow going amber (X)."""
+        """Read the ground: toggle passability tint through the X menu."""
         st = getattr(self.app, "settings", None)
         if st is None:
             return
@@ -2232,8 +2242,12 @@ class PlayState:
             pass
         who = "the vehicle" if self.game.player.vehicle is not None else "you"
         self.game.msg("You read the ground: red is no way through for " + who + ", amber is slow going - the "
-                      "deeper, the slower. (X again to stop)" if st["going"] else "You stop reading the ground.",
+                      "deeper, the slower. (X → Read the ground to stop)" if st["going"] else "You stop reading the ground.",
                       "info")
+
+    def cmd_contacts(self):
+        from .contacts import menu
+        return menu(self)
 
     def going_on(self) -> bool:
         st = getattr(self.app, "settings", None)
@@ -2247,6 +2261,10 @@ class PlayState:
         self.game.msg(f"You note {'them' if n != 1 else 'it'} and carry on." if found else "Nothing in sight.", "info")
 
     # ================================================================== doing what you're told
+    def cmd_debrief(self):
+        from .debrief import menu
+        return menu(self)
+
     def _order_plan(self):
         """(what Enter will do, the function that does it) for your current order - or None."""
         g = self.game
@@ -2257,6 +2275,12 @@ class PlayState:
         from .orders import active, navigation
         current = active(g)
         foc = current["key"] if current is not None else None
+        if foc == "personnel":
+            from .debrief import plan
+            return plan(self)
+        if foc == "intelligence":
+            from .contacts import go
+            return go(self, 'intel')
         if foc == "service":
             from .service import plan
             return plan(self)
@@ -3104,7 +3128,7 @@ class PlayState:
                 return
             v.ammo_choice = "he" if v.ammo_choice == "ap" else "ap"
             rnd = "HE" if v.ammo_choice == "he" else "AP"
-            g.msg(f"'{rnd}, load!'" if C.player_seat(v) != "loader" else f"You heave an {rnd} round into the rack.",
+            g.msg(f"'{rnd}, load!'" if C.player_seat(v) not in ("loader", "loader2") else f"You heave an {rnd} round into the rack.",
                   "info")
             return
         m = A.cycle_mode(p)
@@ -3117,7 +3141,7 @@ class PlayState:
         if p.vehicle is not None and p.vehicle.player_crewed:
             from . import crew as C
             v = p.vehicle
-            if C.player_seat(v) == "loader" or (C.player_seat(v) == "gunner" and not C.is_manned(v, "loader")):
+            if C.player_seat(v) in ("loader", "loader2") or (C.player_seat(v) == "gunner" and not C.is_manned(v, "loader")):
                 if not v.gun_ok:
                     g.msg("The gun's knocked out - there's nothing to load.", "warn")
                     return
@@ -3693,6 +3717,10 @@ class PlayState:
         except Exception:
             pass
         rows.append(("k", "Enter", plan[0] if plan else "(nothing to carry out just now)"))
+        if g.__dict__.get("domain", "land") == "land":
+            rows += [("k", "T", "HQ reports, captured intelligence and service destinations"),
+                     ("k", "Q", "HQ debrief, decorations and support"),
+                     ("k", "X", "find the nearest useful person or service post")]
         if g.support is not None and g.support.fires.player_mission(g) is not None:
             rows.append(("k", "f", "fire the mission's rounds (with nothing in sight to shoot at)"))
         # your seat
@@ -3715,6 +3743,7 @@ class PlayState:
                 "driver": [("move keys", "drive (off the map edge: on into the next sector)")],
                 "gunner": gun,
                 "loader": [("r", "hurry the next round"), ("F", "change the round")],
+                "loader2": [("r", "hurry the next round"), ("F", "change the round")],
                 "commander": [("move keys", "tell the driver where to go"), ("f", "give the gunner a target"),
                               ("v", "give the machine gunners a target")],
             }

@@ -66,7 +66,8 @@ works as direction keys.
 | F6 | optional real time: everyone moves on a shared clock, including while you stand still. F6 again returns to turn based time |
 | `!` | safe mode off / on |
 | `'` | ignore the dangers you can see now (safe mode won't stop you for them) |
-| `X` | read the ground: red where there's no way through, amber where it's slow (for you, or the vehicle you're in); `X` again to stop |
+| `X` | find the nearest known intelligence officer, quartermaster, medical staff, fitters or HQ; also toggle the terrain passability overlay |
+| `Q` | HQ debrief, decorations, career appointments and support allocations; away from HQ, add a reporting destination to `T` |
 
 Moving into things:
 - **An enemy:** you fight hand to hand - the obvious blow for what's in your hands. Right-click an enemy

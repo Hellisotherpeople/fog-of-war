@@ -246,6 +246,7 @@ def _adjutant(ps, who):
     if g.__dict__.get("awol"):
         opts.insert(0, ("Report yourself absent without leave", "turnin", (240, 180, 120), True))
     opts.append(("What's the situation?", "situation", None, True))
+    opts.append(("After-action debrief, decorations and support (Q)", "debrief", None, True))
     rep = g.duty.rep
     fatigue = getattr(p, "fatigue", 0)
     leave_ok = rep >= 8 and g.turn - _state(g)["leave"] > 7 * DAY and not bo
@@ -256,6 +257,9 @@ def _adjutant(ps, who):
 
 def _adjutant_choice(ps, who, v):
     g = ps.game
+    if v == "debrief":
+        from .debrief import menu
+        return menu(ps)
     if v == "fatigues":
         h = _state(g).pop("fatigues", 0)
         return _time_passes(ps, h * HOUR, f"{who.last_name} hands you over to the sergeant of the guard. {h} hours "

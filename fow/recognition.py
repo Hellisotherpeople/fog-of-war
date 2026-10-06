@@ -53,10 +53,10 @@ def process(game):
     cmd = game.command
     for c in list(ledger["claims"]):
         if c["reported"] is None:
-            a = next((a for a in game.actors if a.id in c["witnesses"] and a.active and not a.downed
+            a = next((a for a in game.actors if a.id in c["witnesses"] and a.side == game.player.side and a.active and not a.downed
                       and channel(game, a)), None)
-            crew = next((v for v in game.vehicles if ("crew", v.id) in c["witnesses"] and v.active
-                         and v.crew > 1 and (radio_link(game, v) or
+            crew = next((v for v in game.vehicles if ("crew", v.id) in c["witnesses"] and v.side == game.player.side and v.active
+                         and v.crew > 1 and (headquarters(game, v) or radio_link(game, v) or
                          any(b is not game.player and b.active and not b.downed and b.side == v.side and b.rank >= R.SERGEANT
                              and distance(b.pos, v.pos) <= 6 for b in game.actors))), None)
             if a is None and crew is None:
@@ -65,11 +65,14 @@ def process(game):
                     ledger["claims"].remove(c)
                 continue
             c["reported"] = game.turn
-            c["due"] = game.turn + (300 if a is not None and headquarters(game, a) else 1800)
+            at_hq = headquarters(game, a) if a is not None else headquarters(game, crew)
+            c["due"] = game.turn + (300 if at_hq else 1800)
             c["by"] = a.full_name if a is not None else f"the crew of {crew.vt.name}"
         if game.turn < c["due"]:
             continue
         ledger["credited"] += c["weight"]
+        reviewed = ledger.setdefault("reviewed", {})
+        reviewed[c["kind"]] = reviewed.get(c["kind"], 0) + 1
         cmd.merit += c["weight"]
         game.duty.rep = min(100., game.duty.rep + c["weight"])
         if c["kind"] == "wounds" and cmd._medal(game, 0) not in cmd.medals:
@@ -83,7 +86,9 @@ def process(game):
         ledger["last_review"] = game.turn
         cmd._battle_awards(game)
     for award in list(ledger["awards"]):
-        if game.turn >= award["due"] and channel(game):
+        from .debrief import settled
+        presentation = settled(game) if game.__dict__.get('domain', 'land') == 'land' else channel(game)
+        if game.turn >= award["due"] and presentation:
             current = cmd.battle
             cmd.battle = award["evidence"]
             try:
@@ -95,6 +100,9 @@ def process(game):
 
 def recommend_award(game, level, why, posthumous=False):
     ledger = state(game)
+    name = game.command._medal(game, level)
+    if level > 0 and f"{name} (second award)" in game.command.medals:
+        return None  # do not generate endless presentation errands for a completed citation
     if posthumous:
         # Only reports already received by headquarters can support a posthumous citation.
         return game.command._award(game, level, why, True) if ledger["credited"] > 0 else None
@@ -107,6 +115,9 @@ def recommend_award(game, level, why, posthumous=False):
 def vacancy(game):
     cmd, p = game.command, game.player
     from .command import ECHELON_GRADE
+    appointment = state(game).get("appointment")
+    if appointment and appointment["from"] == p.rank:
+        return appointment["grade"], appointment["title"]
     f = cmd.billet
     if f is not None and f.acting and f.commander is p:
         ceiling = ECHELON_GRADE.get(f.echelon, p.rank)
@@ -136,9 +147,13 @@ def consider(game, why=""):
         if game.turn < pending["due"] or not channel(game):
             return False
         p.rank = pending["to"]
-        ledger["spent"] = ledger["credited"]
+        # Exceptional service is banked, not thrown away after one stripe.
+        ledger["spent"] += cmd.promotion_need(pending["from"])
         ledger["last_promotion"] = game.turn
         ledger["pending"] = None
+        appointment = ledger.pop("appointment", None)
+        if appointment:
+            ledger["career_post"] = appointment["title"]
         cmd.merit_at_promotion = cmd.merit
         cmd.promotions.append((game.datetime_str(), p.rank))
         game.msg(f"Personnel orders reach you by {channel(game)}: {p.rank_full}, assigned to {pending['billet']}.", "good")
@@ -164,4 +179,4 @@ def status(game):
         return "A personnel recommendation is awaiting review and delivery."
     if s["claims"]:
         return "Witness statements are awaiting transmission or review."
-    return "Promotion requires a suitable vacancy, service, and a reviewed record."
+    return "Report at HQ for recognition, support allocations and career appointments. Skills improve in the field."

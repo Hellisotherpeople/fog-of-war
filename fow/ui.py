@@ -1622,6 +1622,12 @@ class CharState(TextState):
                                                      for when, gr in cmd.promotions), UI_TEXT))
         from .recognition import status
         lines.append((status(game), UI_DIM))
+        from .debrief import requests
+        from .recognition import state as personnel_state
+        personnel = personnel_state(game)
+        lines.append((f"HQ support allocations: {requests(game)}. Q: debrief, career and requisitions.", UI_TEXT))
+        if personnel.get("career_post"):
+            lines.append(("Appointment: " + personnel["career_post"], UI_DIM))
         duty = getattr(game, "duty", None)
         if duty is not None:
             from .duty import standing_word
@@ -1755,7 +1761,7 @@ class OptionsState:
              None),
             ("Read the ground", "going", "toggle", "Tint the battlefield by the going: red where there's no way "
              "through (for you on foot, or the vehicle you're in), amber where it's slow - the deeper the amber, "
-             "the slower. X in play.", None),
+             "the slower. X → Read the ground in play.", None),
             ("Battlefield size (new games)", "battlefield", "cycle",
              "standard: 180 x 120 tiles.  large: 270 x 180, about twice the men on each side (the default).  "
              "huge: 360 x 240, three times the men - slow on most machines. Takes effect when you start a new "
