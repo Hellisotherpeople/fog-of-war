@@ -142,3 +142,41 @@ def test_changing_nation_clears_foreign_model_but_legitimate_operators_stay():
     creator._fixup("nation")
     assert creator.v["vehicle"] is None and creator.v["station"] is None
     assert not vehicle_start.assignments("kingtiger", nation="romania")
+
+
+@pytest.mark.parametrize('vid,station', [('jagdtiger', 'loader2'), ('sturmtiger', 'gunner')])
+def test_service_heavy_vehicles_use_real_crews_ammunition_reload_and_persistence(vid, station):
+    from fow import combat, vdamage
+    from fow.data.vehicles import VEHICLES
+    assert not vehicle_start.assignments(vid, theatre='kursk43', nation='germany')
+    assert not vehicle_start.assignments(vid, theatre='berlin45', nation='usa')
+    assert VEHICLES[vid].freq == 1
+    g = Game('berlin45', 'germany', seed=25, setup=dict(vehicle=vid, station=station, battlefield='standard'))
+    v = g.player.vehicle
+    assert crew.player_seat(v) == station and v.crew == v.vt.crew
+    # A controlled firing lane through the ordinary ballistics/explosion code.
+    g.map.fill(1, 1, 65, 55, 'grass')
+    g.map.refresh()
+    g.vehicle_at.clear()
+    g.soldier_at.clear()
+    v.x, v.y = 10, 10
+    g.player.x, g.player.y = 10, 10
+    for cell in v.cells():
+        g.vehicle_at[cell] = v
+    v.ai['gunnery'] = 9
+    before = v.he
+    assert combat.vehicle_fire_main(g, v, 45, 10, ammo='he')
+    assert v.he == before - 1 and v.reload >= 3000
+    assert not combat.vehicle_fire_main(g, v, 45, 10, ammo='he')
+    if vid == 'jagdtiger':
+        assert 'loader2' in crew.manned(v)
+        assert 'loader2' in {seat for seat, _ in vdamage._candidates(v, 1)}
+        normal = vdamage.reload_mult(v)
+        v.ai['seat_out'] = {'loader': g.turn + 100}
+        assert vdamage.reload_mult(v) > normal
+    else:
+        assert v.ap == 0 and v.he == 13 and v.mount.he_radius >= 10
+        assert v.vt.supply_load == 12 and v.vt.fuel_use > 1
+    loaded = pickle.loads(pickle.dumps(g))
+    assert loaded.player.vehicle.he == v.he and loaded.player.vehicle.reload == v.reload
+    assert crew.player_seat(loaded.player.vehicle) == station

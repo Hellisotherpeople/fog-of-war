@@ -139,7 +139,7 @@ def tick(game):
         if v.dead or v.static or v.vt.vtype in ("wagon",) or "wagon" in v.vid:
             continue
         if v.moved_turn >= game.turn - 60:
-            v.ai["fuel"] = max(0, v.ai.get("fuel", 100.) - .12)
+            v.ai["fuel"] = max(0, v.ai.get("fuel", 100.) - .12 * v.vt.get("fuel_use", 1))
         from .maintenance import at_motor_pool, quiet
         if v.ai.get("fuel", 100) < 95 and at_motor_pool(game, v) and quiet(game, v) and \
                 take(game.sector, v.side, "fuel", .5):

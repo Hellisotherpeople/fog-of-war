@@ -53,10 +53,15 @@ def local_contacts(game, squad, age=60):
     if leader is None:
         return []
     observers = {a.id: a for a in squad.members if a.active and not a.downed}
-    return [v for v in contacts.values() if 0 <= game.turn - v["turn"] <= age
+    seen = [v for v in contacts.values() if 0 <= game.turn - v["turn"] <= age
             and (a := observers.get(v["observer"])) is not None
             and (a is leader or distance(a.pos, leader.pos) <= 12 or
                  radio_link(game, a) and radio_link(game, leader))]
+    # A delivered staff message can inform either army's subordinate commander.
+    for r in leader.ai.get("staff_contacts", {}).values():
+        if 0 <= game.turn - r["turn"] <= age and not any(v["id"] == r["id"] for v in seen):
+            seen.append(r)
+    return seen
 
 
 def observe(game, observer, target):
@@ -96,6 +101,9 @@ def tick(game):
         brain.urgent = True
     if game.turn % 60 == 0 and headquarters(game):
         copy_map(game)
+    if game.turn % 30 == 0:
+        from .dispatches import tick as dispatch_tick
+        dispatch_tick(game)
 
 
 def objective_owner(game, side, index):
@@ -155,9 +163,17 @@ def strategic_reports(game, initial=False):
                 pending.append((side, key, report, game.turn + (600 if own else 1200)))
 
 
+def merge_map(actor, reports):
+    """A delayed packet cannot erase newer notes already on a carried map."""
+    known = actor.ai.setdefault("map_reports", {})
+    fresh = {k: r for k, r in reports.items() if k not in known or r["turn"] > known[k]["turn"]}
+    known.update(deepcopy(fresh))
+    return len(fresh)
+
+
 def copy_map(game):
     reports = game.strategic.__dict__.get("situation_reports", {}).get(game.player.side, {})
-    game.player.ai.setdefault("map_reports", {}).update(deepcopy(reports))
+    merge_map(game.player, reports)
 
 
 def map_report(game, sector):

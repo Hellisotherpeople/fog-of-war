@@ -376,7 +376,7 @@ def _rearm(game, v):
         v.ai["rearming"] = True
         where = {"truck": "the ammunition truck", "depot": "the dump", "crate": "the crates"}[kind]
         _tell(game, v, f"The {v.vt.name}'s crew start passing rounds up from {where}.")
-    acc = v.ai.get("pass_acc", 0.0) + min(hands / PASS_TIME, 1.0 / STOW_TIME) * STEP
+    acc = v.ai.get("pass_acc", 0.0) + min(hands / PASS_TIME, 1.0 / STOW_TIME) * STEP / v.vt.get("supply_load", 1)
     n = int(acc)
     v.ai["pass_acc"] = acc - n
     if n > 0 and short > 0:

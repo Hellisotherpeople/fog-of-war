@@ -74,7 +74,8 @@ SECTIONS = [
         ("h", "The going"),
         ("t", "What you can't walk through stands up with a dark rim and a shadow; what lies flat, you can push "
               "through - slowly. The look says how slow."),
-        ("k", "X", "read the ground: red is no way through, amber is slow going"),
+        ("k", "X", "find the nearest intel officer, quartermaster, medic, fitters or HQ; terrain overlay"),
+        ("k", "Q", "HQ debrief, decorations, career appointments and support requests"),
     ]),
     ("Fighting", [
         ("k", "f|Tab", "aim and fire: the cursor jumps to a target (an empty gun reloads instead)"),

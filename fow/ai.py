@@ -1220,6 +1220,11 @@ def soldier_act(game, a) -> int:
         if c:
             return c
     # ---- carrying a message
+    if a.ai.get("situation_dispatch"):
+        from .dispatches import act as dispatch_act
+        c = dispatch_act(game, a, vis)
+        if c:
+            return c
     if a.ai.get("runner"):
         c = runner_act(game, a, vis)
         if c:
@@ -2930,7 +2935,7 @@ def vehicle_gunnery(game, v, vis, sq):
                     res = "mg"
     # the other machine guns: each gunner finds his own work in his own arc
     for st in C.stations(vt):
-        if st in ("gunner", "driver", "loader", "commander") or not C.ai_manned(v, st):
+        if st in ("gunner", "driver", "loader", "loader2", "commander") or not C.ai_manned(v, st):
             continue
         if mg_cd.get(st, -1) >= game.turn:
             continue
