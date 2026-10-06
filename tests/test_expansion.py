@@ -316,8 +316,10 @@ def test_supplies_limit_resupply_healing_repairs_and_fuel():
     p.add_item(can)
     S.use(use, can)
     assert v.ai["fuel"] == 25 and vdamage.can_move(v) and use.cost > 0
-    v.parts["tracks"] = vdamage.OUT
-    v.ai["maint"] = {"track": JOBS["track"][1]}
+    g.map.gen_positions.append(dict(kind="motor_pool", side=p.side, x=v.x, y=v.y, rect=(v.x-3, v.y-3, 6, 6)))
+    v.parts["tracks"] = 1
+    v.parts["engine"] = vdamage.OUT
+    v.ai["maint"] = {"engine": JOBS["engine"][1]}
     v.hit_turn = -99999
     stock["parts"] = 0
     _repair(g, v)

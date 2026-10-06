@@ -57,7 +57,11 @@ in any script that plays the game.
 .venv/bin/python tests/test_identity_loot_ballistics.py  # dialogue, leads, physical loot, condition and ricochets
 .venv/bin/python tests/test_squadcare.py  # observed needs, leader dispatch, triage and finite ammunition delivery
 .venv/bin/python tests/test_vehicle_figures.py  # visible occupants, gun traverse, casualties and fog of war
+.venv/bin/python -m pytest tests/test_command_realism.py tests/test_vehicle_start.py
 ```
+
+The optional sampler project under `integrations/` has its own dependencies and tests; the
+command above runs the game's suite without requiring its PyTorch installation.
 
 The smoke tests start every battle on both sides, every service, save and load aboard a ship
 and a bomber, check a carrier is built full size, and run a carrier battle for four hours of game

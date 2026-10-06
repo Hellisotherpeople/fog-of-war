@@ -24,14 +24,14 @@ OPP = {"N": "S", "S": "N", "E": "W", "W": "E"}
 
 # what goes up the road, and how often (weights)
 KINDS = {"ammunition": 5, "fuel": 2, "rations": 2, "troops": 3, "wounded": 3, "armour": 1, "march": 2,
-         "prisoners": 1, "dispatch": 2, "staff": 1, "medical": 2, "spares": 2}
+         "prisoners": 1, "dispatch": 2, "staff": 1, "medical": 2, "spares": 2, "materials": 2}
 CARGO = {"ammunition": ["artillery shells", "small-arms ammunition and grenades", "mortar bombs", "tank rounds"],
          "fuel": ["petrol in jerrycans", "fuel drums"], "rations": ["rations and water", "bread and tinned meat"],
          "troops": ["replacements"], "wounded": ["wounded from the front"], "armour": ["tanks going up"],
          "march": ["replacements on foot"], "prisoners": ["prisoners going back"], "dispatch": ["dispatches"],
          "staff": ["staff officers"], "medical": ["dressings, plasma and surgical stores"],
-         "spares": ["vehicle spares and workshop tools"]}
-RESOURCE = {"ammunition": "ammo", "fuel": "fuel", "rations": "food", "medical": "medical", "spares": "parts"}
+         "spares": ["vehicle spares and workshop tools"], "materials": ["timber, cement, wire and engineer stores"]}
+RESOURCE = {"ammunition": "ammo", "fuel": "fuel", "rations": "food", "medical": "medical", "spares": "parts", "materials": "materials"}
 TRUCKS = {"usa": ["gmc"], "france": ["gmc", "laffly"], "uk": ["bedford"], "canada": ["bedford"], "australia": ["bedford"],
           "newzealand": ["bedford"], "india": ["bedford"], "poland": ["bedford", "pf621"], "ussr": ["zis5", "studebaker"],
           "germany": ["opel_blitz"], "hungary": ["opel_blitz"], "romania": ["opel_blitz"], "italy": ["fiat626"],

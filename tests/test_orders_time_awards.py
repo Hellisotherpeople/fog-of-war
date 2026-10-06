@@ -287,6 +287,8 @@ def test_citations_survive_battle_reset_saves_and_second_awards():
     from fow.awards import records
     g, _, _ = scene()
     cmd = g.command
+    from fow.recognition import state
+    state(g)["credited"] = 8  # witness reports already accepted by headquarters
     cmd.battle.update(kills=5, objectives=1, wounds=2)
     name = cmd._battle_awards(g, posthumous=True)
     entry = records(cmd, g.player.nation)[0]

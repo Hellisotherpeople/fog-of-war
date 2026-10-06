@@ -518,60 +518,11 @@ class Duty:
 
     # ------------------------------------------------------------ nothing succeeds like success
     def valour(self, game, weight, why):
-        """Good work in the fight: it's remembered - and it wipes out what you did wrong before.  No company
-        commander keeps a charge sheet on the man who took the machine gun: every three points of it takes a
-        strike off, and the extra duty, the fine and the stopped leave that came with them; a big enough deed
-        gives back the stripe you lost; a Red Army penal soldier who fights well, or bleeds, is rehabilitated
-        ('atoned in blood')."""
-        p = game.player
-        self.valour_pts = self.__dict__.get("valour_pts", 0.0) + weight
-        if self.__dict__.get("busted_from") is not None:
-            self.since_bust = self.__dict__.get("since_bust", 0.0) + weight
-        self.rep = min(100.0, self.rep + weight)
-        from . import base as BASE
-        st = BASE._state(game)
-        before = self.strikes
-        lifted = False
-        while self.valour_pts >= 3 and (self.strikes > 0 or st.get("fatigues") or st.get("fine_days")):
-            self.valour_pts -= 3
-            if self.strikes > 0:
-                self.strikes -= 1
-            if st.get("fatigues"):
-                st["fatigues"] = max(0, st["fatigues"] - 3)
-                lifted = True
-            if st.get("fine_days"):
-                st["fine_days"] = max(0, st["fine_days"] - 7)
-                lifted = True
-        if self.strikes == 0 and before > 0:
-            st["leave"] = min(st.get("leave", -10 ** 9), game.turn - 8 * 86400)     # the pass you were stopped
-        rec = game.command.__dict__.setdefault("record", [])
-        if before >= 3 > self.strikes:
-            rec.append(f"{game.datetime_str()}: the charge against you dropped - {why}.")
-            game.msg(f"Word comes down that the charge against you has been torn up. {why[0].upper() + why[1:]} "
-                     f"saw to that.", "good")
-        elif self.strikes < before or lifted:
-            game.msg("Nobody mentions the extra duty any more." if lifted else
-                     "Whatever they held against you, they've stopped holding it.", "good")
-            if self.strikes == 0:
-                rec.append(f"{game.datetime_str()}: slate wiped clean - {why}.")
-        if (weight >= 4 or self.__dict__.get("since_bust", 0.0) >= 8) and self.__dict__.get("busted_from") is not None \
-                and p.rank < self.busted_from:
-            self.since_bust = 0.0
-            from .data.ranks import rank_title
-            p.rank = self.busted_from
-            self.__dict__.pop("busted_from", None)
-            game.command.merit_at_promotion = game.command.merit
-            rec.append(f"{game.datetime_str()}: rank restored - {why}.")
-            game.msg(f"You're given your stripes back: {rank_title(p.nation, p.rank, False)} again.", "good")
-        if self.__dict__.get("penal") and (weight >= 4 or why.startswith("wounded")):
-            self.penal = False
-            p.unit = self.__dict__.pop("penal_from", p.unit)
-            self.strikes = 0
-            rec.append(f"{game.datetime_str()}: rehabilitated from the penal company - atoned in blood.")
-            game.msg("You've atoned in blood. The tribunal's sentence is lifted and you go back to your old unit.",
-                     "good")
+        """Observed assistance can earn regard; disciplinary findings need a separate review."""
+        from .recognition import claim
+        claim(game, "assistance", weight, why)
 
-    # ------------------------------------------------------------ what nobody has to order
+
     def good_deed(self, game, kind, who=None):
         self.good[kind] = self.good.get(kind, 0) + 1
         gain = {"patched": 3, "rescue": 6, "ammo": 2, "prisoner": 2, "delivered": 3}.get(kind, 1)

@@ -7,6 +7,8 @@ reports come in.
 from __future__ import annotations
 
 import textwrap
+from collections import Counter
+from .intelligence import map_report, map_sector, report_age
 
 import tcod.event as E
 
@@ -37,7 +39,15 @@ class OperationsState:
         cmd = g.command
         p = g.player
         st = g.strategic
-        tot = ops.totals(g)
+        def reported_strength(keys):
+            units = Counter()
+            for k in keys:
+                sec = st.at(*k)
+                report = map_report(g, sec) if sec else None
+                if report:
+                    units.update(report["units"][p.side])
+            return strength(units, g.player_nation)
+        tot = reported_strength({k for d in ops.divs.values() for k in d["sectors"]})
         title = cmd.billet_title(g) or f"{p.rank_full} {p.name}"
         con.print(2, 1, f"GENERAL STAFF - {title}", fg=UI_HI)
         ncorps = len(ops.corps)
@@ -81,21 +91,17 @@ class OperationsState:
                 continue
             i = v
             did, d = divs[i]
-            s = ops.div_strength(g, did)
+            s = reported_strength(d["sectors"])
             names = ", ".join(st.at(*k).name for k in sorted(d["sectors"]) if st.at(*k))[:26]
-            sup = min((st.supply_of(p.side, st.at(*k)) for k in d["sectors"] if st.at(*k)), default=1.0)
-            supw = "good" if sup >= 0.7 else "short" if sup >= 0.35 else "CUT OFF" if sup <= 0 else "poor"
+            reports = [map_report(g, st.at(*k)) for k in d["sectors"] if st.at(*k)]
+            sup = min((r["supply"] for r in reports if r and r.get("supply") is not None), default=-1)
+            supw = "?" if sup < 0 else "good" if sup >= 0.7 else "short" if sup >= 0.35 else "CUT OFF" if sup <= 0 else "poor"
             sel = i == self.sel
             bg = UI_SEL_BG if sel else None
             con.print(2, y, " " * (SCREEN_W - 4), bg=bg)
             status = d["status"]
-            if d["order"] == "attack" and d["target"]:
-                at = st.attack_on(*d["target"]) if hasattr(st, "attack_on") else None
-                if at is not None and at["side"] == p.side:
-                    status += " - fighting"
-            if any(st.attack_on(*k) and st.attack_on(*k)["side"] != p.side for k in d["sectors"]
-                   if hasattr(st, "attack_on")):
-                status += " - UNDER ATTACK"
+            known_turns = [r["turn"] for r in reports if r]
+            status += f" ({max(0, g.turn - min(known_turns)) // 60} min old)" if known_turns else " (no report)"
             if (g.sector.x, g.sector.y) in d["sectors"]:
                 status += " (you are here)"
             con.print(2, y, f"{d['name'][:34]:34} {names:26} {s['men']:7,} {s['tanks']:5} {s['guns']:5}  "
@@ -129,14 +135,16 @@ class OperationsState:
                 con.print(60, yy, f"{self.pick_sel + 1} of {len(cands)}", fg=UI_DIM)
             for j, c in enumerate(cands[top:top + 6], start=top):
                 sel = j == self.pick_sel
-                own = c.control == p.side
+                view = map_sector(g, c)
+                own = view.control == p.side
                 from .strategic import power
                 k = st.__dict__.get("scale", 1.0)
-                pw = power(c.units[c.control]) / k if c.control else 0
+                pw = power(view.units[view.control]) / k if view.control else 0
                 est = "" if own else f"  enemy {'weak' if pw < 6 else 'strong' if pw > 15 else 'moderate'} (estimate)"
-                if kind == "visit":
-                    at = st.attack_on(c.x, c.y)
-                    est = ("  - the fighting" if at is not None else "") + ("  (enemy ground)" if not own else "")
+                report = map_report(g, c)
+                if not report or not own and not report.get("enemy_known"):
+                    est = "  no enemy strength report"
+                est += "  " + report_age(g, c)
                 con.print(4, yy + 1 + (j - top), f"{c.name} - {c.biome}{est}", fg=UI_HI if sel else UI_TEXT,
                           bg=UI_SEL_BG if sel else None)
         else:
@@ -168,11 +176,7 @@ class OperationsState:
                     out.append(c)
             if d["order"] == "attack" and d["target"]:
                 c = st.at(*d["target"])
-                if c is not None and st.attack_on(c.x, c.y) is not None:
-                    out.insert(0, c)
-            for k in d["sectors"]:
-                c = st.at(*k)
-                if c is not None and st.attack_on(c.x, c.y) is not None and c not in out[:1]:
+                if c is not None and c not in out:
                     out.insert(0, c)
             return out
         seen = set()
@@ -183,10 +187,11 @@ class OperationsState:
             for n in st.neighbors(c0, create=True):
                 if (n.x, n.y) in seen or not n.playable:
                     continue
-                if kind == "attack" and n.control != g.player_side:
+                reported = map_sector(g, n)
+                if kind == "attack" and reported.control != g.player_side:
                     out.append(n)
                     seen.add((n.x, n.y))
-                elif kind in ("move", "commit") and n.control == g.player_side:
+                elif kind in ("move", "commit") and reported.control == g.player_side:
                     out.append(n)
                     seen.add((n.x, n.y))
         if kind == "commit":

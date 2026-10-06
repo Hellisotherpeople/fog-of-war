@@ -1,7 +1,7 @@
 """Finite stocks, deliveries, field repairs and the daily needs of soldiers."""
 from __future__ import annotations
 
-RESOURCES = ("ammo", "fuel", "food", "medical", "parts")
+RESOURCES = ("ammo", "fuel", "food", "medical", "parts", "materials")
 
 
 def stores(sector, side):
@@ -10,10 +10,14 @@ def stores(sector, side):
         depth = sector.__dict__.get("homefront", {}).get("depth", 0)
         amount = 80 + min(120, depth * 5) if sector.control == side else 25
         all_stores[side] = {k: float(amount) for k in RESOURCES}
+    for kind in RESOURCES:
+        all_stores[side].setdefault(kind, 0.)
     return all_stores[side]
 
 
 def take(sector, side, kind, amount):
+    if amount < 0:
+        raise ValueError("Supply withdrawals must be nonnegative")
     st = stores(sector, side)
     if st[kind] + 1e-6 < amount:
         return False
@@ -69,10 +73,24 @@ def strategic_tick(strategic):
             demand = max(.4, power(s.units[side]) * .12)
             for k in RESOURCES:
                 st[k] = max(0., min(500., st[k] + incoming - demand * (1.3 if k == "food" else .5)))
-            if "factory" in facilities:
-                st["parts"] = min(500, st["parts"] + (5 if "power_station" in facilities else 2))
-            if "food_depot" in facilities:
-                st["food"] = min(500, st["food"] + 3)
+            civilians = s.__dict__.get("homefront", {})
+            population = civilians.setdefault("population", 100) if civilians else 0
+            residents = max(0, population - civilians.get("casualties", 0) - civilians.get("evacuated", 0))
+            relief_need = residents * .01
+            fed = min(st["food"], relief_need)
+            st["food"] -= fed
+            relief = fed / relief_need if relief_need else 1.
+            if civilians:
+                civilians["relief"] = relief
+                civilians["shortage_hours"] = max(0., civilians.get("shortage_hours", 0) +
+                                                   (1 / 6 if relief < .5 else -1 / 6))
+            labor = max(0., residents / max(1, population)) * (1 - civilians.get("damage", 0) * .5)
+            if "factory" in facilities and st["materials"] >= 1 and st["fuel"] >= .2:
+                st["materials"] -= labor * relief
+                st["fuel"] -= .2
+                st["parts"] = min(500, st["parts"] + (5 if "power_station" in facilities else 2) * labor * relief)
+            if "food_depot" in facilities and incoming:
+                st["food"] = min(500, st["food"] + incoming * .25)
 
 
 def tick(game):
@@ -92,7 +110,10 @@ def tick(game):
                         from .actions import _consume
                         _consume(a, item)
                         need[key] = max(0, need[key] - 60)
-                    elif game.sector.control == a.side and game.turn - a.fired_turn > 300 and \
+                    elif game.turn - a.fired_turn > 300 and any(r.get("side") == a.side and
+                            not r.get("destroyed") and r.get("kind") in ("depot", "food_depot", "hq") and
+                            max(abs(a.x - r["x"]), abs(a.y - r["y"])) <= 6
+                            for r in getattr(game.map, "gen_positions", [])) and \
                             take(game.sector, a.side, "food", .2):
                         need[key] = max(0, need[key] - 40)
         if max(need["hunger"], need["thirst"]) > 70:

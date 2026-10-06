@@ -113,6 +113,10 @@ def book(game) -> list:
                         reward="a line in your record, and a medal recommendation if it's done well",
                         penalty="the mission fails - and the men who sent you will know why", urgent=False,
                         point=point, authority=ms.get("authority", mission_authority(ms))))
+    from .service import entry as service_entry
+    service = service_entry(game)
+    if service:
+        out.append(service)
     # the men who command you, in the field
     for t in (duty._tasks() if duty is not None else []):
         r = REWARD.get(t["kind"], 2)
@@ -194,15 +198,15 @@ def book(game) -> list:
         if text:
             out.append(dict(key="command", who="battalion" if cmd.billet is not None else "company",
                             how="the battalion net" if p.has_tool("radio") else "a runner",
-                            text=text, issued=None, due=None, reward="merit for every objective held, and promotion",
+                            text=text, issued=None, due=None, reward="a reported contribution to the operation",
                             penalty="relieved of your command if it goes badly enough", urgent=False,
                             point=(ob.x, ob.y), authority=12 if cmd.billet is not None else 10))
     field = game.__dict__.get("field_order")
     if field and field.get("sector") == (game.sector.x, game.sector.y):
         edge = field.get("edge")
         pt = exit_point(game, edge) if edge else field.get("point")
-        out.append(dict(key="field", who=field["who"], how="headquarters recall", text=field["text"],
-                        issued=field["issued"], due=None, reward="an authorized withdrawal", penalty="-",
+        out.append(dict(key="field", who=field["who"], how="headquarters orders", text=field["text"],
+                        issued=field["issued"], due=None, reward="carry out headquarters' instructions", penalty="-",
                         urgent=True, point=pt, authority=field["authority"], reason=field["reason"]))
     # the medevac, if you called one
     from .medevac import order_line
@@ -227,6 +231,9 @@ def issuer_rank(game, task):
 
 def _supports(game, order, primary):
     """Local execution of a mission is allowed; a different destination is not a new mission."""
+    if order["key"] == "service" and game.player.ai.get("service_order", {}).get("kind") == "repair":
+        # A senior commander can release his own vehicle to the workshops in a quiet sector.
+        return game.player.rank >= primary["authority"] and game.turn - game.player.fired_turn > 120
     t = order.get("task")
     if t:
         if t["kind"] == "down":
@@ -357,6 +364,11 @@ def authorized_departure(game, edge):
     primary = governing(game)
     if primary is None:
         return False
+    if primary["key"] == "service":
+        ticket = game.player.ai.get("service_order", {})
+        dest = ticket.get("destination")
+        from .base import _next_edge
+        return bool(dest and edge == _next_edge(game, dest["sector"]))
     if primary["key"] == "field":
         return edge == game.field_order.get("edge")
     if primary["key"] == "base":

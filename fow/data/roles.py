@@ -44,7 +44,8 @@ ROLES = {
                            "come and go; you run the place."),
     "officer": dict(name="Platoon officer", desc="Commands the platoon. Can call the guns."),
     "sniper": dict(name="Sniper", desc="Patient, hated, hunted by both sides."),
-    "engineer": dict(name="Combat engineer", desc="Demolitions, wire, mines and bunkers."),
+    "engineer": dict(name="Combat engineer", desc="Demolitions, field construction, wire, mines and bunkers."),
+    "seabee": dict(name="Naval construction battalion engineer", desc="Shore construction, workshops and field fortifications."),
     "mortarman": dict(name="Mortarman", desc="Lobs bombs at things you can't see."),
     "artilleryman": dict(name="Artilleryman", desc="Serves a field gun a mile behind the line. Fire missions come "
                          "down the wire; you lay the gun and fire at men you will never see."),
@@ -102,7 +103,7 @@ ROLES = {
 #   0 private .. 2 corporal, 3-7 sergeants to sergeant major, 8-9 lieutenants, 10 captain, 11 major ...
 ROLE_GRADES = {
     "rifleman": (0, 2), "smg_gunner": (0, 3), "lmg_gunner": (1, 3), "lmg_assistant": (0, 2), "at_soldier": (0, 3),
-    "medic": (0, 5), "radioman": (0, 4), "sniper": (0, 5), "engineer": (0, 4), "mortarman": (0, 4),
+    "medic": (0, 5), "radioman": (0, 4), "sniper": (0, 5), "engineer": (0, 4), "seabee": (0, 4), "mortarman": (0, 4),
     "artilleryman": (0, 4),
     "hmg_gunner": (1, 4), "hmg_assistant": (0, 2), "flamethrower": (0, 3), "volkssturm": (0, 3),
     "tank_crew": (0, 12), "squad_leader": (2, 4), "platoon_sergeant": (4, 5), "first_sergeant": (6, 6),
@@ -545,7 +546,9 @@ def build_kit(rng: random.Random, nation: str, year: float, role: str, *, para: 
                 add(camo)
         else:
             add("snow_smock")
-    elif role == "engineer":
+    elif role in ("engineer", "seabee"):
+        add("shovel")
+        add("tool_roll")
         wield = pick(rng, nation, year, ("smg", "rifle")) if rng.random() < 0.4 else service_rifle()
         add_ammo(wield, rng.uniform(3, 6))
         add(pick_explosive(rng, nation, year, ("satchel",)), rng.randint(1, 2))

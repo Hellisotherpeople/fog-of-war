@@ -208,6 +208,9 @@ class Operations:
         d = self.divs.get(did)
         if d is None:
             return "No such division."
+        from .intelligence import headquarters, map_sector
+        if not game.command.player_radio(game) and not headquarters(game):
+            return "The staff needs a working radio or a command post to transmit these orders."
         st = game.strategic
         d["order"], d["target"] = kind, target
         d["since"] = game.turn
@@ -218,8 +221,8 @@ class Operations:
             cmd.strategic_orders = [o for o in cmd.strategic_orders if tuple(o["src"]) != k]
         if kind == "attack" and target:
             tgt = st.at(*target)
-            if tgt is None or tgt.control == side:
-                return "That's not enemy ground."
+            if tgt is None or map_sector(game, tgt).control == side:
+                return "That is marked as friendly ground on your situation sheet."
             srcs = [k for k in d["sectors"] if abs(k[0] - target[0]) + abs(k[1] - target[1]) == 1]
             if not srcs:
                 return f"{d['name']} isn't next to {tgt.name}. Move it up first."
@@ -232,8 +235,8 @@ class Operations:
             return f"{d['name']} will attack {tgt.name}."
         if kind == "move" and target:
             tgt = st.at(*target)
-            if tgt is None or tgt.control != side:
-                return "Divisions move through our own ground."
+            if tgt is None or map_sector(game, tgt).control != side:
+                return "No friendly route is marked there on your situation sheet."
             for k in d["sectors"]:
                 if k != tuple(target):
                     cmd.add_strategic_order(game, "move", k, target)
@@ -260,9 +263,12 @@ class Operations:
 
     def commit(self, game, target, share=0.5):
         """Send part of the reserve to a sector: it arrives in half an hour or so."""
+        from .intelligence import headquarters, map_sector
+        if not game.command.player_radio(game) and not headquarters(game):
+            return "No working radio or command post to reach the reserve."
         st = game.strategic
         c = st.at(*target)
-        if c is None or c.control != game.player_side:
+        if c is None or map_sector(game, c).control != game.player_side:
             return "Reserves go to our own sectors."
         if sum(self.reserve.values()) == 0:
             return "The reserve is empty."
@@ -313,8 +319,16 @@ class Operations:
             if game.theatre["armor"].get(side, 0) > 0.3 and rng.random() < 0.5:
                 self.reserve["tank"] += st.sc(1)
         # the report
-        held = len(self.div_of)
-        tot = self.totals(game)
+        from .intelligence import headquarters
+        if not game.command.player_radio(game) and not headquarters(game):
+            return
+        reports = st.__dict__.get("situation_reports", {}).get(side, {})
+        keys = {k for d in self.divs.values() for k in d["sectors"]}
+        held = sum(reports.get(k, {}).get("control") == side for k in keys)
+        units = Counter()
+        for k in keys:
+            units.update(reports.get(k, {}).get("units", {}).get(side, {}))
+        tot = strength(units, game.player_nation)
         lines = []
         if self.last_held is not None:
             dh = held - self.last_held
@@ -335,7 +349,7 @@ class Operations:
         for did, d in self.divs.items():
             if d["order"] == "attack" and d["target"]:
                 c = st.at(*d["target"])
-                if c is not None and c.control == side:
+                if c is not None and reports.get(tuple(d["target"]), {}).get("control") == side:
                     lines.append(f"{d['name']} has taken {c.name}!")
                     d["order"], d["target"], d["status"] = "hold", None, "consolidating"
                     game.command.strategic_orders = [o for o in game.command.strategic_orders

@@ -43,10 +43,12 @@ def commander_update(game, side: str):
     objs = m.objectives
     if not objs:
         return
+    from .intelligence import objective_owner
+    owners = {i: objective_owner(game, side, i) for i in range(len(objs))}
     enemy = other_side(side)
     attacker = game.attacker
     my_str = sum(sq.strength() for sq in squads)
-    en_str = sum(sq.strength() for sq in game.squads if sq.side == enemy)
+    en_str = sum(c.threat for c in game.brains[side].live_contacts(120, False))
     init = game.initial_strength.get(side, 1)
     # general withdrawal
     if my_str < init * 0.25 and en_str > my_str * 2.5 and game.turn > 300:
@@ -70,6 +72,8 @@ def commander_update(game, side: str):
     for sq in squads:
         if sq.player_led or sq.order.kind == "retreat" or getattr(sq.order, "src", "ai") == "player":
             continue
+        if sq.rep.get("construction") or sq.order.src == "staff":
+            continue
         if sq.kind in ("staff", "rear", "aid", "supply") or sq.__dict__.get("convoy"):
             continue                # quartermasters, clerks and surgeons stay at their posts; trucks do their run
         if sq.order.kind == "resupply" and game.turn - sq.order.issued < 500:
@@ -86,7 +90,7 @@ def commander_update(game, side: str):
             continue
         o = sq.order
         if side == attacker or game.attacker is None:
-            targets = [i for i, ob in enumerate(objs) if ob.owner != side]
+            targets = [i for i, ob in enumerate(objs) if owners[i] != side]
             if not targets:
                 # everything taken: consolidate
                 if o.kind != "defend":
@@ -115,7 +119,7 @@ def commander_update(game, side: str):
             sq.arrived = False
         else:
             # defender
-            if o.kind == "defend" and o.obj is not None and objs[o.obj].owner == enemy:
+            if o.kind == "defend" and o.obj is not None and owners[o.obj] == enemy:
                 # lost it - counterattack at once, before they've dug in, if what's left of us here can beat
                 # what we know is there (the German Gegenstoss); else fall back to another
                 near = [q for q in squads if q.order.obj == o.obj and q.anchor() is not None]
@@ -124,13 +128,13 @@ def commander_update(game, side: str):
                     sq.order = Order("attack", obj=o.obj, radius=objs[o.obj].radius, issued=game.turn)
                     sq.arrived = False
                     continue
-                mine = [i for i, ob in enumerate(objs) if ob.owner == side]
+                mine = [i for i, ob in enumerate(objs) if owners[i] == side]
                 if mine:
                     best = min(mine, key=lambda i: (objs[i].x - anc[0]) ** 2 + (objs[i].y - anc[1]) ** 2)
                     sq.order = Order("defend", obj=best, radius=objs[best].radius, issued=game.turn)
                     sq.arrived = False
                 continue
-            if o.kind == "attack" and o.obj is not None and objs[o.obj].owner == side:
+            if o.kind == "attack" and o.obj is not None and owners[o.obj] == side:
                 sq.order = Order("defend", obj=o.obj, radius=objs[o.obj].radius, issued=game.turn)
                 continue
             if o.kind in ("hold", "move") and sq.kind not in ("mg", "mortar", "sniper", "hq", "atgun"):
@@ -139,6 +143,10 @@ def commander_update(game, side: str):
                 load[best] += 1
                 sq.order = Order("defend", obj=best, radius=objs[best].radius, issued=game.turn)
                 sq.arrived = False
+
+    from .intent import defaults
+    for sq in squads:
+        defaults(game, sq)
 
 
 def _strength_at(game, side, objs) -> dict:

@@ -741,13 +741,15 @@ def dig(game, a) -> int | None:
     if a.ai.get("dig_at") != (a.x, a.y):
         a.ai["dig_at"] = (a.x, a.y)
         a.dig_progress = 0
-    rate = 2 if m.climate not in ("winter",) else 1
+    from .skills import level, use
+    rate = (.65 + level(a, "construction") * .07) * (.5 if m.climate == "winter" else 1)
+    use(game, a, "construction", .015)
     if T.DEFS[int(tid)].key in ("crater", "crater_big"):
         rate *= 2
     a.dig_progress += rate * a.has_tool("shovel").condition
     if a.dig_progress % 10 == 0:
         game.emit_sound(a.x, a.y, 22, "digging", "digging", a.side, a)
-    if a.dig_progress >= 60:
+    if a.dig_progress >= 7200:
         a.dig_progress = 0
         m.set(a.x, a.y, "foxhole" if m.climate != "winter" else "trench_snow")
         m.refresh()

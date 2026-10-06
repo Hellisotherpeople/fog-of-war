@@ -77,7 +77,8 @@ Saves, settings and the memorial to the fallen live in `~/.fogofwar/`.
 ## Your first minutes
 
 Pick **Quick start** and the war picks everything for you, or **New game** to choose side,
-battle, nation, service, role, rank and kit. Then:
+battle, nation, service, role, rank and kit. **Vehicle** and **Position** guarantee an exact ground
+vehicle and crew seat: for example, an M4 Sherman driver, gunner or commander. Then:
 
 - **Look at the panel on the right.** Your body, your weapon, and your **orders**. Press **Enter**
   and you'll carry them out: walk to the objective, take the ammunition to the gunner, go to your
@@ -94,6 +95,10 @@ battle, nation, service, role, rank and kit. Then:
 - `e` gets you into a vehicle beside you (or up onto a tank's hull to ride), and out again.
   Right-click anything for what you can do with it.
 - Behind the line, walk into the men at their posts to talk: the adjutant has orders for you.
+- `C` includes acting appointments, command transfers, standing missions and engineer construction.
+  `T` marks workshop destinations and higher-HQ conferences. Map sheets contain dated reports;
+  visit HQ to copy newer intelligence. Skill, witnessed service credit and promotion are separate.
+  [Command and realism notes](docs/COMMAND_REALISM.md) explain the systems and historical approximations.
 - A line under your orders gives the keys for whatever's beside you. `?` or F1 opens the help at
   **Right now**: the keys for where you are, in bold, with every other key a section or a `/` search
   away ([the full list](docs/CONTROLS.md)). Esc for the menu (save and quit). F2 switches sprites and

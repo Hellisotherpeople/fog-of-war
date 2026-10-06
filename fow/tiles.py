@@ -393,7 +393,8 @@ T("lookout_post", "lookout post", "○", (220, 210, 160), (62, 64, 70), cost=110
   desc="A lookout's post, with big binoculars on a pedestal. (x to scan; Enter to report what you see)")
 T("radar_scope", "radar scope", "◎", (120, 230, 140), (40, 46, 50), cost=120, floor=True,
   desc="A radar repeater, green trace sweeping round.")
-T("radio_set", "radio sets", "▥", (150, 160, 150), (48, 50, 56), walk=False, see=True, cover=30, floor=True)
+T("radio_set", "radio sets", "▥", (150, 160, 150), (48, 50, 56), walk=False, see=True, cover=30, floor=True,
+  hp=60, armor=3, into="rubble_light")
 T("elevator", "aircraft elevator", "▒", (170, 150, 110), (80, 70, 55), cost=100, sound=2,
   desc="An aircraft elevator, flush with the deck.")
 T("arrest_wire", "arresting wire", "─", (200, 200, 200), (92, 76, 52), cost=110,
