@@ -576,6 +576,8 @@ def squad_update(game, sq: Squad):
                 break
     if seen:
         sq.last_contact = t
+    from .intent import update as update_intent
+    update_intent(game, sq)
     # morale
     doc = NATIONS[sq.nation]["doctrine"]
     alive = sq.strength()
@@ -1123,7 +1125,8 @@ def soldier_act(game, a) -> int:
         return 100                                # talking to you (talk.py): he stays put for it
     if vis:
         for e in vis:
-            brain.report(e, game.turn)
+            from .intelligence import observe
+            observe(game, a, e)
         if sq is not None:
             sq.last_contact = game.turn
         if a.ai.get("last_contact_shout", -99) < game.turn - 40 and game.rng.random() < 0.3:
@@ -1137,6 +1140,11 @@ def soldier_act(game, a) -> int:
                 a.say(game.shout(a, "sniper"), game.turn)
             else:
                 a.say(game.shout(a, "contact"), game.turn)
+    if sq is not None and sq.rep.get("construction") and not vis:
+        from .fieldworks import act as build_act
+        cost = build_act(game, a, vis)
+        if cost is not None:
+            return cost
     near_enemy = min((dist(a, e) for e in vis), default=999)
     bleed = b.bleed_rate()
     if bleed > 1.5 and (near_enemy > 12 or bleed > 5):
@@ -2522,7 +2530,11 @@ def officer_act(game, a, vis, sq) -> int | None:
     doc = NATIONS[a.nation]["doctrine"]
     if game.rng.random() > doc.get("arty", 0.7):
         return None
-    clusters = brain.clusters(radius=7, min_size=3, max_age=12)
+    clusters = brain.clusters(radius=7, min_size=3, max_age=60)
+    if vis:
+        local = [e for e in vis if e.side != a.side]
+        if local:
+            clusters.insert(0, (len(local), local[0].x, local[0].y, local))
     for weight, cx, cy, group in clusters:
         # danger close check
         danger_close = any(o.side == a.side and o.alive and abs(o.x - cx) + abs(o.y - cy) < 12
@@ -2542,8 +2554,11 @@ def mortar_act(game, a, vis, sq) -> int | None:
     brain = game.brains[a.side]
     if a.ammo_for(w) is None:
         return None
-    cs = brain.clusters(radius=5, min_size=2, max_age=10) or \
-        [(1, c.x, c.y, [c]) for c in brain.live_contacts(8, False)]
+    from .intelligence import radio_link, local_contacts
+    cs = brain.clusters(radius=5, min_size=2, max_age=60) if radio_link(game, a) else []
+    cs += [(1, e.x, e.y, [e]) for e in vis]
+    if sq is not None:
+        cs += [(1, c["x"], c["y"], [c]) for c in local_contacts(game, sq, 30)]
     for weight, cx, cy, group in cs:
         d = math.hypot(cx - a.x, cy - a.y)
         if w.t.min_rng <= d <= w.t.rng:
@@ -2779,7 +2794,8 @@ def vehicle_act(game, v) -> int:
     vis = update_actor_vision(game, v)
     brain = game.brains[v.side]
     for e in vis:
-        brain.report(e, game.turn)
+        from .intelligence import observe
+        observe(game, v, e)
     sq = v.squad
     if sq is not None and vis:
         sq.last_contact = game.turn
@@ -3155,7 +3171,7 @@ def transport_act(game, v, vis) -> int | None:
                 v.ai["ramp"] = game.turn
                 game.msg_near(v.x, v.y, "The ramp slams down!", "warn")
                 game.emit_sound(v.x, v.y, 60, "ramp", "a landing craft ramp dropping", v.side, v)
-            game.disembark_all(v)
+            game.disembark_all(v, automatic=True)
             return 100
         # move toward the beach through water
         return landing_craft_step(game, v)
@@ -3164,7 +3180,7 @@ def transport_act(game, v, vis) -> int | None:
         v.ai["last_pos"] = lp = (v.x, v.y, game.turn)
     idle = game.turn - lp[2] > 60 and v.passengers              # (no way on for a minute: out and walk)
     if near_enemy < 22 or arrived or v.hp < vt.hp * 0.6 or idle:
-        game.disembark_all(v)
+        game.disembark_all(v, automatic=True)
         return 150
     return None
 

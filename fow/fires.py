@@ -352,6 +352,9 @@ class Fires:
     def call(self, game, side, x, y, caller=None, rounds=None, delay=None, silent=False, kinds=None,
              prefer=None, smoke=False):
         """A fire mission on (x, y) of your map.  Returns the battery that takes it, or None."""
+        from .intelligence import radio_link
+        if caller is not None and hasattr(caller, "body") and not radio_link(game, caller):
+            return None
         here = (game.sector.x, game.sector.y)
         cands = self.ready(game, side, here, (x, y), kinds)
         if not cands:
@@ -397,8 +400,8 @@ class Fires:
         dist_km = self.km(game, b, target[1], target[2])
         flight = int(4 + dist_km * (6 if b.kind == "mortar" else 3))   # seconds in the air
         proc = bt.delay + rng.randint(-10, 25) if delay is None else delay
-        if grade >= 11:
-            proc = int(proc * max(0.5, 1 - 0.06 * (grade - 10)))
+        if delay is None:
+            proc = max(30 if b.kind == "mortar" else 60, proc)
         b.mission = dict(target=target, rounds=n, caller=getattr(caller, "id", None),
                          player=bool(caller is not None and getattr(caller, "is_player", False)),
                          bias=[math.cos(ba) * bias_d, math.sin(ba) * bias_d], spread=bt.spread + max(0, 7 - skill) * 0.5,
@@ -752,20 +755,11 @@ class Fires:
             game.msg({"done": "Radio: 'Rounds complete, over.'",
                       "out": f"Radio: '{b.name}: out of ammunition. That's all we had.'",
                       "gone": f"Radio: 'No answer from {b.name}.'"}[why], "radio")
-        # counter-battery: guns that fire give themselves away to the enemy's sound-rangers and flash-spotters.
-        # Mortars are harder to find - a short, high flight, from behind cover - until the counter-mortar
-        # organisations and radars of 1944; then their fire is answered by guns and mortars both
-        if self.here(game, b) and b.pos is not None:
-            enemy = other_side(b.side)
-            if b.kind in ("gun", "rocket") and game.rng.random() < 0.3:
-                x, y = b.pos
-                game.__dict__.setdefault("_counter_battery", []).append(
-                    (game.turn + game.rng.randint(120, 480), enemy, x, y, False))
-            elif b.kind == "mortar" and game.rng.random() < (0.24 if game.year >= 1944 else 0.12):
-                sq = next((q for q in game.squads if q.id == b.squad_id), None)
-                x, y = (sq.anchor() if sq is not None and sq.anchor() else b.pos)
-                game.__dict__.setdefault("_counter_battery", []).append(
-                    (game.turn + game.rng.randint(60, 300), enemy, x, y, True))
+        if self.here(game, b) and b.kind in ("gun", "rocket", "mortar"):
+            from .fire_observation import locate
+            report = locate(game, b, m)
+            if report is not None:
+                game.__dict__.setdefault("_counter_battery", []).append(report)
 
     def tick(self, game):
         """Every few seconds: splash warnings, counter-battery fire landing on a gun line that gave itself away,
@@ -784,20 +778,22 @@ class Fires:
         if cb:
             keep = []
             for entry in cb:
-                t, side, x, y = entry[:4]
-                mortar = len(entry) > 4 and entry[4]
-                if game.turn < t:
+                if not isinstance(entry, dict):
+                    continue
+                if game.turn < entry["due"]:
                     keep.append(entry)
                     continue
-                # the enemy's own batteries - in range, free and with rounds - fire where their sound-rangers
-                # and flash-spotters put the guns: near enough, not exactly.  Against mortars (counter-mortar),
-                # their mortars join in; against a gun line, only guns reach and have the business of it
+                from .fire_observation import delivered
+                if not delivered(game, entry) or game.turn - entry["observed"] > 1800:
+                    continue
+                x, y, side, mortar = entry["x"], entry["y"], entry["side"], entry["mortar"]
                 kinds = ("gun", "rocket", "naval", "mortar") if mortar else ("gun", "rocket", "naval")
-                took = self.barrage(game, side, x, y, 4 if mortar else 6, 12 if mortar else 16, delay=0,
-                                    kinds=kinds, error=4.0 if mortar else 6.0, tag="cb")
-                for b in took:
-                    b.mission["cb_near"] = (x, y)
-                    b.mission["cb_mortar"] = mortar
+                took = self.barrage(game, side, x, y, 8 if mortar else 12, 12 if mortar else 16, delay=60,
+                                    kinds=kinds, error=entry["error"], tag="cb")
+                for battery in took:
+                    battery.mission["cb_near"] = (x, y)
+                    battery.mission["cb_mortar"] = mortar
+                    battery.mission["intelligence"] = dict(entry)
             game._counter_battery = keep
         warn = game.__dict__.get("_cb_warn")
         if warn:
@@ -839,9 +835,14 @@ class Fires:
                 b.sec = self._follow_front(game, b) or b.sec   # the battalion moved: its mortars went with it
             sup = st.supply_of(b.side, s)
             if sup >= 0.3:
-                b.ammo = min(b.ammo_max, b.ammo + int(b.ammo_max * 0.2 * sup))
+                from .sustain import stores, take
+                rounds = min(b.ammo_max - b.ammo, int(b.ammo_max * .2 * sup), int(stores(s, b.side)["ammo"] * 4))
+                if take(s, b.side, "ammo", rounds / 4):
+                    b.ammo += rounds
             if not self.here(game, b) and b.guns < b.guns_max and sup >= 0.5 and rng.random() < 0.1:
-                b.guns += 1                               # a replacement gun comes up
+                from .sustain import take
+                if take(s, b.side, "parts", 15):
+                    b.guns += 1
         for q in self.squadrons:
             if q.planes < q.planes_max and rng.random() < 0.15:
                 q.planes += 1                             # a replacement aircraft and pilot
@@ -854,27 +855,24 @@ class Fires:
         self._fire_at_the_front(game)
 
     def _counter_battery_elsewhere(self, game):
-        """Batteries firing somewhere off your map give themselves away as well: an enemy gun battery that can
-        reach them, is free and has rounds, fires on them - its own rounds, from where it is - and may knock out
-        a gun or two (see _end)."""
-        rng = game.rng
+        """Outlying survey detachments are represented by observation installations."""
         for b in self.batteries:
-            if b.lost or b.kind not in ("gun", "rocket", "mortar") or self.here(game, b):
+            if b.lost or self.here(game, b) or b.kind not in ("gun", "rocket", "mortar"):
                 continue
             fired = b.fired - b.__dict__.get("_fired_seen", 0)
             b._fired_seen = b.fired
-            mortar = b.kind == "mortar"
-            odds = min(0.5, 0.1 + fired / 120) * ((1.0 if game.year >= 1944 else 0.5) if mortar else 1.0)
-            if fired <= 0 or rng.random() > odds:
-                continue
             enemy = other_side(b.side)
-            kinds = ("gun", "rocket", "naval", "mortar") if mortar else ("gun", "rocket", "naval")
-            hunters = [h for h in self.ready(game, enemy, b.sec, b.pos, kinds)]
-            if not hunters:
+            posts = [s for s in game.strategic.sectors() if s.control == enemy
+                     and s.installs(enemy, "observation") and game.strategic.supply_of(enemy, s) > .2
+                     and abs(s.x - b.sec[0]) + abs(s.y - b.sec[1]) <= 2]
+            if fired < 6 or len(posts) < 2:
                 continue
-            h = min(hunters, key=lambda h: self.km(game, h, b.sec, b.pos) / self.reach_km(game, h))
-            self.start(game, h, ("sector", b.sec, b.pos), None, h.guns * 3, delay=rng.randint(60, 400), silent=True)
-            h.mission["cb_target"] = b.id
+            hunters = self.ready(game, enemy, b.sec, b.pos, ("gun", "rocket", "naval"))
+            if hunters:
+                h = hunters[0]
+                self.start(game, h, ("sector", b.sec, b.pos), rounds=h.guns * 3, delay=900, silent=True)
+                h.mission["cb_target"] = b.id
+                h.mission["intelligence"] = "outlying surveyed observation posts"
 
     def _call_from_front(self, game, b):
         """An observer somewhere up the line wants this battery: a target in an enemy sector it can reach - or, if
@@ -893,7 +891,12 @@ class Fires:
                   and not any(o.side == b.side and o.alive and abs(o.x - c[1]) + abs(o.y - c[2]) < 6 for o in game.actors)]
             if cs:
                 _w, x, y, _g = cs[0]
-                self.start(game, b, ("map", here, (x, y)), None, b.guns * 2, delay=rng.randint(20, 60), silent=True)
+                from .intelligence import radio_link
+                observer = next((a for a in game.actors if a.side == b.side and radio_link(game, a)
+                                 and a.vis_turn >= game.turn - 10 and any(abs(e.x - x) + abs(e.y - y) < 8
+                                                                         for e in a.visible)), None)
+                if observer is not None:
+                    self.start(game, b, ("map", here, (x, y)), observer, b.guns * 2, delay=60, silent=True)
             return
         targets = [s for s in st.sectors() if s.playable and s.control not in (None, b.side) and
                    any(n.control == b.side for n in st.neighbors(s)) and

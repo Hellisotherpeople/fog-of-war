@@ -191,27 +191,19 @@ def turn_in_papers(game, player, it):
         if n:
             info.append("names their commanders" + (" all the way up" if level >= 4 else ""))
     if level >= 2 and enemy:
-        # the NCO's notebook: where his squad and its neighbours are
-        n = _reveal_local(game, player.side, enemy, radius=25, near=data.get("pos"))
-        if n:
-            info.append(f"marks {n} enemy positions nearby")
-    if level >= 3 and enemy:
-        n = _reveal_local(game, player.side, enemy, radius=80, near=None)
-        if n:
-            info.append(f"shows the enemy's positions across this field ({n})")
-    if level >= 4:
-        st = game.strategic
-        s = game.sector
-        known = getattr(st, "intel", None)
-        if known is None:
-            st.intel = known = {}
-        for n in st.neighbors(s) + [s]:
-            known[(player.side, n.x, n.y)] = st.ticks
-        info.append("gives enemy strength in the sectors around us")
-    if level >= 5:
-        plan = _enemy_plan(game, player.side)
-        if plan:
-            info.append(plan)
+        from .brain import Contact
+        positions = data.get("positions", [])
+        for aid, x, y in positions:
+            game.brains[player.side].contacts[aid] = Contact(aid, x, y, data.get("written", game.turn), "inf")
+        info.append(f"{len(positions)} positions in the written report; they may have moved")
+    if level >= 4 and data.get("reports"):
+        from copy import deepcopy
+        reports = deepcopy(data["reports"])
+        for report in reports.values():
+            report["source"] = "captured map"
+            report["enemy_known"] = True
+        player.ai.setdefault("map_reports", {}).update(reports)
+        info.append("dated enemy dispositions copied to your map")
     return credit, merit, info
 
 

@@ -314,13 +314,22 @@ def facing_from_edge(edge) -> int:
 
 # ====================================================================== squads
 
-def give_papers(a):
+def give_papers(a, game=None):
     """A paybook for everyone; NCOs a notebook; officers their orders, maps, the plan."""
     from .logistics import doc_for
     if a.is_player or a.role in ("quartermaster",):
         return
     it = Item(doc_for(a.rank))
     it.data = {"side": a.side, "nation": a.nation, "unit": a.unit, "grade": a.rank}
+    if game is not None:
+        it.data["written"] = game.turn
+        it.data["pos"] = a.pos
+        it.data["positions"] = [(b.id, b.x, b.y) for b in game.actors if b.side == a.side and b.active
+                                and abs(b.x - a.x) + abs(b.y - a.y) <= (80 if a.rank >= 8 else 25)]
+        if a.rank >= 10:
+            from .intelligence import _snapshot
+            it.data["reports"] = {(s.x, s.y): _snapshot(game.strategic, s, a.side, game.turn)
+                                  for s in game.strategic.neighbors(game.sector) + [game.sector]}
     a.add_item(it, "pockets")
 
 
@@ -417,13 +426,21 @@ def make_squad(game, side, nation, kind, x, y, order=None, para=False, spread=3,
         sq.members.append(a)
         if place_members:
             place(game, a, x + rng.randint(-spread, spread), y + rng.randint(-spread, spread), 6)
+    if kind == "engineer" and nation == "usa" and game.year >= 1942 and game.theatre_id in (
+            "guadalcanal42", "tarawa43", "saipan44", "iwojima45", "okinawa45"):
+        for man in sq.members:
+            if man.role == "engineer":
+                man.role = "seabee"
+                man.service = "navy"
+                man.skills["construction"] = max(6., man.skills.get("construction", 0))
+        sq.name = "Naval construction detachment"
     leaders = [m for m in sq.members if m.role in ("squad_leader", "officer")]
     sq.leader = leaders[0] if leaders else (max(sq.members, key=lambda m: m.rank) if sq.members else None)
     sq.initial = len(sq.members)
     unit = unit_designation(rng, nation, game.theatre.get("divisions", {}).get(nation))
     for m in sq.members:
         m.unit = unit
-        give_papers(m)
+        give_papers(m, game)
     if kind in ("rifle", "assault", "mg", "sniper", "engineer") and not getattr(game, "first_battle_setup", False):
         maybe_special_squad(game, sq)
     game.squads.append(sq)
@@ -1084,6 +1101,9 @@ def create_player(game, nation: str, role: str | None = None) -> tuple[Actor, li
     my_tanks = [sq for sq in game.squads if sq.side == side and sq.vehicles and
                 any(v.vt.vtype in ("tank", "td", "ltank", "spg") and v.active for v in sq.vehicles)]
     my_tanks = [sq for sq in my_tanks if getattr(sq, "nation", None) == nation] or my_tanks
+    assigned = game.__dict__.get("_starting_vehicle")
+    if assigned is not None and game.setup.get("vehicle"):
+        my_tanks = [assigned.squad]
     if role == "tank_crew" and not my_tanks:
         role = "rifleman"
     my_guns = [v for v in game.vehicles if v.side == side and v.ai.get("battery") and v.active and v.squad is not None]
@@ -1138,7 +1158,7 @@ def create_player(game, nation: str, role: str | None = None) -> tuple[Actor, li
                      f"where: Enter lays the gun and fires it. (e: seats and getting out)")
     elif role == "tank_crew":
         sq = rng.choice(my_tanks)
-        v = rng.choice([v for v in sq.vehicles if v.active])
+        v = assigned if assigned is not None and game.setup.get("vehicle") else rng.choice([v for v in sq.vehicles if v.active])
         p.vehicle = v
         v.crew_actors.append(p)
         v.player_crewed = True

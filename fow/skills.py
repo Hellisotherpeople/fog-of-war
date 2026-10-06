@@ -15,6 +15,7 @@ local or tell the enemy to put his hands up.
 from __future__ import annotations
 
 SKILLS = {
+    "construction": ("Field engineering", "Digging, surveying, building cover and organizing work parties."),
     "marksmanship": ("Marksmanship", "Rifles, pistols and machine guns: how steady the aim, how fast it's built."),
     "gunnery": ("Gunnery", "Tank and field guns, mortars: laying, ranging, the next round on target."),
     "stealth": ("Stealth", "Moving and lying unseen: fieldcraft, silence, the patience to stay still."),
@@ -46,7 +47,8 @@ ROLE_SKILLS = {
     "officer": {"leadership": 5.5, "radio": 5.5, "observation": 4},
     "company_commander": {"leadership": 6, "radio": 6},
     "sniper": {"marksmanship": 7.5, "stealth": 7, "observation": 7, "fitness": 5},
-    "engineer": {"demolitions": 7, "fitness": 4.5},
+    "engineer": {"demolitions": 7, "fitness": 4.5, "construction": 6},
+    "seabee": {"construction": 7, "demolitions": 5, "fitness": 5},
     "flamethrower": {"demolitions": 4, "fitness": 5},
     "medic": {"first_aid": 6.5, "fitness": 4},
     "surgeon": {"first_aid": 9.5},

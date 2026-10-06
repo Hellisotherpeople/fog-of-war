@@ -876,7 +876,9 @@ class Strategic:
             if side is None or enemy is None or side == enemy:
                 continue
             pa = power(a.units[side])
-            pb = power(b.units[enemy]) * (1 + 0.25 * b.fort)
+            report = self.__dict__.get("situation_reports", {}).get(side, {}).get((b.x, b.y))
+            estimate = power(report["units"][enemy]) if report and report.get("enemy_known") else 8.
+            pb = estimate * (1 + .25 * (report["fort"] if report else 0))
             if pa <= 0.5:
                 continue
             aggressive = side == self.attacker

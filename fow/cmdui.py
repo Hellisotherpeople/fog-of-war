@@ -99,7 +99,7 @@ def open_command(ps):
     cmd = g.command
     p = g.player
     chain, others = command_units(g)
-    opts = []
+    opts = [("Staff, supply and engineer works...", ("staff", 0), HEAD, True)]
     shown = set()
     ob = g.__dict__.get("oob")
     here_path = set()
@@ -198,6 +198,9 @@ def _pick(ps, v):
     if v is None:
         return
     kind, ident = v
+    if kind == "staff":
+        from .command_work_ui import staff
+        return staff(ps)
     if kind == "oob":
         # a formation elsewhere on the front: its orders go through the general staff
         from .opsui import OperationsState
@@ -275,7 +278,7 @@ def unit_menu(ps, squads, title, formation=None):
         if not auth:
             return False
         for sq in auth:
-            ch = chans[sq.id]
+            ch = cmd.channel(g, sq, kind)
             if ch is None:
                 continue
             if ch["kind"] == "signal" and kind not in SIGNAL_OK:
@@ -287,7 +290,12 @@ def unit_menu(ps, squads, title, formation=None):
     mounted = any(v.active and v.passengers for sq in squads for v in sq.vehicles)
     near_transport = any(v.side == p.side and v.active and v.vt.seats > 0 and len(v.passengers) < v.vt.seats
                          for v in g.vehicles)
-    opts = [("Move to...", "move", None, can("move")),
+    opts = [("Standing mission and freedom of action...", "guidance", HEAD, can("mission")),
+            ("Appoint an acting commander...", "appointment", None, can("appointment")),
+            ("Place these units under another command...", "reassign", None, can("reassign")),
+            ("Engineer works and construction...", "construction", None, can("build")),
+            ("Cancel construction assignment", "cancel_build", UI_DIM, can("cancel_build")),
+            ("Move to...", "move", None, can("move")),
             ("Attack...", "attack", (240, 170, 90), can("attack")),
             ("Assault - go in now!", "assault", (250, 140, 80), can("assault")),
             ("Flank...", "flank", None, can("flank")),
@@ -309,6 +317,12 @@ def unit_menu(ps, squads, title, formation=None):
         opts.append(("Resupply at the nearest ammunition dump", "resupply", None, can("resupply")))
     opts.append(("Tasks... (scavenge, the wounded, prisoners, a hand for the tanks)", "tasks", (220, 200, 140),
                  can("task")))
+    intent = sq0.rep.get("intent")
+    if single and intent:
+        from .intent import MISSIONS
+        lines.append((f"Mission: {MISSIONS[intent['mission']]} / {intent['freedom']} initiative / {intent['risk']} commitment", UI_HI))
+        if sq0.rep.get("initiative_note") and k0 and g.turn - k0["turn"] <= 30:
+            lines.append((sq0.rep["initiative_note"], UI_DIM))
     roe = sq0.order.roe if single else None
     for r, label in (("free", "Fire at will"), ("return", "Return fire only"), ("hold", "Hold your fire")):
         mark = " (now)" if roe == r else ""
@@ -325,7 +339,7 @@ def unit_menu(ps, squads, title, formation=None):
     pop = Popup(title[:60], opts, anchor, lines=lines, width=66, footer="Esc: back to the roster")
     ps.cmd_show = True
     label = (formation.short if formation is not None else unit_label(sq0)) if not single or formation else None
-    ps.open_popup(pop, lambda v: _order(ps, squads, v, label), cancel=lambda: open_command(ps))
+    ps.open_popup(pop, lambda v: _order(ps, squads, v, label, formation), cancel=lambda: open_command(ps))
 
 
 # ====================================================================== where: proposed targets
@@ -430,8 +444,13 @@ def choose_target(ps, kind, squads, cb, start, label=None, cmd=False):
                   chosen, cancel=(lambda: open_command(ps)) if cmd else None)
 
 
-def _order(ps, squads, what, label=None):
+def _order(ps, squads, what, label=None, formation=None):
     g = ps.game
+    if what in ("guidance", "appointment", "reassign", "construction"):
+        from . import command_work_ui as work
+        if what == "appointment":
+            return work.appointment(ps, squads, formation)
+        return getattr(work, what)(ps, squads)
     if what == "tasks":
         from . import tasks as TK
         pt = contact_point(squads[0]) or (g.player.x, g.player.y)

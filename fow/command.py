@@ -273,7 +273,7 @@ HANDRADIO = {"usa": ("scr536", 1943.0, 0.85), "uk": ("ws38", 1942.0, 0.6), "cana
 
 def squad_has_radio(game, sq) -> bool:
     for m in sq.members:
-        if m.active and has_radio(m):
+        if m.active and not m.downed and has_radio(m):
             return True
     return any(v.active and vehicle_has_radio(game, v) for v in sq.vehicles)
 
@@ -969,7 +969,7 @@ class CommandState:
             if ch is None:
                 fails.append((sq, "no way to reach them"))
                 continue
-            if kind in ("roe", "release", "report", "attach") or kind.startswith("task_"):
+            if kind in ("roe", "release", "report", "attach", "mission", "appointment", "reassign", "build", "cancel_build") or kind.startswith("task_"):
                 order = None
             elif kind in ("hold", "dig") and target is None:
                 order = self.make_order(game, kind, contact_point(sq), sq)
@@ -984,7 +984,7 @@ class CommandState:
             else:
                 order = self.make_order(game, kind, target, sq, roe)
             job = dict(sq=sq.id, kind=kind, order=order, roe=roe, channel=ch["kind"], issued=game.turn,
-                       due=game.turn + ch["delay"], runner=None)
+                       due=game.turn + ch["delay"], runner=None, payload=target)
             chans_used.add(ch["kind"])
             if ch["kind"] == "direct":
                 self.deliver(game, sq, job, quiet=True)
@@ -1011,7 +1011,7 @@ class CommandState:
             self.pending.append(job)
             sent.append(sq)
         if sent and say:
-            self._announce(game, sent, kind, target, label, chans_used)
+            self._announce(game, sent, kind, None if isinstance(target, dict) else target, label, chans_used)
         if sent:
             self.battle["orders"] += 1
         return sent, fails
@@ -1020,7 +1020,7 @@ class CommandState:
         p = game.player
         chans = chans or set()
         what = ORDER_TEXT.get(kind, kind)
-        if target is not None:
+        if target is not None and not isinstance(target, dict):
             d = math.hypot(target[0] - p.x, target[1] - p.y)
             where = f" {direction_word(target[0] - p.x, target[1] - p.y)}, {int(d * 2.2 / 10) * 10 or 10} yards" \
                 if d > 4 else " here"
@@ -1151,6 +1151,10 @@ class CommandState:
         ld = leader_of(sq)
         speaker = ld
         chan = job["channel"]
+        if not self.authority(game, sq)[0]:
+            return False
+        if chan == "radio" and not (self.player_radio(game) and squad_has_radio(game, sq)):
+            return False
         if sq.state == "rout":
             if not quiet and (chan in ("voice", "signal") or rng.random() < 0.5):
                 game.msg(f"{unit_label(sq)} is running. Nobody's listening.", "warn")
@@ -1168,12 +1172,32 @@ class CommandState:
             if t - last <= 120:
                 for m in sq.members:
                     m.morale -= 6
-        if kind == "roe":
+        if kind in ("mission", "appointment", "reassign"):
+            from .intent import administer
+            if not administer(game, sq, kind, job.get("payload") or {}):
+                if not quiet:
+                    game.msg(f"{unit_label(sq)}: appointment or mission could not be carried out.", "warn")
+                return False
+        elif kind == "build":
+            from .fieldworks import assign
+            payload = job.get("payload") or {}
+            ok, why = assign(game, sq, payload.get("kind"), payload.get("point", (0, 0)))
+            if not quiet:
+                game.msg(why, "info" if ok else "warn")
+            if not ok:
+                return False
+        elif kind == "cancel_build":
+            from .fieldworks import cancel
+            cancel(game, sq)
+        elif kind == "roe":
             sq.order.roe = job["roe"]
             if sq.order.kind == "ambush" and job["roe"] == "free":
                 sq.order.kind = "hold"
             sq.order.src = "player"
         elif kind == "release":
+            sq.rep.pop("intent", None)
+            from .fieldworks import cancel
+            cancel(game, sq)
             sq.order.src = "ai"
             self.attached.discard(sq.id)
         elif kind == "report":
@@ -1193,6 +1217,9 @@ class CommandState:
                 return False
             if kind == "come":
                 o.target = (p.x, p.y)
+            sq.rep.pop("intent", None)
+            from .fieldworks import cancel
+            cancel(game, sq)
             self.apply(game, sq, o)
         if not self.in_chain(game, sq) and kind not in ("release",):
             self.attached.add(sq.id)
@@ -1434,12 +1461,19 @@ class CommandState:
 
     # ------------------------------------------------------------ merit, promotion, medals
     def on_kill(self, game, victim):
-        self.battle["kills"] += 1
+        if victim.side == game.player.side or getattr(victim, "state", "ok") != "ok":
+            return
+        from .recognition import claim
+        from .skills import use
+        p = game.player
         tank = getattr(victim, "vt", None) is not None
-        self.merit += 1.0 if not tank else 3.0
-        if victim.side != game.player.side and getattr(victim, "state", "ok") == "ok":
-            game.duty.valour(game, 3.0 if tank else 0.6, f"knocking out the {victim.vt.name}" if tank else
-                             "your part in the fighting")
+        # Crew experience follows the job actually performed; kill credit is separate.
+        skill = "gunnery" if p.vehicle is not None else "marksmanship"
+        if p.vehicle is not None and p.vehicle.player_station == "driver":
+            skill = "driving"
+        use(game, p, skill, 2 if tank else .8)
+        claim(game, "kills", .6 if tank else .15,
+              f"knocking out the {victim.vt.name}" if tank else "your part in the fighting", victim.pos)
 
     def on_objective(self, game, i, side):
         p = game.player
@@ -1449,26 +1483,22 @@ class CommandState:
         near = max(abs(ob.x - p.x), abs(ob.y - p.y)) <= ob.radius + 12
         mine = any(sq.order.src == "player" and sq.order.obj == i for sq in self.chain_squads(game))
         if near or mine:
-            self.battle["objectives"] += 1
             self.career["objectives"] += 1
-            self.merit += 4 if near else 2
-            game.duty.valour(game, 4.0 if near else 2.0, f"taking {ob.name}" if getattr(ob, "name", "") else
-                             "taking the objective")
+            from .recognition import claim
+            from .skills import use
+            claim(game, "objectives", 3, f"taking {ob.name}", ob.pos)
+            use(game, p, "leadership" if mine else "observation", 4)
 
     def on_wounded(self, game):
-        self.battle["wounds"] += 1
-        self.merit += 1
-        game.duty.valour(game, 1.0, "wounded in action")
-        if not any(m == self._medal(game, 0) for m in self.medals):
-            self._award(game, 0, "for wounds received in action")
+        from .recognition import claim
+        claim(game, "wounds", .2, "wounded in action")
 
     def on_sector_won(self, game, side):
         if side != game.player_side:
             return
         self.career["sectors"] += 1
-        self.merit += 5
-        game.duty.valour(game, 2.0, f"the fighting for {game.sector.name}")
-        self._battle_awards(game)
+        from .recognition import claim
+        claim(game, "objectives", 3, f"the fighting for {game.sector.name}")
         self.consider_promotion(game, "the fighting for " + game.sector.name)
 
     def on_new_battle(self, game):
@@ -1491,12 +1521,13 @@ class CommandState:
         record(game, name, level, why, posthumous)
         if not posthumous:
             game.msg(f"You are awarded the {name} {why}.", "good")
-            game.duty.valour(game, 6.0 if level > 0 else 0.5, f"the {name}")
+            # This decoration records existing evidence; it is not a new witnessed deed.
+            game.duty.rep = min(100., game.duty.rep + (6.0 if level > 0 else .5))
         return name
 
     def valour_score(self):
         b = self.battle
-        return b["kills"] + 4 * b["objectives"] + 3 * b["acting"] + 1.5 * b["wounds"]
+        return b["kills"] * .4 + 4 * b["objectives"] + 1.5 * b["wounds"]
 
     def _battle_awards(self, game, posthumous=False):
         s = self.valour_score()
@@ -1506,12 +1537,15 @@ class CommandState:
                 lvl = l
                 break
         if lvl and game.player.rank < R.BRIGADIER:
-            name = self._award(game, lvl, f"for gallantry at {game.sector.name}", posthumous)
+            from .recognition import recommend_award
+            name = recommend_award(game, lvl, f"for gallantry at {game.sector.name}", posthumous)
             for k in ("kills", "objectives", "acting", "wounds"):
-                self.battle[k] = 0          # decorated for these deeds; start counting afresh
+                if name is not None:
+                    self.battle[k] = 0          # decorated for these deeds; start counting afresh
             return name
         if game.player.rank >= R.BRIGADIER and self.career["sectors"] >= 2 and self.career["sectors"] % 2 == 0:
-            return self._award(game, 3, "for the conduct of operations", posthumous)
+            from .recognition import recommend_award
+            return recommend_award(game, 3, "for the conduct of operations", posthumous)
         return None
 
     def posthumous(self, game):
@@ -1529,40 +1563,8 @@ class CommandState:
         return 30 + (grade - R.COLONEL) * 10
 
     def consider_promotion(self, game, why=""):
-        p = game.player
-        g = p.rank
-        if g >= R.MARSHAL or not p.alive:
-            return False
-        earned = self.merit - self.merit_at_promotion
-        need = self.promotion_need(g)
-        duty = getattr(game, "duty", None)
-        if duty is not None:
-            if duty.rep < -20 or duty.disgraced or getattr(game, "renegade", False):
-                return False               # nobody promotes a man on report
-            if duty.rep > 40:
-                need *= 0.8
-        # acting command is the quickest road to the rank that goes with it
-        act = self.billet if self.billet is not None and self.billet.acting else None
-        if act is not None:
-            need *= 0.6
-        if earned < need:
-            return False
-        new = g + 1
-        if R.STAFF_SGT <= g < R.LT2:
-            # a battlefield commission instead of more stripes, sometimes
-            if act is not None and act.echelon in ("platoon", "company") or game.rng.random() < 0.3:
-                new = R.LT2
-        if g >= R.COLONEL and self.career["sectors"] < (g - R.COLONEL + 1) * 2:
-            return False
-        self.merit_at_promotion = self.merit
-        p.rank = new
-        self.promotions.append((game.datetime_str(), new))
-        t = R.rank_title(p.nation, new, False)
-        game.msg(f"Word comes down{(' after ' + why) if why else ''}: you are promoted to {t}.", "good")
-        if act is not None and p.rank >= ECHELON_GRADE.get(act.echelon, 99) - (1 if act.echelon != "platoon" else 0):
-            act.acting = False
-        self._after_promotion(game)
-        return True
+        from .recognition import consider
+        return consider(game, why)
 
     def _after_promotion(self, game):
         p = game.player
@@ -1638,11 +1640,14 @@ class CommandState:
         reach = self.strategic_reach(game)
         if reach <= 0:
             return False, "You don't command anything on that scale."
-        if s.control != game.player_side:
-            return False, "We don't hold that sector."
+        from .intelligence import map_report
+        report = map_report(game, s)
+        if s is not here and (report is None or report["control"] != game.player_side):
+            return False, "No friendly holding is marked on your situation sheet."
         if abs(s.x - here.x) + abs(s.y - here.y) > reach:
             return False, "Beyond your command."
-        if not self.player_radio(game) and game.player.rank < R.GENERAL and s is not here:
+        from .intelligence import headquarters
+        if not self.player_radio(game) and not headquarters(game) and s is not here:
             return False, "You need a radio - or your staff - to reach them."
         return True, ""
 

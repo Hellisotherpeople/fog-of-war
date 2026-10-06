@@ -556,7 +556,16 @@ def test_counter_battery_comes_from_real_guns():
         if b.mission is not None:
             f._end(g, b, "done")                     # (free to answer, whatever they were doing)
     before = {b.id: b.ammo for b in enemy}
-    g._counter_battery = [(g.turn, enemy[0].side, *mine.pos)]
+    from fow.spawn import make_soldier
+    from fow.entities import Item
+    observer = make_soldier(g, enemy[0].nation, "radioman")
+    observer.x, observer.y = 4, 4
+    observer.invent.slots["pack"] = Item("backpack")
+    observer.add_item(Item("radio"))
+    g.actors.append(observer)
+    report = dict(due=g.turn, observed=g.turn, side=enemy[0].side, x=mine.pos[0], y=mine.pos[1],
+                  mortar=False, error=6., source="forward observer", observers=[observer.id])
+    g._counter_battery = [report]
     _turns(g, 300)
     fired = [b for b in enemy if b.ammo < before[b.id]]
     assert fired and all(b.kind in ("gun", "rocket", "naval") for b in fired)
@@ -564,7 +573,7 @@ def test_counter_battery_comes_from_real_guns():
     for b in enemy:
         b.ammo = 0
     g.shells = []
-    g._counter_battery = [(g.turn, enemy[0].side, *mine.pos)]
+    g._counter_battery = [dict(report, due=g.turn, observed=g.turn)]
     _turns(g, 60)
     assert not any(s.get("side") == enemy[0].side for s in g.shells)
 
@@ -687,6 +696,9 @@ def test_medevac():
         if a.side != p.side and a.alive:
             a.body.dead = True
             g.kill(a, None)
+    for v in g.vehicles:
+        if v.side != p.side:
+            v.dead = True
     g.brains[p.side].contacts.clear()
     _turns(g, 3)
     p.body.hp["l_leg"] = 3
@@ -1317,7 +1329,7 @@ def test_machine_guns_pick_what_they_can_hurt():
 
 def test_talk_trade_and_the_noise_of_war():
     """Anyone near can be talked to - his life, his state, what he's seen, a trade; the wounded scream in their
-    own language and their mates shout their names; valour wipes out the black marks."""
+    own language and their mates shout their names; captures do not erase disciplinary records."""
     from fow import people as PP
     from fow import social as SO
     from fow import talk as TK
@@ -1388,7 +1400,7 @@ def test_talk_trade_and_the_noise_of_war():
     g.soldier_at[(p.x, p.y)] = p
     g.command.on_objective(g, 0, p.side)
     g.command.on_objective(g, 0, p.side)
-    assert d.strikes < 3 and not BASE._state(g).get("fine_days")
+    assert d.strikes >= 3 and BASE._state(g).get("fine_days")
 
 
 def test_use_things_where_they_lie():

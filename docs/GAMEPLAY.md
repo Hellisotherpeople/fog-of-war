@@ -172,16 +172,19 @@ each unit last said it was, and when. Radio chatter on the net tells you how the
 is going.
 
 **Succession, promotion, medals.** When a leader falls the next man takes over, and sometimes
-that's you: a private can end the day commanding a platoon. Merit (kills, objectives, acting
-command, wounds) brings promotion, including battlefield commissions, and each nation's
-decorations (Purple Heart to Medal of Honor, Iron Cross to Knight's Cross, Hero of the Soviet
-Union...), posthumously if need be.
+that's you: a private can end the day acting in command of a platoon. Official promotion needs
+witnessed and transmitted reports, review, service time, an appropriate vacancy and delivered
+orders. Skill improves independently through practice. Decorations also require reported evidence
+and review. See [command, engineering and information](COMMAND_REALISM.md) for the rules and
+their historical limitations.
 
 **The war map.** From colonel up, the front map (`m`) becomes a war map. Sectors within your
 reach (one for a colonel, the whole theatre for a five-star) can be ordered to attack a
 neighbour, dig in, send half their forces to another sector, or get artillery or air priority.
-Orders go out at the next strategic tick (about ten minutes). Senior officers also get more guns,
-faster, when they call fire missions.
+Orders go out at the next strategic tick (about ten minutes), with a working communication route.
+The carried sheet and staff screen show dated reports. Visiting HQ copies the latest received
+information. Counterbattery fire needs an observer or prepared survey network, functioning
+communications, time, available guns and ammunition; rank alone does not shorten the delay.
 
 ## Behind the line: bases
 
@@ -297,7 +300,7 @@ Brens, plastic and time pencils, grenades, dressings, Liberators, money). The co
 them off the field. The enemy heard the aircraft too.
 
 **The character and battle creator.** Choose side, battle, nation, service (army, navy, air force),
-battle type, role, unit, rank (only the ranks that fit the role: NCOs, officers, generals and
+battle type, role, exact ground vehicle and position, unit, rank (only the ranks that fit the role: NCOs, officers, generals and
 admirals), name, traits, weapon, extra kit, and whether the war deals you a fair opening. Any of it
 can be left to chance.
 

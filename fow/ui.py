@@ -266,14 +266,15 @@ class CreatorState:
 
     ROWS = [("side", "Side"), ("theatre", "Battle"), ("nation", "Nation"), ("service", "Service"),
             ("scenario", "Battle type"),
-            ("role", "Role"), ("unit", "Unit"), ("rank", "Rank"), ("name", "Name"), ("traits", "Traits"),
+            ("role", "Role"), ("vehicle", "Vehicle"), ("station", "Position"),
+            ("unit", "Unit"), ("rank", "Rank"), ("name", "Name"), ("traits", "Traits"),
             ("weapon", "Weapon"),
             ("kit", "Extra kit"), ("fair", "Opening"), ("start", "")]
 
     def __init__(self, app):
         self.app = app
         self.v = dict(side="random", theatre="random", nation="random", service="army", scenario="random",
-                      role="default", unit=None,
+                      role="default", unit=None, vehicle=None, station=None,
                       rank=None, name="", traits=None, weapon=None, kit={}, fair=False)
         self.sel = 0
         self.rows = {}
@@ -317,6 +318,30 @@ class CreatorState:
                      "interceptions, escorts, ground attack, strategic bombing, reconnaissance."),
                     ("Navy", "navy", "Destroyers to battleships, carriers and submarines: surface actions, carrier "
                      "battles, convoys, submarine patrols, shore bombardment.")]
+        if key == "vehicle":
+            out = [("As assigned for the role", None, "Tank crew are guaranteed a tank. Choose a model here to "
+                    "guarantee that exact vehicle; then choose your position. A vehicle assignment uses a ground "
+                    "battle opening. Enemy models are captured equipment.")]
+            if v.get("service", "army") != "army":
+                return [("Ground vehicles require Army service", None, "Aircraft and ships use their service roles.")]
+            from .vehicle_start import available, seats
+            from .data.nations import equip_sources
+            th = THEATRES.get(self._theatre())
+            from .data.theatres import theatre_year
+            sources = equip_sources(self._nation(), theatre_year(th) if th else 1944) if self._nation() else []
+            for vt in available(th):
+                captured = bool(sources) and not any(n in sources for n in vt.nations)
+                out.append((vt.name + (" (captured)" if captured else ""), vt.id,
+                            f"{vt.vtype.title()}. Crew: {vt.crew}; passengers: {vt.seats}. "
+                            f"Available from {vt.years[0]:g}.\n\nPositions: " + ", ".join(n for n, _ in seats(vt.id))))
+            return out
+        if key == "station":
+            if not v.get("vehicle"):
+                return [("Choose a vehicle first", None, "Select an exact model to choose an actual crew position.")]
+            from .vehicle_start import seats
+            return [("As assigned (commander where available)", None, "")] + [
+                (name, seat, "You start in this position. Press e during play to swap seats or leave the vehicle.")
+                for name, seat in seats(v["vehicle"])]
         if key == "scenario" and v.get("service") in ("air", "navy"):
             from .skysea_missions import AIR_MISSIONS, SEA_MISSIONS
             pool = AIR_MISSIONS if v["service"] == "air" else SEA_MISSIONS
@@ -456,7 +481,7 @@ class CreatorState:
         # description of what's under the cursor
         key = self.ROWS[self.sel][0]
         desc = ""
-        if key in ("theatre", "scenario", "role", "nation", "weapon", "unit", "service"):
+        if key in ("theatre", "scenario", "role", "nation", "weapon", "unit", "service", "vehicle", "station"):
             for lab, val, d in self.options(key):
                 if val == self.v[key]:
                     desc = d
@@ -528,6 +553,10 @@ class CreatorState:
                     self.v["theatre"] = next((t for t in d["theatres"] if t in THEATRES), self.v["theatre"])
         if key == "unit":
             self._special_fix()
+        if key in ("theatre", "service", "unit") and self.v.get("vehicle") not in [o[1] for o in self.options("vehicle")]:
+            self.v["vehicle"] = None
+        if self.v.get("station") not in [o[1] for o in self.options("station")]:
+            self.v["station"] = None
 
     def _special_fix(self):
         """A special unit means its army, and a battle it fought in."""
@@ -617,6 +646,9 @@ class CreatorState:
         if th is None:
             # a random battle - but one this nation fought, on this side
             fought = [t for t, d in THEATRES.items() if nat is None or any(n == nat for n, _ in d["sides"][side])]
+            if v.get("vehicle"):
+                from .vehicle_start import available
+                fought = [t for t in fought if any(a.id == v["vehicle"] for a in available(THEATRES[t]))]
             th = rng.choice(fought or list(THEATRES))
         if nat is None or nat not in [n for n, _ in THEATRES[th]["sides"][side]]:
             pool = THEATRES[th]["sides"][side]
@@ -630,7 +662,7 @@ class CreatorState:
         else:
             role = v["role"]
         setup = dict(scenario=v["scenario"], service=v["service"], rank=v["rank"], name=v["name"] or None,
-                     traits=v["traits"], unit=v["unit"],
+                     traits=v["traits"], unit=v["unit"], vehicle=v["vehicle"], station=v["station"],
                      weapon=v["weapon"], kit=dict(v["kit"]), fair=v["fair"], role_random=v["role"] == "random")
         self.app.start_game(th, nat, role, setup)
 
@@ -1475,11 +1507,8 @@ class CharState(TextState):
             from .data.ranks import rank_title
             lines.append(("Promotions: " + "; ".join(f"{rank_title(p.nation, gr, False)} ({when})"
                                                      for when, gr in cmd.promotions), UI_TEXT))
-        need = cmd.promotion_need(p.rank)
-        earned = cmd.merit - cmd.merit_at_promotion
-        feel = "Nobody has noticed you yet." if earned < need * 0.3 else \
-            "Your name has come up at headquarters." if earned < need * 0.8 else "There's talk of a promotion."
-        lines += [(feel, UI_DIM)]
+        from .recognition import status
+        lines.append((status(game), UI_DIM))
         duty = getattr(game, "duty", None)
         if duty is not None:
             from .duty import standing_word
@@ -2049,6 +2078,10 @@ class OvermapState:
         self.mode = None            # None / "attack" / "move": choosing where to
         self.src = None
         self.note = ""
+        from .intelligence import headquarters, copy_map
+        self.at_hq = bool(headquarters(game))
+        if self.at_hq:
+            copy_map(game)
 
     def _orders(self):
         return self.game.command.strategic_orders
@@ -2063,6 +2096,10 @@ class OvermapState:
         if self.reach:
             title = "WAR MAP - " + title
         con.print(2, 1, title, fg=UI_HI)
+        from .intelligence import map_sector, report_age, map_report
+        if self.has_map:
+            con.print(2, 2, "HQ situation map - received reports" if self.at_hq else
+                      "Carried map sheet - dated reports. Visit HQ for an update.", fg=UI_DIM)
         if not self.has_map:
             con.print(2, 2, "You have no map. You know only the ground you've walked.", fg=(220, 160, 100))
         here = g.sector
@@ -2075,7 +2112,7 @@ class OvermapState:
             vw = vh = 0                 # the detailed cells are skipped
         for vx in range(self.vx0, self.vx0 + vw):
             for vy in range(self.vy0, self.vy0 + vh):
-                s = st.at(vx, vy, create=self._knows(vx, vy))
+                s = map_sector(g, st.at(vx, vy, create=self._knows(vx, vy)))
                 if s is None:
                     x = ox + (vx - self.vx0) * self.CW
                     y = oy + (vy - self.vy0) * self.CH
@@ -2086,7 +2123,7 @@ class OvermapState:
                     if (vx, vy) == (self.cx, self.cy):
                         con.draw_frame(x - 1, y - 1, self.CW + 1, self.CH + 1, clear=False, fg=UI_HI)
                     continue
-                cells.append(s)
+                cells.append(map_sector(g, s))
         for s in cells:
             x = ox + (s.x - self.vx0) * self.CW
             y = oy + (s.y - self.vy0) * self.CH
@@ -2120,9 +2157,9 @@ class OvermapState:
                     pa, pb = power(s.units[p.side]), power(s.units[other_side(p.side)])
                     own = "▮" * min(4, int(pa / 5 + 0.99)) if pa else ""
                     con.print(x + 1, y + 1, own, fg=SIDE_COLOR[p.side], bg=bg)
-                    if self.radio or s.visited or abs(s.x - g.sector.x) + abs(s.y - g.sector.y) <= 1 or self.reach:
+                    if map_report(g, s) and map_report(g, s).get("enemy_known"):
                         import random as _r
-                        pb *= _r.Random(hash((s.x, s.y, st.ticks, other_side(p.side)))).uniform(0.6, 1.5)
+                        # The estimate was made when this report was written.
                         enemy = "▮" * min(4, int(pb / 5 + 0.99)) if pb >= 0.5 else ""
                         con.print(x + self.CW - 1 - len(enemy) - 1, y + 1, enemy, fg=SIDE_COLOR[other_side(p.side)], bg=bg)
                     inst = [k for k, side, ok in s.installations if ok and side == p.side]
@@ -2137,7 +2174,7 @@ class OvermapState:
                                   else (150, 190, 240), bg=bg)
             else:
                 con.print(x + self.CW // 2 - 1, y + 1, "?", fg=(70, 70, 70), bg=bg)
-            if s is g.sector:
+            if s is not None and (s.x, s.y) == (g.sector.x, g.sector.y):
                 con.print(x + self.CW // 2 - 1, y + 2, "@", fg=(255, 255, 160), bg=bg)
             # within your command
             if in_reach:
@@ -2175,7 +2212,7 @@ class OvermapState:
             elif o["kind"] == "air":
                 con.print(x + 1, y + self.CH - 3, "AIR!", fg=(200, 220, 255))
         # info pane
-        s = st.at(self.cx, self.cy, create=self._knows(self.cx, self.cy))
+        s = map_sector(g, st.at(self.cx, self.cy, create=self._knows(self.cx, self.cy)))
         vw, vh = self._view_size()
         ix = ox + vw * self._cw() + 2
         iw = SCREEN_W - ix - 2
@@ -2193,8 +2230,9 @@ class OvermapState:
                           + (f", {COUNTRY[s.lang]}" if getattr(s, "lang", None) in COUNTRY and s.biome != "sea" else ""),
                           UI_TEXT))
             lines.append((where, UI_DIM))
+            lines.append((report_age(g, s), UI_HI))
             if s.biome != "sea":
-                ctl = "Allied" if s.control == ALLIES else "Axis" if s.control == AXIS else "no-man's land"
+                ctl = "Allied" if s.control == ALLIES else "Axis" if s.control == AXIS else "unreported"
                 lines.append((f"Held by: {ctl}", SIDE_COLOR.get(s.control, UI_TEXT)))
                 if self.has_map:
                     u = s.units[p.side]
@@ -2209,7 +2247,7 @@ class OvermapState:
                         pa = power(u)
                         lines.append(("Our forces: " + ("none that you know of" if not pa else "some of ours, they say"
                                                         if pa < 10 else "a lot of ours, they say"), SIDE_COLOR[p.side]))
-                    if self.radio or s.visited or self.reach or abs(s.x - g.sector.x) + abs(s.y - g.sector.y) <= 1:
+                    if map_report(g, s) and map_report(g, s).get("enemy_known"):
                         lines += self._enemy_estimate(s)
                     else:
                         lines.append(("Enemy strength: unknown", UI_DIM))
@@ -2269,8 +2307,9 @@ class OvermapState:
                     "Arrows to inspect, Esc to close.")
         con.print(2, SCREEN_H - 2, foot, fg=UI_DIM)
         if self.radio or self.reach or (self.has_map and p.rank >= 8):
-            ov = st.overview()
-            con.print(2, SCREEN_H - 3, f"The front: Allies hold {ov['allies']} sectors, the Axis {ov['axis']}.",
+            reports = g.player.ai.get("map_reports", {})
+            ov = {side: sum(r["control"] == side for r in reports.values()) for side in ("allies", "axis")}
+            con.print(2, SCREEN_H - 3, f"On this sheet: Allies reported in {ov['allies']} sectors, Axis in {ov['axis']}.",
                       fg=UI_TEXT)
 
     def _enemy_estimate(self, s):
@@ -2282,7 +2321,9 @@ class OvermapState:
         enemy = other_side(g.player.side)
         u = s.units[enemy]
         col = SIDE_COLOR[enemy]
-        rng = _r.Random(hash((s.x, s.y, st.ticks, enemy)))
+        from .intelligence import map_report
+        report = map_report(g, s) or {}
+        rng = _r.Random(hash((s.x, s.y, report.get("turn", 0), enemy)))
         near = abs(s.x - g.sector.x) + abs(s.y - g.sector.y) <= 1
         if near:
             # patrols and observers next door: rounded, and often wrong
@@ -2290,13 +2331,13 @@ class OvermapState:
             for k, n in u.items():
                 if n <= 0:
                     continue
-                est = max(1, int(round(n * rng.uniform(0.6, 1.5))))
+                est = max(1, int(n))
                 word = f"~{est}" if est > 2 else ("a few" if est > 1 else "some")
                 out.append((f"  {word} {UNIT_NAME.get(k, k)}", UI_DIM))
             if len(out) == 1:
                 out.append(("  nothing seen", UI_DIM))
             return out[:7]
-        pw = power(u) * rng.uniform(0.6, 1.5)
+        pw = power(u)
         word = "none reported" if pw < 0.5 else "weak" if pw < 6 else "moderate" if pw < 15 else \
             "strong" if pw < 30 else "very strong"
         out = [(f"Enemy strength: {word} (intelligence estimate)", col)]
@@ -2416,13 +2457,14 @@ class OvermapState:
     def _render_compact(self, con, ox, oy, vw, vh):
         """The wide view: each sector a coloured glyph, the front a seam of red against blue."""
         from .strategic import BIOME_GLYPH
+        from .intelligence import map_sector
         g = self.game
         st = g.strategic
         for vx in range(self.vx0, self.vx0 + vw):
             for vy in range(self.vy0, self.vy0 + vh):
                 x = ox + (vx - self.vx0) * 3
                 y = oy + (vy - self.vy0) * 2
-                s = st.at(vx, vy, create=self._knows(vx, vy))
+                s = map_sector(g, st.at(vx, vy, create=self._knows(vx, vy)))
                 known = s is not None and (s.visited or self._knows(vx, vy))
                 if not known:
                     bg, gl, fg = (16, 16, 16), "·", (50, 50, 50)
@@ -2435,7 +2477,7 @@ class OvermapState:
                         fg = (200, 220, 160)
                 con.draw_rect(x, y, 2, 1, ord(" "), bg=bg)
                 con.print(x, y, gl, fg=fg, bg=bg)
-                if s is g.sector:
+                if s is not None and (s.x, s.y) == (g.sector.x, g.sector.y):
                     con.print(x + 1, y, "@", fg=(255, 255, 160), bg=bg)
                 if (vx, vy) == (self.cx, self.cy):
                     con.print(x - 1, y, "[", fg=UI_HI)

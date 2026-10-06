@@ -2221,6 +2221,9 @@ class PlayState:
         from .orders import active, navigation
         current = active(g)
         foc = current["key"] if current is not None else None
+        if foc == "service":
+            from .service import plan
+            return plan(self)
         if foc in ("mission", "field") and p.vehicle is None:
             pt = navigation(g)
             if pt is None:
@@ -3753,8 +3756,10 @@ class PlayState:
                 g.msg("You can't dig here.", "info")
             return
         if not self.__dict__.get("digging"):
-            left = max(1, (60 - p.dig_progress) // (2 if g.map.climate != "winter" else 1))
-            g.msg(f"You start digging in - about {left} seconds of work, if they let you. (any key stops)", "info")
+            from .skills import level
+            rate = (.65 + level(p, "construction") * .07) * (.5 if g.map.climate == "winter" else 1)
+            left = max(1, int((7200 - p.dig_progress) / rate / 60))
+            g.msg(f"You start digging in - about {left} minutes of work, if they let you. (any key stops)", "info")
         self.digging = True
         self.mark_interrupt()
         self.act(c)

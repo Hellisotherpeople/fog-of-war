@@ -138,7 +138,7 @@ class SideBrain:
         g = self.game
         out = []
         for c in self.contacts.values():
-            if g.turn - c.turn > (15 if c.sound else max_age):
+            if not 0 <= g.turn - c.turn <= (15 if c.sound else max_age):
                 continue
             if c.sound and not sounds:
                 continue

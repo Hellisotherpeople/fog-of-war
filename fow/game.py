@@ -184,6 +184,15 @@ class Game:
         from . import scenarios as SC
         sid = self.setup.get("scenario") or "front"
         service = self.setup.get("service") or "army"
+        if self.setup.get("vehicle"):
+            if service != "army":
+                raise ValueError("A ground vehicle assignment requires Army service.")
+            # An explicit vehicle start takes precedence over a random solo/POW opening.
+            if sid not in ("front", "assault", "defence", "armour", "encircled", "rearguard", "gunline"):
+                sid = "front"
+            if role is None:
+                role = "tank_crew"
+            self.setup["no_special"] = True
         unit = self.setup.get("unit")
         if unit and str(unit).startswith("notable:"):
             # a famous division: it's in this battle (and the men of your company carry its regiments)
@@ -221,6 +230,11 @@ class Game:
         if role is None and sid in SC.SCENARIOS and SC.SCENARIOS[sid]["role"] and not self.setup.get("role_random"):
             role = SC.SCENARIOS[sid]["role"]
         self._start(role)
+        from .intelligence import strategic_reports, copy_map
+        strategic_reports(self, initial=True)
+        copy_map(self)
+        from .recognition import state as personnel_state
+        personnel_state(self)
 
     # ================================================================== setup
     def _roll_weather(self):
@@ -301,6 +315,8 @@ class Game:
                     start.units[att_side]["tank"] += 1
                 pa = power(start.units[att_side])
         self.enter_sector(start, entry_edge=None)
+        from . import vehicle_start
+        vehicle_start.prepare(self, role)
         p, notes = __import__("fow.spawn", fromlist=["create_player"]).create_player(self, self.player_nation, role)
         self.player = p
         from .data.roles import service_of
@@ -309,6 +325,7 @@ class Game:
         if p.service in ("air", "navy") and not self.scenario.startswith(("air:", "sea:")):
             self.scenario = SC.pick_service_mission(self, p.service, p.role) or "front"
         SC.setup_player(self, self.scenario, notes)
+        vehicle_start.assign(self, p, notes)
         self.first_battle = False
         self.initial_strength = {s: self.side_strength(s) for s in SIDES}
         self.command.organise(self)
@@ -535,6 +552,7 @@ class Game:
                 self.player.ai.pop("carried_by", None)
             self.msg("(The litter team you called won't find you here. Call again if you need them.)", "info")
         # shells on their way to the last place, and warnings about them, stay there
+        self.__dict__.pop("intel_pending", None)
         self.__dict__.pop("_counter_battery", None)
         self.__dict__.pop("_cb_warn", None)
         fresh = sector.saved is None
@@ -1930,8 +1948,13 @@ class Game:
             crew_sq.leader = crew_sq.members[0]
         v.crew = 0
 
-    def disembark_all(self, v):
+    def disembark_all(self, v, automatic=False):
         for p in list(v.passengers):
+            if automatic and p.is_player and v.ai.get("player_passenger_assignment"):
+                if not v.ai.get("dismount_notice"):
+                    self.msg("The crew calls for passengers to dismount. Press e to get out when ready.", "info")
+                    v.ai["dismount_notice"] = True
+                continue
             spot = self.free_around(v, None)
             if spot is None:
                 # jump into the water off the side
@@ -1955,7 +1978,7 @@ class Game:
                 self.msg("You pile out!", "warn")
         if v.squad is not None and v.squad.members:
             sq = v.squad
-            if v in sq.vehicles and v.vt.vtype in ("lc", "truck", "car"):
+            if not v.passengers and v in sq.vehicles and v.vt.vtype in ("lc", "truck", "car"):
                 sq.vehicles.remove(v)
             if sq.order.kind == "attack" and sq.order.obj is None:
                 commander_update(self, sq.side)
@@ -2685,6 +2708,8 @@ class Game:
             except Exception:
                 if os.environ.get("FOW_DEBUG"):
                     raise
+        from .intelligence import strategic_reports
+        strategic_reports(self)
         for n in st.order_news:
             self.msg(n, "radio")
         st.order_news = []
@@ -3079,6 +3104,16 @@ class Game:
             from .pow import march_update
             march_update(self)
         self.command.update(self)
+        if self.domain == "land":
+            from .intelligence import tick as intelligence_tick
+            intelligence_tick(self)
+            if self.turn % 30 == 0:
+                from .fieldworks import tick as works_tick
+                from .service import tick as service_tick
+                from .recognition import process as personnel_tick
+                works_tick(self)
+                service_tick(self)
+                personnel_tick(self)
         if self.turn % 10 == 4:
             self.duty.update(self)
         if self.turn % 5 == 3 and self.__dict__.get("domain", "land") == "land":

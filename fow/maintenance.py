@@ -215,10 +215,10 @@ def help_act(game, a, vis, sq) -> int | None:
 def fitters_near(game, v) -> bool:
     """Mechanics: the motor pool's, or the fitters who ride up with an ammunition truck."""
     for a in game.near(v.x, v.y, 6, v.side):
-        if a.active and a.role in ("motor_sergeant", "mechanic"):
+        if a.active and not a.downed and a.role in ("motor_sergeant", "mechanic"):
             return True
     for t in game.vehicles:
-        if t is not v and t.side == v.side and not t.dead and t.ai.get("fitters") and v.near(t.x, t.y) <= 8:
+        if t is not v and t.side == v.side and t.active and t.ai.get("fitters") and v.near(t.x, t.y) <= 8:
             return True
     return at_motor_pool(game, v)
 
@@ -325,7 +325,7 @@ def _repair(game, v):
             from .sustain import take
             if v.ai.get("field_parts", 0) > 0:
                 v.ai["field_parts"] -= 1
-            elif not take(game.sector, v.side, "parts", 1 if skilled else .25):
+            elif not consume_parts(game, v, 0 if job == "track" else 1 if skilled else .25):
                 if not v.ai.get("parts_warned"):
                     _tell(game, v, f"The {v.vt.name}'s repair is waiting for spare parts.", "warn")
                     v.ai["parts_warned"] = True
@@ -474,7 +474,7 @@ def call_truck(game, side, target=None, why=None) -> str | None:
     if edge is None:
         return "No road back to the rear from here." if why else None
     from .sustain import stores, take
-    if stores(game.sector, side)["ammo"] < 5:
+    if max(stores(game.sector, side)["ammo"], stores(game.sector, side)["parts"], stores(game.sector, side)["materials"]) < 1:
         return "The shell dump is empty. We need a delivery first." if why else None
     from .ai import Order
     from .spawn import edge_band_point, make_vehicle_squad, pick_nation
@@ -491,7 +491,11 @@ def call_truck(game, side, target=None, why=None) -> str | None:
     t.abandoned = False
     load = min(TRUCK_CARGO, int(stores(game.sector, side)["ammo"] * 4))
     take(game.sector, side, "ammo", load / 4)
-    t.ai.update(cargo=load, delivered=0, fitters=True,
+    parts = min(10., stores(game.sector, side)["parts"])
+    materials = min(30., stores(game.sector, side)["materials"])
+    take(game.sector, side, "parts", parts)
+    take(game.sector, side, "materials", materials)
+    t.ai.update(cargo=load, parts_cargo=parts, material_cargo=materials, delivered=0, fitters=True,
                 supply_run=dict(until=game.turn + 3600, target=tuple(target), edge=edge))
     if why or (game.player is not None and game.player.side == side and game.player.vehicle is not None):
         game.msg("Radio: 'Ammunition truck on its way up to you - fitters aboard.'", "radio")
@@ -507,7 +511,10 @@ def _trucks(game):
             continue
         sq = t.squad
         home = run.get("edge")
-        done = t.ai.get("cargo", 0) <= 0 or game.turn > run["until"]
+        busy = any(v is not t and v.side == t.side and v.active and repairs(v) and v.near(t.x, t.y) <= 8
+                   for v in game.vehicles)
+        done = (t.ai.get("cargo", 0) <= 0 and t.ai.get("parts_cargo", 0) <= 0 and
+                t.ai.get("material_cargo", 0) <= 0) or (game.turn > run["until"] and not busy)
         if done and not run.get("going"):
             run["going"] = True
             if home and sq is not None:
@@ -520,7 +527,7 @@ def _trucks(game):
             continue
         # keep up with the vehicles it came for
         low = [v for v in game.vehicles if v.side == t.side and v is not t and not v.dead and not v.abandoned
-               and (low_on_ammo(v) or shells_short(v) > 0) and v.vt.vtype != "truck"]
+               and (low_on_ammo(v) or shells_short(v) > 0 or repairs(v)) and v.vt.vtype != "truck"]
         if low and sq is not None and (game.turn // STEP) % 6 == 0:      # (twice a minute)
             c = min(low, key=lambda v: abs(v.x - t.x) + abs(v.y - t.y))
             if abs(c.x - t.x) + abs(c.y - t.y) > 6:
@@ -632,3 +639,17 @@ def riders_capacity(v) -> int:
     if v.vt.seats:
         return v.vt.seats
     return RIDERS if v.vt.vtype in ("tank", "td", "spg") else 0
+
+
+def consume_parts(game, vehicle, amount):
+    if amount <= 0:
+        return True
+    for truck in game.vehicles:
+        if truck is not vehicle and truck.active and truck.side == vehicle.side and vehicle.near(truck.x, truck.y) <= 8:
+            if truck.ai.get("parts_cargo", 0) >= amount:
+                truck.ai["parts_cargo"] -= amount
+                return True
+    if at_motor_pool(game, vehicle):
+        from .sustain import take
+        return take(game.sector, vehicle.side, "parts", amount)
+    return False
