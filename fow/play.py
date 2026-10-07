@@ -1905,7 +1905,7 @@ class PlayState:
                         return self.act(VD.HAND_TRAVERSE)
                     g.msg("The turret ring's jammed - the coax only fires where the gun points.", "warn")
                     return
-            if not vehicle_fire_mg(g, v, x, y, tgt, idxs=idxs):
+            if not vehicle_fire_mg(g, v, x, y, tgt, idxs=idxs, ordered=True):
                 from .vdamage import mg_ok
                 g.msg("Your machine gun's knocked out." if not any(mg_ok(v, i) for i in idxs) else
                       "The machine gun is silent - no belts left." if v.mg_ammo <= 0 else "The machine gun is silent.",
@@ -1943,7 +1943,7 @@ class PlayState:
                     return self.act(250)
                 g.msg("The gun won't traverse that far, and nobody's driving to swing the hull.", "info")
                 return
-        if not vehicle_fire_main(g, v, x, y, tgt, v.ammo_choice):
+        if not vehicle_fire_main(g, v, x, y, tgt, v.ammo_choice, ordered=True):
             g.msg("The gun's knocked out." if not v.gun_ok else
                   "No rounds left in the racks." if v.ap + v.he <= 0 and not (v.mount and v.mount.flame) else
                   "The main gun can't fire.", "warn")

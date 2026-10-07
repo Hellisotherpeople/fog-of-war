@@ -213,6 +213,12 @@ def describe_chance(p: float) -> tuple[str, tuple]:
 
 def fire_weapon(game, shooter, weapon, tx: int, ty: int, target=None, *, mode=None,
                 area=False) -> int:
+    from .conduct import attack
+    with attack(game, shooter, (tx, ty), target):
+        return _fire_weapon(game, shooter, weapon, tx, ty, target, mode=mode, area=area)
+
+
+def _fire_weapon(game, shooter, weapon, tx, ty, target=None, *, mode=None, area=False):
     """Fire the wielded gun at a tile.  Returns moves spent."""
     t = weapon.t
     if not weapon.functional:
@@ -540,14 +546,17 @@ def hit_actor(game, a, dmg, kind, attacker, source, from_pos=None, part=None, si
             if item is not None and not damage_equipment(game, item, dmg * .45, a.x, a.y):
                 a.remove_item(item)
     dmg *= rng.uniform(0.75, 1.25)
+    already_incapacitated = a.downed or not a.body.conscious
     res = a.body.damage(rng, part, dmg, kind)
+    if res.get('dead'):
+        a.ai['incapacitated_before_fatal_hit'] = already_incapacitated
     a.hit_turn = game.turn
     pl = game.player
     if pl is not None and attacker is not None and (attacker is pl or attacker is pl.vehicle) and a is not pl:
         duty = getattr(game, "duty", None)
         if duty is not None:
-            if a.side == pl.side:
-                duty.on_friendly_hit(game, a, killed=res.get("dead", False))
+            if a.side == pl.side or a.ai.get('civilian'):
+                duty.on_friendly_hit(game, a, killed=res.get("dead", False), attacker=attacker)
             elif a.state == "surrendered" and not a.ai.get("_shot_as_pow"):
                 a.ai["_shot_as_pow"] = True
                 duty.on_prisoner_shot(game, a)
@@ -600,18 +609,24 @@ def vehicle_face(v, ox, oy) -> int:
     return 2
 
 
-def _riders_hit(game, v, source):
+def _riders_hit(game, v, source, attacker=None):
     """Men riding on the outside of a tank take what hits it: splinters, spall, the blast."""
     for a in list(v.passengers):
         if riding(a) and a.alive and game.rng.random() < 0.45:
-            hit_actor(game, a, game.rng.uniform(10, 45), "fragment", None, f"a hit on the {v.vt.name} ({source})")
+            hit_actor(game, a, game.rng.uniform(10, 45), "fragment", attacker, f"a hit on the {v.vt.name} ({source})")
 
 
 def hit_vehicle(game, v, pen, dmg, ox, oy, attacker, source, kind="ap", he_power=0, face=None):
+    was_alive, hp, crew = not v.dead, v.hp, v.crew
     v.ai["hit_turn"] = game.turn
     if v.passengers:
-        _riders_hit(game, v, source)
-    return _hit_vehicle(game, v, pen, dmg, ox, oy, attacker, source, kind, he_power, face)
+        _riders_hit(game, v, source, attacker)
+    result = _hit_vehicle(game, v, pen, dmg, ox, oy, attacker, source, kind, he_power, face)
+    p = game.player
+    if was_alive and p is not None and attacker is not None and (attacker is p or attacker is p.vehicle) \
+            and v is not p.vehicle and v.side == p.side and (v.hp < hp or v.crew < crew or v.dead):
+        game.duty.on_friendly_hit(game, v, attacker=attacker)
+    return result
 
 
 def _hit_vehicle(game, v, pen, dmg, ox, oy, attacker, source, kind="ap", he_power=0, face=None):
@@ -730,6 +745,14 @@ def destroy_vehicle(game, v, attacker, source, catastrophic=False):
         return
     v.dead = True
     v.hp = 0
+    # Witnesses see the knockout before its solid wreck tiles obscure the point
+    # of impact. Recording afterward would lose almost every tank kill report.
+    if attacker is not None and hasattr(attacker, "kills"):
+        attacker.kills += 1
+        pv = game.player.vehicle if game.player is not None else None
+        if attacker is game.player or (pv is not None and attacker is pv):
+            game.stats["vehicles_killed"] += 1
+            game.command.on_kill(game, v)
     if v.ai.get("convoy"):
         from .rear import convoy_hit
         convoy_hit(game, v, attacker)             # a cut in the road on the war map
@@ -747,11 +770,6 @@ def destroy_vehicle(game, v, attacker, source, catastrophic=False):
         m.refresh()
     m.fire[v.x, v.y] = max(int(m.fire[v.x, v.y]), 3)
     m.lights.append([v.x, v.y, 5, game.turn + 400])
-    if attacker is not None and hasattr(attacker, "kills"):
-        attacker.kills += 1
-        pv = game.player.vehicle if game.player is not None else None
-        if attacker is game.player or (pv is not None and attacker is pv):
-            game.stats["vehicles_killed"] += 1
     if game.can_see(v.x, v.y):
         game.msg(f"{game.name_of_vehicle(v)} is destroyed!", "death", v.pos)
     game.emit_sound(v.x, v.y, 95 if catastrophic else 80, "explosion",
@@ -811,6 +829,15 @@ def damage_tile(game, x: int, y: int, dmg: float) -> bool:
 def explode(game, x: int, y: int, power: float, radius: int, *, frags: int = 0,
             frag_dmg: float = 20, pen: float = 0, attacker=None, source="an explosion",
             crater=True, fire: int = 0, smoke: float = 0, self_vehicle=None, air_burst=False):
+    from .conduct import attack
+    with attack(game, attacker, (x, y), collateral=True):
+        return _explode(game, x, y, power, radius, frags=frags, frag_dmg=frag_dmg, pen=pen,
+                        attacker=attacker, source=source, crater=crater, fire=fire, smoke=smoke,
+                        self_vehicle=self_vehicle, air_burst=air_burst)
+
+
+def _explode(game, x, y, power, radius, *, frags=0, frag_dmg=20, pen=0, attacker=None,
+             source="an explosion", crater=True, fire=0, smoke=0, self_vehicle=None, air_burst=False):
     m = game.map
     rng = game.rng
     if not m.in_bounds(x, y):
@@ -1115,7 +1142,13 @@ def melee_attack(game, attacker, target, move=None) -> int:
     return attack(game, attacker, target, move)
 
 
-def vehicle_fire_main(game, v, tx, ty, target=None, ammo=None) -> bool:
+def vehicle_fire_main(game, v, tx, ty, target=None, ammo=None, *, ordered=False) -> bool:
+    from .conduct import attack
+    with attack(game, v, (tx, ty), target, controlled=ordered):
+        return _vehicle_fire_main(game, v, tx, ty, target, ammo)
+
+
+def _vehicle_fire_main(game, v, tx, ty, target=None, ammo=None):
     mt = v.mount
     if mt is None or not v.gun_ok or v.reload > 0:
         return False
@@ -1237,7 +1270,13 @@ def vehicle_fire_main(game, v, tx, ty, target=None, ammo=None) -> bool:
     return True
 
 
-def vehicle_fire_mg(game, v, tx, ty, target=None, idxs=None) -> bool:
+def vehicle_fire_mg(game, v, tx, ty, target=None, idxs=None, *, ordered=False) -> bool:
+    from .conduct import attack
+    with attack(game, v, (tx, ty), target, controlled=ordered):
+        return _vehicle_fire_mg(game, v, tx, ty, target, idxs)
+
+
+def _vehicle_fire_mg(game, v, tx, ty, target=None, idxs=None):
     """A burst from machine gun(s) idxs (default: the first).  Each gun has its own burst."""
     if not v.vt.mgs or v.mg_ammo <= 0 or v.crew <= 0:
         return False

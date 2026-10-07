@@ -1647,8 +1647,14 @@ class CharState(TextState):
             if bits:
                 lines.append(("You have " + ", ".join(bits) + ".", UI_DIM))
             if duty.murders or duty.pow_shot:
-                lines.append((f"Blood on your hands: {duty.murders} of your own, {duty.pow_shot} prisoners.",
+                lines.append((f"Witnessed friendly killings on report: {duty.murders}; prisoners shot: {duty.pow_shot}.",
                               (220, 90, 80)))
+            if game.renegade or duty.arrest or duty.disgraced:
+                from .conduct import status
+                lines.append((status(game), (220, 190, 100)))
+            civilian_killings = duty.__dict__.get('conduct', {}).get('civilian_killings', 0)
+            if civilian_killings:
+                lines.append((f'Witnessed civilian killings on report: {civilian_killings}.', (220, 90, 80)))
         lines.append(("", None))
         lines.append(("Your chain of command (as far as you know):", UI_HI))
         lines += chain_text(game, p)

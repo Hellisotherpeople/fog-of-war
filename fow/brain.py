@@ -138,6 +138,8 @@ class SideBrain:
         g = self.game
         out = []
         for c in self.contacts.values():
+            if g.player is not None and c.id == g.player.id and self.side == g.player.side and not g.renegade:
+                continue  # a late report cannot reopen settled friendly hostility
             if not 0 <= g.turn - c.turn <= (15 if c.sound else max_age):
                 continue
             if c.sound and not sounds:

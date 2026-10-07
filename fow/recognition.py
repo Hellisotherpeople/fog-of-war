@@ -14,7 +14,7 @@ def state(game):
         last_promotion=game.turn, pending=None, awards=[], last_review=game.turn))
 
 
-def claim(game, kind, weight, why, position=None):
+def claim(game, kind, weight, why, position=None, *, restore_trust=True):
     p = game.player
     from .senses import los_clear
     pos = position or p.pos
@@ -33,6 +33,9 @@ def claim(game, kind, weight, why, position=None):
     ledger = state(game)
     ledger["claims"].append(dict(kind=kind, weight=weight, why=why, witnesses=witnesses,
                                   turn=game.turn, reported=None, sector=(game.sector.x, game.sector.y)))
+    from .conduct import valor
+    if restore_trust:
+        valor(game, kind, weight)
     return True
 
 

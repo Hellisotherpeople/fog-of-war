@@ -243,6 +243,12 @@ def _wound_words(game, target, part, kind, dmg, from_behind):
 
 # ---------------------------------------------------------------- the blow
 def attack(game, a, target, move=None) -> int:
+    from .conduct import attack as evidence
+    with evidence(game, a, target.pos, target):
+        return _attack(game, a, target, move)
+
+
+def _attack(game, a, target, move=None):
     """One exchange.  Returns the time it took (moves)."""
     from .actions import face
     face(a, target.x)
