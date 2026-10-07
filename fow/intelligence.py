@@ -61,7 +61,8 @@ def local_contacts(game, squad, age=60):
     for r in leader.ai.get("staff_contacts", {}).values():
         if 0 <= game.turn - r["turn"] <= age and not any(v["id"] == r["id"] for v in seen):
             seen.append(r)
-    return seen
+    p = game.player
+    return [r for r in seen if p is None or r['id'] != p.id or squad.side != p.side or game.renegade]
 
 
 def observe(game, observer, target):

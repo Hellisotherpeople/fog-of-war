@@ -2161,6 +2161,7 @@ class Game:
 
     # ================================================================== explosives
     def land_explosive(self, item, x, y, thrower, cook=0, placed_charge=False, hidden=False):
+        from .conduct import current
         t = item.t
         m = self.map
         if t.kind == "grenade" and (t.gtype in ("molotov", "gammon", "at") or t.fuse <= 1):
@@ -2170,7 +2171,7 @@ class Game:
         item.data = dict(item.data or {}, live=fuse)
         m.add_item(x, y, item)
         self.explosives.append(dict(item=item, x=x, y=y, fuse=fuse, thrower=thrower, holder=None,
-                                    placed=placed_charge, hidden=hidden))
+                                    placed=placed_charge, hidden=hidden, evidence=current(self)))
         if self.player and math.hypot(x - self.player.x, y - self.player.y) < 3 and thrower is not self.player:
             self.msg("A grenade lands right next to you!" if t.kind == "grenade" else "A charge lands beside you!",
                      "death")
@@ -2185,6 +2186,13 @@ class Game:
     def drop_live(self, item, x, y):
         for e in self.explosives:
             if e["item"] is item:
+                # A returned grenade is a new throw. Do not blame the thrower
+                # for a different person's later aim, or reuse the original intent.
+                from .conduct import current
+                evidence = current(self)
+                if evidence is not None:
+                    e['thrower'] = next((a for a in self.actors if a.id == evidence['source']), e['thrower'])
+                e['evidence'] = evidence
                 e["holder"] = None
                 e["x"], e["y"] = x, y
 
@@ -2220,7 +2228,9 @@ class Game:
                 x, y = e["x"], e["y"]
                 self.map.remove_item(x, y, it)
                 # thrown back by the player, or picked up and thrown by anyone: find it
-            self._detonate_item(it, x, y, e["thrower"])
+            from .conduct import attack
+            with attack(self, e['thrower'], (x, y), evidence=e.get('evidence'), collateral=True):
+                self._detonate_item(it, x, y, e["thrower"])
         self.explosives = keep
 
     def _detonate_item(self, item, x, y, thrower):
@@ -2288,9 +2298,10 @@ class Game:
 
     def schedule_shell(self, x, y, flight, power, radius, frags, frag_dmg, attacker, source,
                        whistle=True, sound=None, side=None, fire=0, pen=0, smoke=False):
+        from .conduct import current
         self.shells.append(dict(x=x, y=y, t=self.turn + flight, power=power, radius=radius, frags=frags,
                                 frag_dmg=frag_dmg, attacker=attacker, source=source, whistle=whistle,
-                                sound=sound, side=side, fire=fire, pen=pen, smoke=smoke))
+                                sound=sound, side=side, fire=fire, pen=pen, smoke=smoke, evidence=current(self)))
 
     def _tick_shells(self):
         keep = []
@@ -2322,8 +2333,10 @@ class Game:
                         self.emit_sound(x, y, 70, "explosion", "the dull pop of a smoke shell", None, None)
                         self.smoke_sources.append([x, y, 70, 3.0])
                     else:
-                        explode(self, x, y, s["power"], s["radius"], frags=s["frags"], frag_dmg=s["frag_dmg"],
-                                attacker=s["attacker"], source=s["source"], fire=s["fire"], pen=s["pen"])
+                        from .conduct import attack
+                        with attack(self, s['attacker'], (x, y), evidence=s.get('evidence'), collateral=True):
+                            explode(self, x, y, s["power"], s["radius"], frags=s["frags"], frag_dmg=s["frag_dmg"],
+                                    attacker=s["attacker"], source=s["source"], fire=s["fire"], pen=s["pen"])
                 continue
             keep.append(s)
         self.shells = keep
@@ -2914,7 +2927,7 @@ class Game:
         if duty is not None and duty.task is not None:
             text = duty.task_text(self)
         if getattr(self, "renegade", False):
-            text = "Your own side wants you dead. Get away - or go down fighting."
+            text = "Own side hostile. Fight the enemy or rescue comrades to restore trust. T: details."
         if self.sector.control != p.side and not any(a.side == p.side and a.active and not a.is_player for a in self.actors):
             text = f"You're alone behind enemy lines. Get back to friendly territory ({self.home_edge(p.side) or '?'})."
         from .orders import summary
@@ -3534,6 +3547,8 @@ class Game:
         if "hierarchy" not in g.__dict__:
             from .hierarchy import Hierarchy
             g.hierarchy = Hierarchy()
+        from .conduct import migrate
+        migrate(g)
         return g
 
     def _reset_counters(self):

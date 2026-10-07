@@ -10,8 +10,8 @@ The same goes for what nobody has to order: patching up the man bleeding next to
 you, passing ammunition to a gunner who's run dry.  Comrades do it for you too -
 more willingly the better your standing.
 
-Shoot your own men when there's no enemy about and you'll be arrested - or, if it
-goes far enough, your own side turns its guns on you.  Shooting men who've
+Witnessed, deliberate attacks on your own men bring warnings and an inquiry;
+continuing after a warning can turn your side against you. Accidents do not. Shooting men who've
 surrendered is a crime where the army cares (and an officer sees it).  Taking
 prisoners, and bringing them back to your lines, is rewarded.
 """
@@ -64,7 +64,7 @@ def standing_word(rep: float) -> str:
         return "Your sergeant's got his eye on you."
     if rep > -70:
         return "You're in serious trouble."
-    return "They'd shoot you as soon as look at you."
+    return "Your standing with the unit is very poor."
 
 
 MAX_TASKS = 3                    # orders outstanding at once (from different men, as a rule)
@@ -88,6 +88,8 @@ class Duty:
         self.desert_warn = 0        # warnings for running from the fight
         self.last_desert = -999
         self.neglect = {}           # comrade id -> checks he's bled next to you
+        from .conduct import fresh
+        self.conduct = fresh()
 
     # ------------------------------------------------------------ the orders outstanding
     def _tasks(self) -> list:
@@ -169,7 +171,9 @@ class Duty:
         if p is None or not p.alive or p.state != "ok":
             return
         t = game.turn
-        if self.arrest is not None:
+        from .conduct import state
+        state(game)
+        if self.arrest:
             self._arrest_check(game)
         self._desertion(game)
         for task in list(self._tasks()):
@@ -446,7 +450,7 @@ class Duty:
             self.strikes = 2
             if p.rank > 0:
                 from .data.ranks import rank_title
-                self.__dict__.setdefault("busted_from", p.rank)       # (valour can give it back: valour())
+                self.__dict__.setdefault("busted_from", p.rank)
                 p.rank -= 1
                 game.msg(f"You're busted down to {rank_title(p.nation, p.rank, False)}.", "death")
                 game.command.merit_at_promotion = game.command.merit
@@ -518,7 +522,7 @@ class Duty:
 
     # ------------------------------------------------------------ nothing succeeds like success
     def valour(self, game, weight, why):
-        """Observed assistance can earn regard; disciplinary findings need a separate review."""
+        """Observed assistance restores practical trust; reports remain on record."""
         from .recognition import claim
         claim(game, "assistance", weight, why)
 
@@ -531,7 +535,8 @@ class Duty:
             bool(game.seen_enemies(15)) if hasattr(game, "seen_enemies") else False
         v = {"rescue": 3.0 if under_fire else 1.0, "patched": 1.5 if under_fire else 0.3, "prisoner": 1.0,
              "delivered": 0.5}.get(kind, 0.0)
-        if v:
+        # Treating someone you deliberately hurt cannot farm rehabilitation.
+        if v and not (who is not None and who.ai.get("deliberate_friendly_wound") is not None):
             self.valour(game, v, {"rescue": "bringing a wounded man in under fire" if under_fire else
                                   "bringing a wounded man in", "patched": "seeing to the wounded under fire",
                                   "prisoner": "taking prisoners", "delivered": "bringing prisoners in"}[kind])
@@ -573,82 +578,30 @@ class Duty:
         self.neglect = seen
 
     # ------------------------------------------------------------ friendly fire, murder, prisoners
-    def _justified(self, game):
-        """Were you in a fight - or firing where you were told to?  (A gunner on a fire mission never sees
-        what his rounds land on: short rounds and danger-close calls are the observer's, not his.)"""
+    def on_friendly_hit(self, game, victim, killed=False, attacker=None):
         p = game.player
-        if p.suppression > 20 or p.hit_turn >= game.turn - 20:
-            return True
-        sup = getattr(game, "support", None)
-        if sup is not None and game.map is not None:
-            try:
-                if sup.fires.player_mission(game) is not None or game.turn - p.ai.get("mission_fired", -999) < 60:
-                    return True
-            except Exception:
-                pass
-        w = p.weapon
-        if w is not None and w.t.kind == "gun" and w.t.cat == "mortar" and game.turn - p.fired_turn < 60:
-            return True
-        if any(getattr(e, "alive", True) for e in getattr(p, "visible", [])):
-            return True
-        brain = game.brains[p.side]
-        return bool(brain.nearest_contacts(p.x, p.y, 1, max_age=25)) and \
-            any(math.hypot(c.x - p.x, c.y - p.y) < 30 for c in brain.nearest_contacts(p.x, p.y, 1, max_age=25))
-
-    def on_friendly_hit(self, game, victim, killed=False):
-        p = game.player
-        if victim is p or victim.side != p.side:
+        if victim is p or (victim.side != p.side and not victim.ai.get('civilian')):
             return
-        watcher = self.watcher(game)
-        if self._justified(game):
-            self.ff_accidents += 1
-            self.rep -= 2 + (6 if killed else 0)
-            who = watcher or next((a for a in game.actors if a.side == p.side and a.active and a is not p and
-                                   max(abs(a.x - p.x), abs(a.y - p.y)) < 10), None)
-            if who is not None:
-                self._say(game, who, "ff_rebuke", "Watch your fire!")
-            if self.ff_accidents in (4, 7):
-                self.strikes += 1
-                game.msg("Word gets around that you're a danger to your own side.", "warn")
-                self._escalate(game, watcher.full_name if watcher else "Your sergeant")
-            return
-        # no enemy in sight, nobody shooting at you: that was no accident
-        self.ff_incidents += 1
-        self.rep -= 15 + (25 if killed else 0)
-        if killed:
-            self.murders += 1
-        witness = watcher or next((a for a in game.actors if a.side == p.side and a.active and a is not p and
-                                   max(abs(a.x - p.x), abs(a.y - p.y)) < 20), None)
-        if self.murders >= 2 or (self.murders >= 1 and self.ff_incidents >= 2) or self.ff_incidents >= 4:
-            return self.turn_on_player(game, witness)
-        if (self.murders or self.ff_incidents >= 2) and witness is not None and self.arrest is None:
-            self.arrest = dict(turn=game.turn, by=witness.id)
-            self._say(game, witness, "arrest", "Drop your weapon! Drop it NOW!")
-            game.msg("(Drop your weapon - d - or they will shoot you.)", "system")
-            return
-        if witness is not None:
-            self._say(game, witness, "ff_rebuke", "What the hell are you doing?!")
+        from .conduct import hit
+        hit(game, victim, killed, attacker)
 
     def _arrest_check(self, game):
         p = game.player
         w = p.weapon
-        armed = w is not None and w.t.kind == "gun"
+        armed = p.vehicle is not None or (w is not None and w.t.kind == "gun")
         if not armed:
             self.arrest = None
             self.disgraced = True
             self.rep = min(self.rep, -60)
-            if p.rank > 0:
-                p.rank = 0
-            game.msg("They take your weapons and your stripes. You'll face a court-martial when this is over - "
-                     "if you live. Until then you carry ammunition and dig latrines.", "death")
+            game.msg("You cease fire and submit to an inquiry. Command duties are suspended. "
+                     "Witnessed battlefield service can restore your comrades' trust.", "warn")
+            self.conduct['suspended_command'] = (game.command.billet, game.command.billet_squad)
             game.command.billet = None
             game.command.billet_squad = None
             game.update_orders(force=True)
             return
-        if game.turn - self.arrest["turn"] > 15:
-            witness = self._actor(game, self.arrest["by"])
-            self.arrest = None
-            self.turn_on_player(game, witness)
+        # Keeping a rifle, taking cover or remaining in a tank is not a fresh attack.
+        # Only another witnessed deliberate assault can trigger armed resistance.
 
     def turn_on_player(self, game, witness=None):
         """Your own side has had enough of you."""

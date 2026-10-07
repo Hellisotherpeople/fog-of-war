@@ -344,6 +344,12 @@ def throw_range(a, item) -> int:
 
 
 def throw(game, a, item, tx, ty, cook: int = 0) -> int | None:
+    from .conduct import attack
+    with attack(game, a, (tx, ty)):
+        return _throw(game, a, item, tx, ty, cook)
+
+
+def _throw(game, a, item, tx, ty, cook=0):
     face(a, tx)
     t = item.t
     if t.kind not in ("grenade", "explosive"):

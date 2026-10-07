@@ -202,7 +202,8 @@ def casualty(game, a, killer):
         hf["goodwill"] = max(-100, hf["goodwill"] - 8)
     if killer is game.player or killer is getattr(game.player, "vehicle", None) and killer is not None:
         game.stats["civilian_deaths"] += 1
-        game.command.merit -= 2
+        # Local grief and losses are real even in an accident. Military discipline
+        # separately requires witnessed intent (conduct.py), not an automatic fine.
         game.msg("A civilian is dead. Word of this will travel through the district.", "death")
 
 

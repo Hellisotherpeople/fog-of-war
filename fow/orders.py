@@ -93,6 +93,12 @@ def book(game) -> list:
         return out
     nat = p.nation
     duty = getattr(game, "duty", None)
+    if duty is not None and (game.renegade or duty.arrest or duty.disgraced):
+        from .conduct import status
+        out.append(dict(key='conduct', who='Your comrades', how='their reaction to your actions',
+                        text=status(game), issued=None, due=None, point=None, authority=0,
+                        reward='cooperation restored, followed by an HQ debrief',
+                        penalty='further deliberate attacks renew hostility', urgent=True))
     strikes = duty.strikes if duty is not None else 0
     next_level = 0 if strikes < 2 else 1 if strikes < 4 else 2
     # the mission (a briefing: raids, patrols, agents, the navy's and the air force's jobs)
@@ -241,6 +247,8 @@ def issuer_rank(game, task):
 
 def _supports(game, order, primary):
     """Local execution of a mission is allowed; a different destination is not a new mission."""
+    if order['key'] == 'conduct':
+        return True  # ceasing friendly fire and aiding comrades always supports duty
     if order["key"] in ("personnel", "intelligence") or order["key"].startswith("contact:"):
         from .debrief import release_allowed
         return release_allowed(game)
@@ -282,7 +290,8 @@ def _prioritize(game, out):
     from .data.ranks import COMMAND_LEVEL
     for o in out:
         o.setdefault("authority", 8 if o["key"] in ("medevac", "liberty", "awol") else 3)
-        o["authority_name"] = ("service visit" if o["key"].startswith("contact:") else
+        o["authority_name"] = ("unit discipline" if o['key'] == 'conduct' else
+                               "service visit" if o["key"].startswith("contact:") else
                                "reporting procedure" if o["key"] in ("personnel", "intelligence") else
                                COMMAND_LEVEL.get(o["authority"], "section"))
     mission = next((o for o in out if o["key"] == "mission"), None)

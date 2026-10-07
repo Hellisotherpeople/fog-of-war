@@ -1473,7 +1473,8 @@ class CommandState:
             skill = "driving"
         use(game, p, skill, 2 if tank else .8)
         claim(game, "kills", .6 if tank else .15,
-              f"knocking out the {victim.vt.name}" if tank else "your part in the fighting", victim.pos)
+              f"knocking out the {victim.vt.name}" if tank else "your part in the fighting", victim.pos,
+              restore_trust=not victim.ai.get('incapacitated_before_fatal_hit', False))
 
     def on_objective(self, game, i, side):
         p = game.player
