@@ -1432,7 +1432,7 @@ class PlayState:
             ("W", "Movement pace", "Creep, walk, run or sprint."),
             ("Z", "Wait", "Choose how long to wait."),
             ("Y", "Yell", "Call out to nearby soldiers."),
-            ("X", "Find nearest person / service", "Intelligence, quartermaster, medic, fitters, HQ and terrain passability."),
+            ("X", "Find nearest person / service", "Add a specialist or HQ visit to T with an arrow and Enter route; terrain passability."),
             ("A", "Autopilot", "Let your soldier follow orders, or take control again."),
             ("?", "Help / controls", "Search every key and learn how to play."),
         ]
@@ -2284,6 +2284,9 @@ class PlayState:
         if foc == "service":
             from .service import plan
             return plan(self)
+        if foc and foc.startswith('contact:'):
+            from .contacts import go
+            return go(self, foc.split(':')[1])
         if foc in ("mission", "field") and p.vehicle is None:
             pt = navigation(g)
             if pt is None:
@@ -3720,7 +3723,7 @@ class PlayState:
         if g.__dict__.get("domain", "land") == "land":
             rows += [("k", "T", "HQ reports, captured intelligence and service destinations"),
                      ("k", "Q", "HQ debrief, decorations and support"),
-                     ("k", "X", "find the nearest useful person or service post")]
+                     ("k", "X", "add a specialist or service-post visit to T and follow its arrow")]
         if g.support is not None and g.support.fires.player_mission(g) is not None:
             rows.append(("k", "f", "fire the mission's rounds (with nothing in sight to shoot at)"))
         # your seat

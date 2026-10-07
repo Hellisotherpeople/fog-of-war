@@ -125,6 +125,8 @@ def book(game) -> list:
     intelligence = intelligence_entry(game)
     if intelligence:
         out.append(intelligence)
+    from .contacts import entries as contact_entries
+    out.extend(contact_entries(game))
     # the men who command you, in the field
     for t in (duty._tasks() if duty is not None else []):
         r = REWARD.get(t["kind"], 2)
@@ -239,7 +241,7 @@ def issuer_rank(game, task):
 
 def _supports(game, order, primary):
     """Local execution of a mission is allowed; a different destination is not a new mission."""
-    if order["key"] in ("personnel", "intelligence"):
+    if order["key"] in ("personnel", "intelligence") or order["key"].startswith("contact:"):
         from .debrief import release_allowed
         return release_allowed(game)
     if order["key"] == "service" and game.player.ai.get("service_order", {}).get("kind") == "repair":
@@ -280,7 +282,8 @@ def _prioritize(game, out):
     from .data.ranks import COMMAND_LEVEL
     for o in out:
         o.setdefault("authority", 8 if o["key"] in ("medevac", "liberty", "awol") else 3)
-        o["authority_name"] = ("reporting procedure" if o["key"] in ("personnel", "intelligence") else
+        o["authority_name"] = ("service visit" if o["key"].startswith("contact:") else
+                               "reporting procedure" if o["key"] in ("personnel", "intelligence") else
                                COMMAND_LEVEL.get(o["authority"], "section"))
     mission = next((o for o in out if o["key"] == "mission"), None)
     directives = [o for o in out if o["key"] in ("mission", "base", "field")]
@@ -362,18 +365,40 @@ def execution_signature(game):
         point = o["point"]
         detail = ((game.__dict__.get("mission") or {}).get("stage"),
                   point[2] if point is not None and len(point) > 2 else None)
+    elif key == "service":
+        dest = game.player.ai.get("service_order", {}).get("destination") or {}
+        detail = (detail, dest.get("sector"), dest.get("point"))
+    elif key.startswith('contact:'):
+        dest = game.player.ai.get('contact_orders', {}).get(key.split(':')[1], {}).get('destination') or {}
+        detail = (detail, dest.get('sector'), dest.get('person') or dest.get('point'))
     return key, o["issued"], detail
 
 
 def exit_point(game, edge):
-    """Reading an order cannot consume the simulation RNG or move the arrow at random."""
+    """Keep a sector's chosen exit fixed while approaching it, including in a vehicle."""
     import random
-    p = game.player
-    return game._edge_exit_point(edge, p.pos, 6, rng=random.Random(p.x * 73856093 ^ p.y * 19349663))
+    p, m = game.player, game.map
+    key = (game.sector.x, game.sector.y, edge, p.vehicle.vid if p.vehicle is not None else None)
+    exits = m.__dict__.setdefault('order_exits', {})
+    saved = exits.get(key)
+    if saved:
+        x, y = saved['point']
+        # Occupants, including our own tank, do not invalidate the destination.
+        # Only a terrain change which blocks the marked spot warrants a new exit.
+        if saved['version'] == m.walk_version or m.in_bounds(x, y) and m.walk[x, y] and m.water[x, y] < 2:
+            saved['version'] = m.walk_version
+            return x, y
+    point = game._edge_exit_point(edge, p.pos, 6, rng=random.Random(p.x * 73856093 ^ p.y * 19349663))
+    exits[key] = dict(point=point, version=m.walk_version)
+    return point
 
 
 def authorized_departure(game, edge):
     chosen = active(game)
+    if chosen and chosen['key'].startswith('contact:') and not chosen['deferred']:
+        from .base import _next_edge
+        dest = game.player.ai.get('contact_orders', {}).get(chosen['key'].split(':')[1], {}).get('destination')
+        return bool(dest and edge == _next_edge(game, dest['sector']))
     if chosen and chosen["key"] in ("personnel", "intelligence") and not chosen["deferred"]:
         from .recognition import state
         from .base import _next_edge

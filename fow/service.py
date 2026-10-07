@@ -22,16 +22,43 @@ def destination(game, kinds, skip_local=False):
             choices.append(s)
     s = min(choices, key=lambda s: distance((s.x, s.y), (game.sector.x, game.sector.y)), default=None)
     if s:
-        return dict(sector=(s.x, s.y), point=None, kind=kinds[0])
+        r = map_report(game, s)
+        kind = next(k for k, side, ok in r['installations'] if k in kinds and side == p.side and ok)
+        return dict(sector=(s.x, s.y), point=None, kind=kind)
     return None
+
+
+def destination_available(game, dest, kinds):
+    """Keep the assigned post until the loaded map or a received report disproves it."""
+    if not dest:
+        return False
+    p = game.player
+    if tuple(dest['sector']) == (game.sector.x, game.sector.y):
+        return any(r.get('kind') in kinds and r.get('side') == p.side and not r.get('destroyed')
+                   and (dest.get('point') is None or (r['x'], r['y']) == tuple(dest['point']))
+                   for r in game.map.gen_positions)
+    sector = game.strategic.at(*dest['sector'])
+    r = map_report(game, sector) if sector else None
+    return r is None or r['control'] == p.side and any(
+        k in kinds and side == p.side and ok for k, side, ok in r['installations'])
+
+
+def assigned_destination(game, ticket, kinds):
+    dest = ticket.get('destination')
+    if not destination_available(game, dest, kinds) or (
+            tuple(dest['sector']) == (game.sector.x, game.sector.y) and dest.get('point') is None):
+        # Resolve the actual entrance once the assigned sector has been reached.
+        # A closer post discovered on the way does not replace an existing assignment.
+        dest = destination(game, kinds)
+        ticket['destination'] = dest
+    return dest
 
 
 def entry(game):
     ticket = game.player.ai.get("service_order")
     if not ticket or game.__dict__.get("domain", "land") != "land":
         return None
-    dest = destination(game, ("hq",) if ticket["kind"] == "conference" else ("motor_pool", "factory"))
-    ticket["destination"] = dest
+    dest = assigned_destination(game, ticket, ("hq",) if ticket["kind"] == "conference" else ("motor_pool", "factory"))
     point = None
     label = "higher headquarters" if ticket["kind"] == "conference" else "repair workshop"
     if dest:
@@ -61,7 +88,7 @@ def plan(ps):
     dest, pt = ticket["destination"], order["point"]
     arrival = 2 if dest["sector"] != (g.sector.x, g.sector.y) else 4
     if p.vehicle is not None and distance(p.pos, pt[:2]) > arrival:
-        return f"drive toward {pt[2]}", lambda: drive_step(ps, pt[:2])
+        return f"drive toward {pt[2]}", lambda: drive_step(ps, pt[:2], arrival=arrival)
     if dest["sector"] != (g.sector.x, g.sector.y):
         from .base import _next_edge
         edge = _next_edge(g, dest["sector"])
@@ -121,7 +148,7 @@ def conference(ps):
     ps.act(6000)
 
 
-def drive_step(ps, point):
+def drive_step(ps, point, arrival=2):
     """Enter follows the marked service route one driving action at a time."""
     g, p = ps.game, ps.game.player
     v = p.vehicle
@@ -130,7 +157,8 @@ def drive_step(ps, point):
         g.msg("Take the driving or command station to follow the route. If immobilized, wait for fitters.", "info")
         return
     brain = g.brains[p.side]
-    mp = brain.vehicle_map(*point, v.vt.crush, v.vt.vtype in ("car", "truck", "armcar"), wide=v.size[1] >= 2)
+    mp = brain.vehicle_map(*point, v.vt.crush, v.vt.vtype in ("car", "truck", "armcar"),
+                           wide=v.size[1] >= 2, radius=arrival, exact=True)
     if mp is None:
         g.msg("No vehicle route to that destination is known. Follow the marked direction and look for a road.", "info")
         return

@@ -66,7 +66,7 @@ works as direction keys.
 | F6 | optional real time: everyone moves on a shared clock, including while you stand still. F6 again returns to turn based time |
 | `!` | safe mode off / on |
 | `'` | ignore the dangers you can see now (safe mode won't stop you for them) |
-| `X` | find the nearest known intelligence officer, quartermaster, medical staff, fitters or HQ; also toggle the terrain passability overlay |
+| `X` | select the nearest known intelligence officer, quartermaster, medical staff, fitters or HQ to add a visit to `T` with a direction arrow and Enter action; also clear selected service visits or toggle the terrain overlay |
 | `Q` | HQ debrief, decorations, career appointments and support allocations; away from HQ, add a reporting destination to `T` |
 
 Moving into things:

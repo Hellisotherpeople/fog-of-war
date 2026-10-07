@@ -107,6 +107,8 @@ def open_talk(ps, who, said=None):
     p = g.player
     if not who.alive or max(abs(who.x - p.x), abs(who.y - p.y)) > 2:
         return
+    from .contacts import met
+    met(g, who)
     if who.ai.get("civilian"):
         from .homefront import talk
         return talk(ps, who)
