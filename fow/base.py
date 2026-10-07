@@ -198,6 +198,8 @@ def talk(ps, who) -> bool:
     p = g.player
     if who.side != p.side or not who.active:
         return False
+    from .contacts import met
+    met(g, who)
     role = who.role
     # dispatches for this headquarters are handed to the first officer you find there
     if _deliverable(g, who):
@@ -1576,7 +1578,8 @@ def order_plan(ps):
         e = _next_edge(g, tgt)
         if e is None:
             return None
-        x, y = g._edge_exit_point(e, (p.x, p.y), 6)
+        from .orders import exit_point
+        x, y = exit_point(g, e)
         return (f"head for {_sector_name(g, tgt)} ({e})",
                 lambda: ps.start_travel(x, y, then=lambda: ps._travel_chosen(e)))
     if o["kind"] == "guard" and not _done(g, o):

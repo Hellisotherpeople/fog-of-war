@@ -480,8 +480,9 @@ class SideBrain:
         self.veh_maps[key] = c
         return c
 
-    def vehicle_map(self, tx, ty, crush, wheeled, radius=2, wide=False) -> np.ndarray:
-        key = ("vm", tx // 3, ty // 3, crush, wheeled, wide)
+    def vehicle_map(self, tx, ty, crush, wheeled, radius=2, wide=False, exact=False) -> np.ndarray:
+        key = ("vm_exact", tx, ty, crush, wheeled, wide, radius) if exact else \
+              ("vm", tx // 3, ty // 3, crush, wheeled, wide, radius)
         mp = self.veh_maps.get(key)
         if mp is not None:
             return mp
@@ -489,12 +490,15 @@ class SideBrain:
         m = self.game.map
         # the map is shared by every destination in this 3x3 bucket: aim at the bucket's centre so the
         # goal area is within 3 tiles of all of them (vehicles count <= 3 as arrived)
-        tx = min(m.w - 1, (tx // 3) * 3 + 1)
-        ty = min(m.h - 1, (ty // 3) * 3 + 1)
+        if not exact:
+            tx = min(m.w - 1, (tx // 3) * 3 + 1)
+            ty = min(m.h - 1, (ty // 3) * 3 + 1)
         goals = np.zeros(m.t.shape, bool)
         goals[max(0, tx - radius):tx + radius + 1, max(0, ty - radius):ty + radius + 1] = True
         goals &= cost > 0
         if not goals.any():
+            if exact:
+                return None  # a service route must reach the order's actual arrival area
             goals |= (cost > 0) & (np.abs(np.arange(m.w)[:, None] - tx) + np.abs(np.arange(m.h)[None, :] - ty) < 12)
             if not goals.any():
                 return None

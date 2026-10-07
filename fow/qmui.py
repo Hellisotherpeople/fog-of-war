@@ -28,6 +28,8 @@ def _anchor(ps, npc):
 
 
 def open_quartermaster(ps, qm):
+    from .contacts import met
+    met(ps.game, qm)
     g = ps.game
     p = g.player
     cigs = sum(i.count for i in p.inv if i.t.tool == "cigarettes")
@@ -176,7 +178,8 @@ def hand_over_papers(ps, officer, via_qm=False):
             distance(p.pos, officer.pos) > 3 or not los_clear(g, *p.pos, *officer.pos):
         g.msg('You need a living friendly intelligence officer or quartermaster within speaking distance.', 'info')
         return
-    from .contacts import documents
+    from .contacts import documents, met
+    met(g, officer)
     docs = documents(g)
     if not docs:
         g.msg("'Bring me papers off their officers. Maps, orders, anything with writing on it.'", "info")
@@ -207,6 +210,8 @@ def hand_over_papers(ps, officer, via_qm=False):
 
 
 def open_intel(ps, officer):
+    from .contacts import met
+    met(ps.game, officer)
     g = ps.game
     p = g.player
     from .contacts import documents

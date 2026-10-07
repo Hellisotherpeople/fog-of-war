@@ -74,7 +74,7 @@ SECTIONS = [
         ("h", "The going"),
         ("t", "What you can't walk through stands up with a dark rim and a shadow; what lies flat, you can push "
               "through - slowly. The look says how slow."),
-        ("k", "X", "find the nearest intel officer, quartermaster, medic, fitters or HQ; terrain overlay"),
+        ("k", "X", "add intel, supply, medical, fitter or HQ visits to T with a direction arrow; terrain overlay"),
         ("k", "Q", "HQ debrief, decorations, career appointments and support requests"),
     ]),
     ("Fighting", [

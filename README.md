@@ -105,7 +105,8 @@ Then:
 - Behind the line, walk into the men at their posts to talk: the adjutant has orders for you.
 - `C` includes acting appointments, command transfers, standing missions and engineer construction.
   `T` automatically lists HQ debriefs, captured-intelligence hand-ins, workshop destinations and
-  higher-HQ conferences. `X` finds a known specialist; `Q` opens the HQ service desk when you reach staff.
+  higher-HQ conferences. Selecting a specialist in `X` adds a saved visit to `T`, with a direction arrow
+  and Enter action. `Q` opens the HQ service desk when you reach staff.
   Reviewed service, decorations and advancement earn support allocations: requisition authority,
   finite vehicle supplies, or an available support unit. You can keep your tank job, or pursue
   successive appointments all the way from private to five-star rank.

@@ -48,9 +48,8 @@ def entry(game):
     ticket = s.get('report_order')
     if not ticket or game.__dict__.get('domain', 'land') != 'land':
         return None
-    from .contacts import target
-    dest = target(game, 'hq')
-    ticket['destination'] = dest
+    from .contacts import assigned_target
+    dest = assigned_target(game, ticket, 'hq')
     point = None
     if dest:
         if dest['sector'] == (game.sector.x, game.sector.y):
