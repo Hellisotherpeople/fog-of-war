@@ -78,21 +78,25 @@ def can_call(game) -> tuple[bool, str]:
         return False, "you're not hurt badly enough to be taken out of the line"
     if not _radio_near(game, p):
         return False, "no radio: your own, your tank's, or a radioman beside you"
-    ok, why = _safe(game, p)
-    if not ok:
-        return False, why
+    # The call can go through under fire. Bearers decide whether they can
+    # approach on the ground; the wounded need not wait to request help.
     return True, ""
 
 
 def _source(game, side):
     """Where the bearers start: the aid post on this ground, or the rear edge they come up from."""
-    for rec in getattr(game.map, "gen_positions", None) or []:
-        if rec.get("kind") == "aid" and rec.get("side") == side:
-            return (rec["x"], rec["y"]), "the aid post"
+    posts = [r for r in getattr(game.map,'gen_positions',[]) if r.get('kind') == 'aid'
+             and r.get('side') == side and not r.get('destroyed')]
+    if posts:
+        rec = min(posts,key=lambda r:math.hypot(r['x']-game.player.x,r['y']-game.player.y))
+        return (rec['x'],rec['y']), 'the aid post'
     e = game.home_edge(side)
     if e is None:
         return None, None
     from .spawn import edge_band_point
+    landscape = game.__dict__.get('landscape')
+    if landscape is not None and landscape.frame is game.map:
+        return landscape.arrival_point(game,game.sector,e), 'the rear'
     return edge_band_point(game, e, game.rng, depth=(1, 3)), "the rear"
 
 
@@ -192,6 +196,11 @@ def bearer_act(game, a) -> int | None:
         if max(abs(a.x - p.x), abs(a.y - p.y)) <= 1:
             if p.vehicle is not None:
                 A.exit_vehicle(game, p)
+            from . import medical as MED
+            if MED.can_help(game, a, p) and (p.body.bleed_rate() >= .05 or p.body.blood < 3000):
+                cost = MED.first_aid(game, a, p)
+                if cost:
+                    return cost
             c = A.pick_up(game, a, p)
             if c:
                 st["stage"] = "carrying"
@@ -203,6 +212,11 @@ def bearer_act(game, a) -> int | None:
                 game.update_orders(force=True)
                 return c
             return 100
+        from .senses import update_actor_vision
+        enemies = update_actor_vision(game, a)
+        if a.suppression >= 65 or any(math.hypot(e.x - a.x, e.y - a.y) < 8 for e in enemies):
+            from .ai import best_step, do_step
+            return do_step(game, a, best_step(game, a, [(game.brains[a.side].safety, 1.0)])) or 100
         return path_step(game, a, p.x, p.y, margin=30) or 100
     if st["stage"] == "arrived":
         return 100                                   # handing you over (medevac.hospital, between turns)
@@ -222,16 +236,17 @@ def bearer_act(game, a) -> int | None:
         return path_step(game, a, p.x, p.y) or 100
     if a.carrying is p:
         dest = st["src"]
-        if st["where"] == "the rear":
+        seamless = game.__dict__.get('landscape') is not None
+        if max(abs(a.x-dest[0]),abs(a.y-dest[1])) <= 3 and (seamless or st['where'] != 'the rear'):
+            st['stage'] = 'arrived'
+            return 100
+        if st["where"] == "the rear" and not seamless:
             e = game.home_edge(a.side)
             if e is not None and game._edge_gap(e, a.x, a.y) <= 2:
                 st["stage"] = "arrived"
                 return 100
-        elif max(abs(a.x - dest[0]), abs(a.y - dest[1])) <= 3:
-            st["stage"] = "arrived"
-            return 100
         brain = game.brains[a.side]
-        if st["where"] == "the rear" and brain.home is not None:
+        if st["where"] == "the rear" and not seamless and brain.home is not None:
             from .ai import best_step, do_step
             c = do_step(game, a, best_step(game, a, [(brain.home, 1.0)], exposure_w=2.0, crowd=False))
             if c:
@@ -292,11 +307,19 @@ def hospital(game) -> int | None:
 def _pass_days(game, days):
     """A coarse day at a time of the war going on (the camp does the same, behind its wire)."""
     st = game.strategic
+    landscape = game.__dict__.get('landscape')
+    if landscape is not None:
+        landscape.suspend(game)
     for _ in range(days):
         game.advance_clock(86400)
         game.turn += 86400
         for _ in range(4):
-            st.tick(None)
+            events = st.tick(None)
+            if landscape is not None:
+                for event in events:
+                    if event[0] == 'world_transfer':
+                        landscape.transfer(game,*event[1:])
+                landscape.reconcile(game)
         try:
             game.support.fires.strategic_tick(game) if game.support is not None and game.sector is not None else None
         except Exception:
@@ -339,6 +362,8 @@ def _back_to_duty(game, days):
     from .spawn import edge_band_point, place
     edge = game.home_edge(side)
     x, y = edge_band_point(game, edge, game.rng, depth=(4, 12)) if edge else (game.map.w // 2, game.map.h // 2)
+    if game.__dict__.get("landscape"):
+        x,y = game.landscape.arrival_point(game,sector,edge)
     place(game, p, x, y, 8)
     game.add_actor(p) if p not in game.actors else None
     p.squad = None

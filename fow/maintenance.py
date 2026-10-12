@@ -252,7 +252,7 @@ def source(game, v):
 
 
 def _own_ground(game, v) -> bool:
-    return game.sector.control == v.side or any(r.get("kind") == "depot" and r.get("side") == v.side
+    return game.sector_for(v).control == v.side or any(r.get("kind") == "depot" and r.get("side") == v.side
                                                 for r in getattr(game.map, "gen_positions", None) or [])
 
 
@@ -341,7 +341,7 @@ def _repair(game, v):
         break                                   # one job at a time
     if hull and not todo:
         from .sustain import take
-        if not take(game.sector, v.side, "parts", .02 * speed / STEP):
+        if not take(game.sector_for(v), v.side, "parts", .02 * speed / STEP):
             return
         v.hp = min(v.vt.hp, v.hp + v.vt.hp * 0.002 * speed / STEP)
         if v.hp >= v.vt.hp:
@@ -394,13 +394,13 @@ def _rearm(game, v):
                 it.data = dict(it.data or {}, rounds=left)
         elif kind == "depot":
             from .sustain import stores, take
-            n = min(n, int(stores(game.sector, v.side)["ammo"] * 4))
-            take(game.sector, v.side, "ammo", n / 4)
+            n = min(n, int(stores(game.sector_for(v), v.side)["ammo"] * 4))
+            take(game.sector_for(v), v.side, "ammo", n / 4)
         _load_rounds(v, n)
     if belts > 0:
         from .sustain import take
         rounds = min(belts, 50 * hands)
-        if take(game.sector, v.side, "ammo", rounds / 250):
+        if take(game.sector_for(v), v.side, "ammo", rounds / 250):
             v.mg_ammo += rounds
     if shells_short(v) <= 0 and mg_short(v) <= 0:
         v.ai.pop("rearming", None)
@@ -651,5 +651,5 @@ def consume_parts(game, vehicle, amount):
                 return True
     if at_motor_pool(game, vehicle):
         from .sustain import take
-        return take(game.sector, vehicle.side, "parts", amount)
+        return take(game.sector_for(vehicle), vehicle.side, "parts", amount)
     return False

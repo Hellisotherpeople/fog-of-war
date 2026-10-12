@@ -74,6 +74,9 @@ class PlayState:
     def __init__(self, app, game):
         self.app = app
         self.game = game
+        from .streaming import ensure
+        landscape = ensure(game)
+        self._land_origin = landscape.origin if landscape is not None else None
         game.__dict__["_prefs"] = getattr(app, "settings", None) or {}
         self._autosaved = time.time()
         self._rt_last = time.monotonic()
@@ -880,6 +883,7 @@ class PlayState:
         if g.__dict__.get("autopilot") and not g.game_over and g.map is not None:
             return True                               # (your soldier's getting on with it: the world must turn)
         return self.anim > 0 or self.travel_path or self.auto_wait > 0 or self.running or \
+            self.__dict__.get('objective_auto') or \
             self.__dict__.get("digging") or self.__dict__.get("ff_until") or \
             (not self.game.player.body.conscious and not self.game.game_over) or self.cam_moving or \
             self.shake > 0 or self._edge_scrolling()
@@ -915,6 +919,11 @@ class PlayState:
 
     def tick(self):
         g = self.game
+        from .streaming import refresh_play
+        refresh_play(self)
+        from .career import present as promotion_choices
+        if promotion_choices(self):
+            return
         from .identity import present as papers_check
         if papers_check(self):
             return
@@ -984,6 +993,15 @@ class PlayState:
             self.anim_next = now + 0.05
             self.check_over()
             return
+        if self.__dict__.get("objective_auto"):
+            from .objective_travel import danger, step
+            reason = danger(self)
+            if reason:
+                self.stop_auto(reason)
+                return
+            if not self.travel_path and not self.auto_wait:
+                step(self)
+                return
         if self.travel_path:
             deadline = time.perf_counter() + (self.WAIT_BUDGET if self._fast_quiet() else 0.0)
             while True:
@@ -1035,6 +1053,12 @@ class PlayState:
         g = self.game
         p = g.player
         if self.travel_path:
+            if self.__dict__.get("objective_auto"):
+                from .objective_travel import danger
+                reason = danger(self)
+                if reason:
+                    self.stop_auto(reason)
+                    return
             following = self.__dict__.get("_following_order")
             if following is not None:
                 from .orders import execution_signature
@@ -1323,6 +1347,7 @@ class PlayState:
         return False
 
     def stop_auto(self, msg=None):
+        self.objective_auto = False
         self._following_order = None
         self.travel_path = None
         self.travel_dest = None
@@ -1368,10 +1393,14 @@ class PlayState:
             self._start_anim()
         p.aim_turns = p.aim_turns if cost == 100 and self.mode == "target" else p.aim_turns
         g.player_binoculars = False
+        from .streaming import refresh_play
+        refresh_play(self)
         self.check_over()
         self._maybe_autosave()
         from .identity import present as papers_check
         papers_check(self)
+        from .career import present as promotion_choices
+        promotion_choices(self)
         return True
 
     def _maybe_autosave(self):
@@ -1419,7 +1448,7 @@ class PlayState:
             ("D", "Dig / construction", "Cover, fortifications and engineer work."),
             ("S", "Resupply", "Ammunition, supplies and repairs."),
             ("O", "Squad orders", "Direct your squad's movement, fire and tasks."),
-            ("Q", "HQ debrief / promotion / support", "Report exploits, receive decorations and request career appointments or unit support."),
+            ("Q", "Field promotion / duties / support", "Accept delivered personnel orders and choose rank, duties and available support."),
             ("g", "Pick up / loot", "Items and bodies within reach."),
             ("a", "Use an item", "Tools, food and equipment."),
             ("w", "Wield a weapon", "Change what is in your hands."),
@@ -1433,12 +1462,13 @@ class PlayState:
             ("Z", "Wait", "Choose how long to wait."),
             ("Y", "Yell", "Call out to nearby soldiers."),
             ("X", "Find nearest person / service", "Add a specialist or HQ visit to T with an arrow and Enter route; terrain passability."),
+            ("F7", "Go to objective (stop at contact)", "Carry out routine travel using normal actions and world turns; stop for combat or decisions."),
             ("A", "Autopilot", "Let your soldier follow orders, or take control again."),
             ("?", "Help / controls", "Search every key and learn how to play."),
         ]
         return search_choices(self.app, "Find a command",
                               [(f"{label} [{key}]", key, desc, None) for key, label, desc in entries],
-                              lambda key: self.on_key(Key(char=key)))
+                              lambda key: self.cmd_objective_travel() if key == "F7" else self.on_key(Key(char=key)))
 
     # ================================================================== input
     def on_key(self, key: Key):
@@ -1446,6 +1476,8 @@ class PlayState:
         p = g.player
         if g.map is None:
             return                                    # (between worlds: the sky view or the camp is coming)
+        if key.sym == E.KeySym.F7 and not self.popups and self.inv_screen is None:
+            return self.cmd_objective_travel()
         if key.sym == E.KeySym.F6 and not self.popups and self.inv_screen is None:
             return self.cmd_realtime()
         if self.anim > 0:
@@ -1453,7 +1485,7 @@ class PlayState:
             self.anim_groups = []
             g.effects = []
             self.flash_red = False
-        if self.travel_path or self.running or self.auto_wait or self.__dict__.get("digging") or \
+        if self.__dict__.get("objective_auto") or self.travel_path or self.running or self.auto_wait or self.__dict__.get("digging") or \
                 self.__dict__.get("ff_until"):
             if self.__dict__.get("ff_until"):
                 self.ff_until = None
@@ -1618,6 +1650,13 @@ class PlayState:
         if button not in (1, 3) or ftx < 0 or fty < 0:
             return
         tx, ty = math.floor(ftx), math.floor(fty)
+        button_rect = g.__dict__.get("_objective_button")
+        if button == 1 and button_rect and not self.popups and self.inv_screen is None and self.mode == "normal":
+            bx, by, bw = button_rect
+            if by == ty and bx <= tx < bx + bw:
+                return self.cmd_objective_travel()
+        if self.__dict__.get("objective_auto"):
+            self.stop_auto()
         if g.__dict__.get("succession_pending") and self.popups:
             pop = self.popups[-1]
             it = pop.item_at(tx, ty)
@@ -1629,7 +1668,7 @@ class PlayState:
             return                               # (out cold: no walking, firing or menus by mouse either)
         if self.inv_screen is not None:
             return self.inv_screen.on_click(tx, ty, button)
-        if self.travel_path or self.running or self.auto_wait or self.__dict__.get("digging") or \
+        if self.__dict__.get("objective_auto") or self.travel_path or self.running or self.auto_wait or self.__dict__.get("digging") or \
                 self.__dict__.get("ff_until"):
             if self.__dict__.get("ff_until"):
                 self.ff_until = None
@@ -1994,7 +2033,14 @@ class PlayState:
         self._following_order = None
         self.travel_then = None
         if not m.in_bounds(tx, ty):
-            return False
+            landscape = g.__dict__.get('landscape')
+            if landscape is None or landscape.frame is not m:
+                return False
+            world_target = landscape.world_pos(tx,ty)
+            waypoint = landscape.waypoint(g,tx,ty)
+            return self.start_travel(*waypoint, then=lambda: self.start_travel(
+                world_target[0]-landscape.origin[0],world_target[1]-landscape.origin[1],
+                then=then,stop_short=stop_short))
         if p.vehicle is not None:
             return False
         if max(abs(tx - p.x), abs(ty - p.y)) <= stop_short:
@@ -2287,6 +2333,11 @@ class PlayState:
         if foc and foc.startswith('contact:'):
             from .contacts import go
             return go(self, foc.split(':')[1])
+        if foc == 'field' and p.vehicle is not None and g.field_order.get('journey'):
+            pt = navigation(g)
+            if pt:
+                from .service import drive_step
+                return 'drive toward your staff visit', lambda: drive_step(self,pt[:2],arrival=0)
         if foc in ("mission", "field") and p.vehicle is None:
             pt = navigation(g)
             if pt is None:
@@ -2582,6 +2633,10 @@ class PlayState:
         if c:
             self.act(c)
 
+    def cmd_objective_travel(self):
+        from .objective_travel import start
+        return start(self)
+
     def cmd_do_order(self, retry=0):
         """Enter: set about your orders - walk there, and do it when you arrive (he may have moved: after him)."""
         g = self.game
@@ -2693,6 +2748,14 @@ class PlayState:
     def _travel_chosen(self, edge):
         if edge:
             g = self.game
+            landscape = g.__dict__.get('landscape')
+            if landscape is not None and landscape.frame is g.map:
+                from .orders import exit_point
+                point = exit_point(g, edge)
+                if g.player.vehicle is not None:
+                    from .service import drive_step
+                    return drive_step(self, point, arrival=0)
+                return self.start_travel(*point, stop_short=0)
             from .orders import authorized_departure
             authorized = authorized_departure(g, edge)
             if not authorized and g.player.squad and not g.player.squad.player_led and \
@@ -3722,7 +3785,7 @@ class PlayState:
         rows.append(("k", "Enter", plan[0] if plan else "(nothing to carry out just now)"))
         if g.__dict__.get("domain", "land") == "land":
             rows += [("k", "T", "HQ reports, captured intelligence and service destinations"),
-                     ("k", "Q", "HQ debrief, decorations and support"),
+                     ("k", "Q", "field promotion, duties and support"),
                      ("k", "X", "add a specialist or service-post visit to T and follow its arrow")]
         if g.support is not None and g.support.fires.player_mission(g) is not None:
             rows.append(("k", "f", "fire the mission's rounds (with nothing in sight to shoot at)"))

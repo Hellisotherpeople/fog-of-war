@@ -4,53 +4,95 @@ from __future__ import annotations
 from .intelligence import distance, headquarters, map_report
 
 
+def scene_map(game, sector):
+    """Materialize an advertised destination before issuing directions."""
+    if sector is game.sector:
+        return game.map
+    landscape = game.__dict__.get('landscape')
+    if landscape is not None and landscape.frame is game.map:
+        return landscape.preload(game, (sector.x, sector.y))
+    cache = game.__dict__.setdefault('_destination_maps', {})
+    key = sector.x, sector.y
+    if key not in cache:
+        from .mapgen import generate
+        cache[key] = game._load_map(sector) if sector.saved is not None else generate(game.sector_spec(sector)[0])
+    return cache[key]
+
+
+def post_destination(game, sector, rec, framed=False):
+    landscape = game.__dict__.get('landscape')
+    if landscape is not None and landscape.frame is game.map:
+        world = landscape.world_pos(rec['x'], rec['y']) if framed else (
+            sector.x*landscape.w+rec['x'], sector.y*landscape.h+rec['y'])
+        key = world[0]//landscape.w, world[1]//landscape.h
+        return dict(sector=key, world=world, point=(world[0]-landscape.origin[0], world[1]-landscape.origin[1]),
+                    kind=rec['kind'])
+    return dict(sector=(sector.x, sector.y), point=(rec['x'], rec['y']), kind=rec['kind'])
+
+
+def resolve(game, dest):
+    if dest and dest.get('world') is not None:
+        landscape = game.__dict__.get('landscape')
+        if landscape is not None and landscape.frame is game.map:
+            dest['point'] = (dest['world'][0]-landscape.origin[0], dest['world'][1]-landscape.origin[1])
+    return dest
+
+
 def destination(game, kinds, skip_local=False):
     p = game.player
-    marked = p.has_tool("map") is not None or bool(headquarters(game))
-    local = [r for r in game.map.gen_positions if r.get("kind") in kinds and r.get("side") == p.side
-             and not r.get("destroyed") and (marked or game.can_see(r["x"], r["y"]))]
+    marked = p.has_tool('map') is not None or bool(headquarters(game))
+    local = [r for r in game.map.gen_positions if r.get('kind') in kinds and r.get('side') == p.side
+             and not r.get('destroyed') and (marked or game.can_see(r['x'], r['y']))]
     if local and not skip_local:
-        rec = min(local, key=lambda r: distance((r["x"], r["y"]), p.pos))
-        return dict(sector=(game.sector.x, game.sector.y), point=(rec["x"], rec["y"]), kind=rec["kind"])
+        rec = min(local, key=lambda r: distance((r['x'], r['y']), p.pos))
+        return post_destination(game, game.sector, rec, framed=True)
     choices = []
-    for s in game.strategic.sectors():
-        if (s.x, s.y) == (game.sector.x, game.sector.y):
-            continue  # the loaded map overrides an old report of a now-absent post
-        r = map_report(game, s)
-        if r and r["control"] == p.side and any(k in kinds and side == p.side and ok
-                                                for k, side, ok in r["installations"]):
-            choices.append(s)
-    s = min(choices, key=lambda s: distance((s.x, s.y), (game.sector.x, game.sector.y)), default=None)
-    if s:
-        r = map_report(game, s)
-        kind = next(k for k, side, ok in r['installations'] if k in kinds and side == p.side and ok)
-        return dict(sector=(s.x, s.y), point=None, kind=kind)
+    for sec in game.strategic.sectors():
+        if sec is game.sector:
+            continue
+        report = map_report(game, sec)
+        if report and report['control'] == p.side and any(k in kinds and side == p.side and ok
+                for k, side, ok in report['installations']):
+            choices.append(sec)
+    for sec in sorted(choices, key=lambda s: distance((s.x,s.y), (game.sector.x,game.sector.y))):
+        m = scene_map(game, sec)
+        rec = next((r for r in m.gen_positions if r.get('kind') in kinds and r.get('side') == p.side
+                    and not r.get('destroyed')), None)
+        if rec is not None:
+            return post_destination(game, sec, rec)
     return None
 
 
 def destination_available(game, dest, kinds):
-    """Keep the assigned post until the loaded map or a received report disproves it."""
     if not dest:
         return False
-    p = game.player
-    if tuple(dest['sector']) == (game.sector.x, game.sector.y):
-        return any(r.get('kind') in kinds and r.get('side') == p.side and not r.get('destroyed')
-                   and (dest.get('point') is None or (r['x'], r['y']) == tuple(dest['point']))
-                   for r in game.map.gen_positions)
+    resolve(game, dest)
     sector = game.strategic.at(*dest['sector'])
-    r = map_report(game, sector) if sector else None
-    return r is None or r['control'] == p.side and any(
-        k in kinds and side == p.side and ok for k, side, ok in r['installations'])
+    if sector is None:
+        return False
+    report = map_report(game, sector)
+    if report and report['control'] != game.player.side:
+        return False
+    landscape = game.__dict__.get('landscape')
+    if landscape is not None and landscape.frame is game.map and game.map.in_bounds(*dest['point']):
+        records, point = game.map.gen_positions, dest['point']
+    else:
+        records = scene_map(game, sector).gen_positions
+        point = (dest['world'][0]-sector.x*landscape.w, dest['world'][1]-sector.y*landscape.h) if dest.get('world') else dest.get('point')
+    return any(r.get('kind') in kinds and r.get('side') == game.player.side and not r.get('destroyed')
+               and (point is None or (r['x'],r['y']) == tuple(point)) for r in records)
 
 
 def assigned_destination(game, ticket, kinds):
-    dest = ticket.get('destination')
-    if not destination_available(game, dest, kinds) or (
-            tuple(dest['sector']) == (game.sector.x, game.sector.y) and dest.get('point') is None):
-        # Resolve the actual entrance once the assigned sector has been reached.
-        # A closer post discovered on the way does not replace an existing assignment.
-        dest = destination(game, kinds)
-        ticket['destination'] = dest
+    if ticket.get('destination') is None and not ticket.get('destination_lost'):
+        ticket['destination'] = destination(game, kinds)
+    dest = resolve(game, ticket.get('destination'))
+    if dest and not destination_available(game, dest, kinds):
+        ticket['destination_lost'] = 'The assigned post is destroyed, captured or no longer operating. Choose a new destination in X.'
+        if not ticket.get('loss_reported'):
+            game.msg(ticket['destination_lost'], 'warn')
+            ticket['loss_reported'] = True
+        return None
     return dest
 
 
@@ -70,7 +112,7 @@ def entry(game):
                 point = (*exit_point(game, edge), f"Route to {label} at {game.strategic.at(*dest['sector']).name}")
         else:
             point = (*dest["point"], label)
-    text = ticket["text"] + (" Destination marked in your orders." if dest else
+    text = ticket.get('destination_lost') or ticket["text"] + (" Destination marked in your orders." if dest else
                              " No workshop location is on your sheet; obtain a situation map at HQ.")
     return dict(key="service", who=ticket["who"], how=ticket["how"], text=text,
                 issued=ticket["issued"], due=None, reward="return to duty with serviceable equipment" if
@@ -107,29 +149,17 @@ def conference(ps):
     if not ticket or ticket["kind"] != "conference" or not headquarters(g):
         return
     rec = headquarters(g)
-    officer = next((a for a in g.actors if a.side == p.side and a.active and a.rank > p.rank
-                    and distance(a.pos, p.pos) <= 10), None)
+    officers = [a for a in g.actors if a.side == p.side and a.active and not a.is_player
+                and a.role in ('adjutant', 'intel', 'officer', 'ops_officer', 'clerk')
+                and distance(a.pos, (rec['x'],rec['y'])) <= 35]
+    officer = min(officers, key=lambda a: distance(a.pos,p.pos), default=None)
     if officer is None:
-        # This is the previously off-map commander at his appointed headquarters.
-        from .spawn import make_soldier
-        cells = [(x, y) for x in range(rec["x"] - 3, rec["x"] + 4) for y in range(rec["y"] - 3, rec["y"] + 4)
-                 if g.map.in_bounds(x, y) and g.map.walk[x, y] and (x, y) not in g.soldier_at
-                 and (x, y) not in g.vehicle_at]
-        if not cells:
-            g.msg("The command post is crowded. Make room by the map table.", "info")
-            return
-        officer = make_soldier(g, p.nation, "officer")
-        officer.rank = ticket["authority"]
-        officer.name = ticket["who"]
-        officer.x, officer.y = cells[0]
-        g.actors.append(officer)
-        g.soldier_at[officer.pos] = officer
-        from .ai import Squad, Order
-        sq = Squad(p.side, p.nation, "staff", "Higher headquarters")
-        sq.members, sq.leader = [officer], officer
-        officer.squad = sq
-        sq.order = Order("hold", target=officer.pos)
-        g.squads.append(sq)
+        g.msg('The assigned headquarters has no staff available to brief you. Request fresh orders.', 'warn')
+        ticket['destination_lost'] = 'Headquarters staff unavailable; request fresh orders.'
+        return
+    if distance(officer.pos,p.pos) > 4:
+        ps.start_travel(officer.x,officer.y,stop_short=2,then=lambda: conference(ps))
+        return
     from .intelligence import copy_map
     copy_map(g)
     from .recognition import consider
@@ -152,6 +182,9 @@ def drive_step(ps, point, arrival=2):
     """Enter follows the marked service route one driving action at a time."""
     g, p = ps.game, ps.game.player
     v = p.vehicle
+    if not g.map.in_bounds(*point) and g.__dict__.get('landscape'):
+        point = g.landscape.waypoint(g,*point)
+        arrival = 0
     from .crew import can
     if not v.mobile or not can(v, "drive")[0]:
         g.msg("Take the driving or command station to follow the route. If immobilized, wait for fitters.", "info")
@@ -221,7 +254,7 @@ def tick(game):
         if damaged is None:
             continue
         from .sustain import take
-        if take(game.sector, a.side, "parts", .1):
+        if take(game.sector_for(a), a.side, "parts", .1):
             damaged.condition = min(1., damaged.condition + .05)
             if a is p and damaged.condition >= .7:
                 game.msg(f"{staff.rank_short} {staff.last_name} returns your {damaged.t.name}, serviceable again.", "good")

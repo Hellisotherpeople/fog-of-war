@@ -351,7 +351,7 @@ def test_supply_run():
     from fow.play import PlayState
     from fow.skysea_exit import to_land
     fa = FakeApp()
-    g = Game("kursk43", "ussr", seed=5, setup={"battlefield": "standard"})
+    g = Game("kursk43", "ussr", seed=5, setup={"battlefield": "standard", "seamless": False})
     ps = PlayState(fa, g)
     fa.states = [ps]
     p = g.player
@@ -859,14 +859,20 @@ def test_agents():
     def quiet():
         g.waves = []
         g.shells = []
+        landscape = g.__dict__.get('landscape')
+        if landscape is not None:
+            for key, waves in landscape.reserves.items():
+                landscape.reserves[key] = [w for w in waves if w['side'] == p.side]
         for b in g.support.fires.batteries:          # (their guns and aircraft are real, and would find you)
             if b.side != p.side:
                 b.ammo = 0
         g.support.next_sortie = {k: 10 ** 9 for k in g.support.next_sortie}
-        for a in list(g.actors):
+        people = list(landscape.actors.values()) if landscape is not None else list(g.actors)
+        for a in people:
             if a.side != p.side and a.alive:
                 a.body.dead = True
-                g.kill(a, None)
+                if not a.__dict__.get('_stream_dormant'):
+                    g.kill(a, None)
     quiet()
     # a time pencil: a long fuse, and nobody runs from what they don't know is there
     from fow.entities import Item
@@ -907,12 +913,12 @@ def test_agents():
     if not p.has_tool("wireless"):
         p.invent.hands = Item("paraset")  # this part tests transmission with a real, working set
     AG.radio_choice(ps, "report")
-    for k in range(AG.TX_TIME["report"] + 5):
+    for k in range(st['tx']['left'] + 5):  # a worn set takes its actual transmission time
         p.moves = 0
         g.world_turn()
         if k % 5 == 0:
             quiet()
-    assert st["sent"] >= 1
+    assert st["sent"] >= 1, (st.get('tx'), p.alive, p.downed, [m.text for m in list(g.messages)[-5:]])
     st["df"] = AG.DF_ALARM - 5
     AG.radio_choice(ps, "report")
     for k in range(20):
@@ -1026,7 +1032,7 @@ def test_walk_through_unseen_ground():
     fa = FakeApp()
     arrived = 0
     for seed in (1, 3):
-        g = Game("bocage44", "usa", role="rifleman", seed=seed, setup={"battlefield": "standard"})
+        g = Game("bocage44", "usa", role="rifleman", seed=seed, setup={"battlefield": "standard", "seamless": False})
         ps = PlayState(fa, g)
         fa.states = [ps]
         p = g.player

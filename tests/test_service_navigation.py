@@ -11,6 +11,14 @@ from fow.entities import Vehicle
 from fow.play import PlayState, Key
 
 
+def prepare_post(g, sector, kind):
+    from fow.gamemap import GameMap
+    m = GameMap(g.map_w, g.map_h, 1)
+    m.gen_positions = [dict(kind=kind, side=g.player.side, x=20, y=20)]
+    sector.control = g.player.side
+    g.__dict__.setdefault('_destination_maps', {})[(sector.x,sector.y)] = m
+
+
 def repair_ticket(g):
     ticket = dict(kind='repair', vehicle=0, issued=g.turn, authority=g.player.rank,
                   who='your crew', how='inspection', text='Report to the repair workshop.')
@@ -69,8 +77,12 @@ def test_repair_assignment_survives_a_detour_and_retargets_destroyed_workshop():
     move(g, g.player, (27, 20))  # an approach/detour which passes nearer another shop
     assert service.entry(g)['point'][:2] == (10, 20)
     first['destroyed'] = True
+    assert service.entry(g)['point'] is None
+    assert ticket['destination_lost']
+    assert ticket['destination']['kind'] == 'motor_pool'
+    ticket.pop('destination_lost')
+    ticket.pop('destination')  # a new appointment can be chosen explicitly
     assert service.entry(g)['point'][:2] == (30, 20)
-    assert ticket['destination']['kind'] == 'factory'
 
 
 def test_new_nearer_report_does_not_reverse_an_existing_cross_sector_assignment():
@@ -80,6 +92,8 @@ def test_new_nearer_report_does_not_reverse_an_existing_cross_sector_assignment(
     goal = g.strategic.at(x + 2, y, create=True)
     alt = g.strategic.at(x, y - 1, create=True)
     report = dict(control=g.player.side, installations=[('factory', g.player.side, True)])
+    prepare_post(g, goal, 'factory')
+    prepare_post(g, alt, 'factory')
     g.player.ai['map_reports'] = {(goal.x, goal.y): report}
     service.entry(g)
     assert ticket['destination']['sector'] == (goal.x, goal.y)
@@ -161,11 +175,34 @@ def test_contact_visit_stays_assigned_and_finishes_only_at_the_correct_person():
         with patch('fow.talk.open_talk') as talk:
             action()
             assert 'medical' in g.player.ai['contact_orders'] and not talk.called
+            assert orders.navigation(g) is None
+            assert g.player.ai['contact_orders']['medical']['destination_lost']
+            contacts.request(g, 'medical')
             assert orders.navigation(g)[:2] == b.pos
             move(g, g.player, (39, 10))
             ps._order_plan()[1]()
             talk.assert_called_once_with(ps, b)
         assert not any(o['key'] == key for o in orders.book(g))
+
+
+def test_lost_hq_visit_requires_an_explicit_new_request():
+    from fow import debrief, recognition
+    g = scene()
+    g.sector.control = g.player.side
+    a = soldier(g,20,10,role='adjutant',rank=9)
+    b = soldier(g,40,10,role='adjutant',rank=9)
+    g.map.gen_positions = [dict(kind='hq',side=g.player.side,x=20,y=10),
+                          dict(kind='hq',side=g.player.side,x=40,y=10)]
+    with patch('fow.senses.player_can_see_actor',return_value=True):
+        contacts.request(g,'hq')
+        assert debrief.entry(g)['point'][:2] == a.pos
+        move(g,g.player,(19,10))
+        a.body.dead = True
+        assert debrief.entry(g)['point'] is None
+        assert recognition.state(g)['report_order']['destination_lost']
+        assert debrief.entry(g)['point'] is None
+        contacts.request(g,'hq')
+        assert debrief.entry(g)['point'][:2] == b.pos
 
 
 def test_multiple_x_visits_remain_in_orders_and_can_be_cleared():
@@ -208,6 +245,7 @@ def test_x_visit_is_listed_but_does_not_override_a_field_mission():
 def test_contact_order_authorizes_its_marked_exit_and_keeps_it_while_moving():
     g = scene()
     goal = g.strategic.at(g.sector.x + 1, g.sector.y, create=True)
+    prepare_post(g, goal, 'depot')
     g.player.ai['map_reports'] = {(goal.x, goal.y): dict(control=g.player.side,
         installations=[('depot', g.player.side, True)])}
     key = contacts.request(g, 'supply')
@@ -224,6 +262,7 @@ def test_enter_drives_to_stable_exit_then_crosses_into_workshop_sector():
     g, ps, v = driver()
     repair_ticket(g)
     goal = g.strategic.at(g.sector.x + 1, g.sector.y, create=True)
+    prepare_post(g, goal, 'motor_pool')
     g.player.ai['map_reports'] = {(goal.x, goal.y): dict(control=g.player.side,
         installations=[('motor_pool', g.player.side, True)])}
     with patch('fow.base._next_edge', return_value='E'), patch.object(ps, '_travel_chosen') as travel:

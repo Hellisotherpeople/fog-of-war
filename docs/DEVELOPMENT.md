@@ -26,6 +26,8 @@ and the GIF maker work:
 SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy .venv/bin/python -c "
 from fow.game import Game
 g = Game('bocage44', 'usa', seed=1, setup={'battlefield': 'standard'})
+from fow.streaming import ensure
+ensure(g)
 for _ in range(120):
     g.player.moves = 0
     g.world_turn()
@@ -36,9 +38,14 @@ for m in list(g.messages)[-5:]: print(' ', m.text)
 
 `Game(theatre, nation, role=None, seed=None, setup={...})` takes the same choices as the
 creator: `service` (army/navy/air), `scenario` (`front`, `armour`, `raid`, `sea:carrier`,
-`air:strategic`...), `rank`, `battlefield` (`standard`/`large`/`huge`) and so on. To drive the
+`air:strategic`...), `rank` (a grade or national rank identity), `reality_radius`, `battlefield` (`standard`/`large`/`huge`) and so on. To drive the
 real interface, build a `PlayState` around it with a stand-in app (see `FakeApp` in
-`tests/test_smoke.py`) and call `on_key`.
+`tests/test_smoke.py`) and call `on_key`. `PlayState` initializes seamless streaming; direct headless games must call
+`streaming.ensure(g)` to opt into the same moving world. `setup={"seamless": False}` retains an
+isolated single-field scene for focused tests.
+
+`tools/benchmark_world.py --radius 240 --turns 180` measures full tactical turns. Run each radius
+in a fresh process, with no concurrent tests; see [world notes](LIVING_WORLD.md).
 
 `FOW_DEBUG=1` makes an exception inside one soldier's AI stop the game instead of being logged
 and skipped. Errors in a normal run go to `~/.fogofwar/error.log`.
@@ -66,7 +73,8 @@ command above runs the game's suite without requiring its PyTorch installation.
 
 The smoke tests start every battle on both sides, every service, save and load aboard a ship
 and a bomber, check a carrier is built full size, and run a carrier battle for four hours of game
-time to make sure the war at sea goes somewhere. About twenty seconds.
+time to make sure the war at sea goes somewhere. The full suite also exercises the moving land world;
+runtime depends on the optional accelerator and hardware.
 
 **The fuzzer** plays the real interface with random keys and mouse clicks and reports crashes:
 
@@ -76,7 +84,10 @@ time to make sure the war at sea goes somewhere. About twenty seconds.
 ```
 
 Run it after any change to the interface or the AI. Neither the tests nor the fuzzer touch your
-own `~/.fogofwar/settings.json`.
+own `~/.fogofwar/settings.json`. A scenario is capped at 2,000 world turns by default
+(`FOW_FUZZ_TURN_LIMIT` overrides it), and long automatic waits yield to the next fuzz input after
+60 world turns. This bounds random overnight-wait commands without changing simulation speed.
+The result reports inputs and whether the turn cap was reached; any crash exits nonzero.
 
 ## The GIFs in the README
 

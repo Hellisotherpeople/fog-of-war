@@ -32,59 +32,69 @@ def target(game, kind):
     candidates = people(game, kind)
     if candidates:
         a = candidates[0]
-        return dict(sector=(game.sector.x, game.sector.y), point=a.pos, person=a.id, label=a.full_name)
+        dest = dict(sector=(game.sector.x, game.sector.y), point=a.pos, person=a.id, label=a.full_name)
+        landscape = game.__dict__.get('landscape')
+        if landscape is not None and landscape.frame is game.map:
+            dest['world'] = landscape.world_pos(*a.pos)
+            dest['sector'] = (dest['world'][0]//landscape.w, dest['world'][1]//landscape.h)
+        return dest
     from .service import destination
     dest = destination(game, POSTS[kind])
-    if dest and dest['sector'] == (game.sector.x, game.sector.y) and distance(game.player.pos, dest['point']) <= 6:
-        # Reaching an abandoned post disproves the old map, so seek another post.
-        dest = destination(game, POSTS[kind], skip_local=True)
     return dict(dest, person=None, label=NAMES[kind]) if dest else None
 
 
 def assigned_target(game, ticket, kind):
-    """Follow the chosen person/post; do not switch to a nearer one during a detour."""
-    dest = ticket.get('destination')
-    here = (game.sector.x, game.sector.y)
-    if dest and tuple(dest['sector']) != here:
-        from .service import destination_available
-        from .intelligence import map_report
-        s = game.strategic.at(*dest['sector'])
-        report = map_report(game, s) if s else None
-        available = (not report or report['control'] == game.player.side) if dest.get('person') is not None else \
-                    destination_available(game, dest, POSTS[kind])
-        if available:
+    """A visit keeps its post/person; casualties do not create another appointment."""
+    from .service import resolve, destination_available
+    if ticket.get('destination') is None and not ticket.get('destination_lost'):
+        ticket['destination'] = target(game, kind)
+    dest = resolve(game, ticket.get('destination'))
+    if not dest or ticket.get('destination_lost'):
+        return None
+    if not dest.get('world') and tuple(dest['sector']) != (game.sector.x,game.sector.y):
+        if dest.get('person') is not None or destination_available(game,dest,POSTS[kind]):
             return dest
-    elif dest:
-        candidates = people(game, kind)
-        if dest.get('person') is not None:
-            person = next((a for a in candidates if a.id == dest['person']), None)
-            if person is not None:
-                dest.update(point=person.pos, label=person.full_name)
-                return dest
-            # A man out of sight has a last known position, not a live tracking beacon.
-            point = dest.get('point')
-            if point and distance(game.player.pos, point) > 6 and not game.can_see(*point):
-                return dest
-        else:
-            point = dest.get('point')
-            at_post = [a for a in candidates if point is None or distance(a.pos, point) <= 12]
-            if at_post:
-                a = at_post[0]
-                dest.update(point=a.pos, person=a.id, label=a.full_name)
-                return dest
-            from .service import destination_available
-            if point and distance(game.player.pos, point) > 6 and destination_available(game, dest, POSTS[kind]):
-                return dest
-    ticket['destination'] = target(game, kind)
-    return ticket['destination']
+    candidates = people(game, kind)
+    person = next((a for a in candidates if a.id == dest.get('person')), None)
+    if person is not None:
+        dest.update(point=person.pos, label=person.full_name)
+        landscape = game.__dict__.get('landscape')
+        if landscape is not None and landscape.frame is game.map:
+            dest['world'] = landscape.world_pos(*person.pos)
+            dest['sector'] = (dest['world'][0]//landscape.w, dest['world'][1]//landscape.h)
+        return dest
+    point = dest.get('point')
+    if dest.get('person') is None:
+        at_post = [a for a in candidates if point and distance(a.pos, point) <= 12]
+        if at_post:
+            person = at_post[0]
+            dest.update(point=person.pos, person=person.id, label=person.full_name)
+            return dest
+        if destination_available(game, dest, POSTS[kind]) and (not point or distance(game.player.pos,point)>6):
+            return dest
+    elif point and (not game.map.in_bounds(*point) or distance(game.player.pos,point)>6 and not game.can_see(*point)):
+        return dest  # last known location, never a live tracking beacon
+    ticket['destination_lost'] = 'The assigned staff are missing, incapacitated or their post is no longer operating. Select another visit in X.'
+    game.msg(ticket['destination_lost'], 'warn')
+    return None
 
 
 def request(game, kind):
     """An X destination is a saved order, with the same arrow and Enter action as T."""
+    service_ticket = game.player.ai.get('service_order')
+    if service_ticket and service_ticket.get('destination_lost') and kind == (
+            'hq' if service_ticket['kind'] == 'conference' else 'repairs'):
+        for key in ('destination', 'destination_lost', 'loss_reported'):
+            service_ticket.pop(key, None)
     if kind == 'hq':
         from .debrief import request_report
+        from .recognition import state
+        personnel = state(game)
+        if (personnel.get('report_order') or {}).get('destination_lost'):
+            personnel.pop('report_order', None)
         return 'personnel' if request_report(game) else None
     if kind == 'intel' and documents(game):
+        game.player.ai.pop('intelligence_order', None)
         entry(game)
         return 'intelligence'
     if kind not in ROLES:
@@ -99,7 +109,7 @@ def entries(game):
     out = []
     for kind, ticket in game.player.ai.get('contact_orders', {}).items():
         dest = assigned_target(game, ticket, kind)
-        text = ('Speak to ' + dest['label'] + ' (' + NAMES[kind] + '). Follow the marked route.' if dest else
+        text = ticket.get('destination_lost') or ('Speak to ' + dest['label'] + ' (' + NAMES[kind] + '). Follow the marked route.' if dest else
                 'Locate ' + NAMES[kind] + ': no suitable person or service post is known yet.')
         out.append(dict(key='contact:' + kind, who='Visit ' + NAMES[kind], how='your selected service visit',
                         text=text, issued=ticket['issued'], due=None, reward='access to the staff and services you need',
@@ -156,7 +166,9 @@ def interact(ps, kind, person):
 def route(game, dest):
     if dest is None:
         return None
-    if dest['sector'] == (game.sector.x, game.sector.y):
+    from .service import resolve
+    resolve(game, dest)
+    if dest['sector'] == (game.sector.x, game.sector.y) or dest.get('world') and game.map.in_bounds(*dest['point']):
         return (*dest['point'], dest.get('label', dest.get('kind', 'service post')))
     from .base import _next_edge
     from .orders import exit_point
@@ -180,9 +192,10 @@ def entry(game):
     ticket = p.ai.setdefault('intelligence_order', dict(issued=game.turn))
     dest = assigned_target(game, ticket, 'intel')
     # If intelligence is not reachable on this sheet, a quartermaster can pass papers on.
-    if dest is None:
+    if dest is None and not ticket.get('destination_lost'):
         dest = target(game, 'supply')
-    ticket['destination'] = dest
+    if dest is not None:
+        ticket['destination'] = dest
     return dict(key='intelligence', who='Captured intelligence hand-in', how='your service notebook',
                 text=f'Deliver {len(carried)} lot(s) of captured papers to ' +
                      (dest['label'] if dest else 'intelligence; no contact is on your map yet') + '.',
@@ -214,7 +227,7 @@ def go(ps, kind='intel'):
                 return 'hand the papers to ' + a.full_name, lambda: hand_over_papers(ps, a, via_qm=True)
             return 'speak to ' + a.full_name, lambda: interact(ps, kind, a)
     from .service import drive_step
-    remote = dest['sector'] != (g.sector.x, g.sector.y)
+    remote = dest['sector'] != (g.sector.x, g.sector.y) and not (dest.get('world') and g.map.in_bounds(*dest['point']))
     if p.vehicle is not None and distance(p.pos, pt[:2]) > 2:
         return 'drive toward ' + pt[2], lambda: drive_step(ps, pt[:2])
     if remote:

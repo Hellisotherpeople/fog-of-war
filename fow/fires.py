@@ -288,6 +288,23 @@ class Fires:
             self.squadrons.append(Squadron(self._id(), side, nat, at.id, sec, planes, name))
 
     # ================================================================ distances
+    def map_address(self, game, pos):
+        """Canonical sector and within-sector coordinates of a tactical point."""
+        landscape = game.__dict__.get('landscape')
+        if landscape and game.map is landscape.frame:
+            wx, wy = landscape.world_pos(*pos)
+            sec = (math.floor(wx/game.map_w), math.floor(wy/game.map_h))
+            return sec, (wx-sec[0]*game.map_w, wy-sec[1]*game.map_h)
+        return (game.sector.x, game.sector.y), pos
+
+    def map_point(self, game, sec, pos):
+        if pos is None:
+            pos = (game.map_w//2, game.map_h//2)
+        landscape = game.__dict__.get('landscape')
+        if landscape and game.map is landscape.frame:
+            return landscape.local(*sec, *pos)
+        return pos if sec == (game.sector.x, game.sector.y) else None
+
     def _global(self, game, sec, pos):
         mw, mh = game.map_w, game.map_h
         x, y = pos if pos is not None else (mw // 2, mh // 2)
@@ -303,7 +320,8 @@ class Fires:
         m = game.map
         here = (game.sector.x, game.sector.y)
         gx, gy = self._global(game, sec, pos)
-        cx, cy = self._global(game, here, (m.w // 2, m.h // 2))
+        center_sec, center_pos = self.map_address(game, (m.w//2, m.h//2))
+        cx, cy = self._global(game, center_sec, center_pos)
         ang = math.atan2(gy - cy, gx - cx)
         # walk from the centre toward it until the edge
         r = max(m.w, m.h)
@@ -313,6 +331,11 @@ class Fires:
         return int(m.w / 2 + (x - m.w / 2) * k), int(m.h / 2 + (y - m.h / 2) * k), math.hypot(gx - cx, gy - cy)
 
     def here(self, game, b) -> bool:
+        landscape = game.__dict__.get('landscape')
+        if landscape and game.map is landscape.frame and b.kind != 'naval':
+            # A battery is physical as long as any of its actual guns or men is active.
+            return (any(v.id in b.vids for v in game.vehicles) or
+                    any(s.id == b.squad_id for s in game.squads))
         return game.sector is not None and b.sec == (game.sector.x, game.sector.y) and b.kind != "naval"
 
     # ================================================================ calling for fire
@@ -336,8 +359,9 @@ class Fires:
                 continue
             if kinds and b.kind not in kinds:
                 continue
-            if b.kind == "mortar" and self.here(game, b) and (sec != (game.sector.x, game.sector.y) or
-                                                              b.squad_id is None):
+            target = self.map_point(game, sec, pos)
+            if b.kind == "mortar" and self.here(game, b) and (target is None or
+                    not game.map.in_bounds(*target) or b.squad_id is None):
                 continue                          # men with tubes on your map: they fire on your map (if they're here)
             if self.km(game, b, sec, pos) > self.reach_km(game, b):
                 continue
@@ -355,18 +379,18 @@ class Fires:
         from .intelligence import radio_link
         if caller is not None and hasattr(caller, "body") and not radio_link(game, caller):
             return None
-        here = (game.sector.x, game.sector.y)
-        cands = self.ready(game, side, here, (x, y), kinds)
+        here, canonical = self.map_address(game, (x, y))
+        cands = self.ready(game, side, here, canonical, kinds)
         if not cands:
             if caller is not None and getattr(caller, "is_player", False) and not silent:
-                allb = self.in_range(game, side, here, (x, y))
+                allb = self.in_range(game, side, here, canonical)
                 why = ("every battery in range is already firing" if any(b.mission for b in allb) else
                        "the guns in range are out of ammunition" if allb else "no guns within range of you")
                 game.msg(f"Radio: 'Negative, {why}. Wait, out.'", "radio")
             return None
         # the caller's own mortars for anything close to him; the heavier guns for the rest; ships for a landing
         def score(b):
-            d = self.km(game, b, here, (x, y))
+            d = self.km(game, b, here, canonical)
             s = d / b.range_km
             if prefer and b.kind in prefer:
                 s -= 1.0
@@ -380,6 +404,10 @@ class Fires:
         return b
 
     def start(self, game, b, target, caller=None, rounds=None, delay=None, silent=False, smoke=False):
+        tactical_order = target[0] == 'map'
+        if target[0] == 'map':
+            sec, pos = self.map_address(game, target[2])
+            target = ('sector', sec, pos)
         rng = game.rng
         bt = b.bt
         per = {"gun": 3, "mortar": 4, "rocket": 16, "naval": 4}[b.kind]
@@ -403,6 +431,7 @@ class Fires:
         if delay is None:
             proc = max(30 if b.kind == "mortar" else 60, proc)
         b.mission = dict(target=target, rounds=n, caller=getattr(caller, "id", None),
+                         tactical_order=tactical_order,
                          player=bool(caller is not None and getattr(caller, "is_player", False)),
                          bias=[math.cos(ba) * bias_d, math.sin(ba) * bias_d], spread=bt.spread + max(0, 7 - skill) * 0.5,
                          start=game.turn + max(0, proc), flight=flight, splashed=False, fired=0,
@@ -429,7 +458,8 @@ class Fires:
         here = (game.sector.x, game.sector.y)
         m = game.map
         bx, by = self._global(game, b.sec, b.pos)
-        cx, cy = self._global(game, here, (m.w // 2, m.h // 2))
+        center_sec, center_pos = self.map_address(game, (m.w//2, m.h//2))
+        cx, cy = self._global(game, center_sec, center_pos)
         return direction_word(bx - cx, by - cy)
 
     def barrage(self, game, side, x, y, radius, rounds, delay=0, naval=False, kinds=None, error=0.0,
@@ -437,9 +467,9 @@ class Fires:
         """A planned bombardment of a spot on your map: every battery that can reach it and is free joins in,
         as far as its rounds go.  `error`: how far off (tiles) they think the target is.  Returns the
         batteries that took part (none: nobody could)."""
-        here = (game.sector.x, game.sector.y)
+        here, canonical = self.map_address(game, (x, y))
         kinds = kinds or (("naval",) if naval else ("gun", "rocket", "naval", "mortar"))
-        cands = self.ready(game, side, here, (x, y), kinds)
+        cands = self.ready(game, side, here, canonical, kinds)
         if not cands:
             return []
         took = []
@@ -552,16 +582,24 @@ class Fires:
         """A mission on another sector whose ground has become your map (you've walked into it): the rounds
         now fall on a spot of it - where the battery's side last knew the enemy to be, or the middle."""
         kind, sec, pos = m["target"]
-        if pos is None and sec == (game.sector.x, game.sector.y):
-            brain = game.brains.get(b.side)
-            cs = brain.clusters(radius=6, min_size=1, max_age=300) if brain is not None else []
-            if cs:
-                pos = (cs[0][1], cs[0][2])
-            else:
-                lc = brain.live_contacts(300, False) if brain is not None else []
-                pos = (lc[0].x, lc[0].y) if lc else (game.map.w // 2, game.map.h // 2)
-            m["target"] = ("map", sec, pos)
-        return m["target"]
+        tactical = self.map_point(game, sec, pos)
+        landscape = game.__dict__.get('landscape')
+        detailed = tactical is not None and game.map.in_bounds(*tactical)
+        if detailed and landscape and landscape.frame is game.map and not m.get('tactical_order'):
+            # The rectangular allocation is not the reality bubble. Remote
+            # strategic barrages must not recursively enlarge it at every edge.
+            detailed = math.hypot(tactical[0]-game.player.x,tactical[1]-game.player.y) <= landscape.radius
+        if detailed:
+            if pos is None:
+                brain = game.brains.get(b.side)
+                contacts = brain.live_contacts(300, False) if brain else []
+                contacts = [c for c in contacts if self.map_address(game, (c.x,c.y))[0] == sec]
+                if contacts:
+                    tactical = (contacts[0].x, contacts[0].y)
+                _, pos = self.map_address(game, tactical)
+                m["target"] = ('sector', sec, pos)
+            return 'map', sec, tactical
+        return 'sector', sec, pos
 
     def _fire_round(self, game, b, gun, m) -> bool:
         """One round from one gun (a vehicle, a mortarman, or a number)."""
@@ -569,7 +607,7 @@ class Fires:
         rng = game.rng
         bt = b.bt
         kind, sec, pos = self._concrete(game, b, m)
-        on_map = sec == (game.sector.x, game.sector.y)
+        on_map = kind == "map"
         if getattr(gun, "vt", None) is not None:
             # a real gun: it fires where the fire direction centre says
             from .gamemap import octant
@@ -1033,7 +1071,7 @@ class Fires:
             sq = sqs[0]
             b.squad_id = sq.id
             taken.add(sq.id)
-            b.pos = sq.anchor()
+            b.sec, b.pos = self.map_address(game, sq.anchor())
 
     # ================================================================ you, on a gun or a mortar
     def player_battery(self, game):
@@ -1064,7 +1102,8 @@ class Fires:
         p = game.player
         kind, sec, pos = target
         here = (game.sector.x, game.sector.y)
-        gx, gy = self._global(game, here, (p.x, p.y))
+        source_sec, source_pos = self.map_address(game, p.pos)
+        gx, gy = self._global(game, source_sec, source_pos)
         tx, ty = self._global(game, sec, pos)
         dx, dy = tx - gx, ty - gy
         az = int(round(((math.degrees(math.atan2(dx, -dy)) + 360) % 360) * 6400 / 360)) % 6400
@@ -1098,7 +1137,7 @@ class Fires:
         p = g.player
         rng = g.rng
         kind, sec, pos = self._concrete(g, b, m)
-        on_map = sec == (g.sector.x, g.sector.y)
+        on_map = kind == "map"
         v = p.vehicle
         if v is not None:
             if v.reload > 0:
@@ -1179,7 +1218,8 @@ class Fires:
         kind, sec, pos = m["target"]
         here = (g.sector.x, g.sector.y)
         p = g.player
-        gx, gy = self._global(g, here, (p.x, p.y))
+        source_sec, source_pos = self.map_address(g, p.pos)
+        gx, gy = self._global(g, source_sec, source_pos)
         tx, ty = self._global(g, sec, pos)
         L = math.hypot(tx - gx, ty - gy) or 1.0
         ux, uy = (tx - gx) / L, (ty - gy) / L

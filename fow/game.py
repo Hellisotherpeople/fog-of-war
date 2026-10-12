@@ -423,7 +423,13 @@ class Game:
             if nm:
                 p.name = nm                       # (last name and full name follow from it)
         if su.get("rank") is not None:
-            p.rank = max(0, min(18, int(su["rank"])))
+            from .data.rank_profiles import available, assign
+            selection = next((r for r in available(p.nation, p.__dict__.get("service", "army"), self.year)
+                              if r.key == su["rank"]), None)
+            if selection:
+                assign(p, selection)
+            else:
+                p.rank = max(0, min(18, int(su["rank"])))
         if su.get("traits") is not None:
             p.traits = set(su["traits"])
         wid = su.get("weapon")
@@ -513,6 +519,9 @@ class Game:
 
     # ================================================================== sectors
     def enter_sector(self, sector, entry_edge=None, companions=()):
+        landscape = self.__dict__.get('landscape')
+        if landscape is not None:
+            return landscape.enter(self, sector)
         rng = self.rng
         st = self.strategic
         recall = self.__dict__.get("field_order")
@@ -556,7 +565,10 @@ class Game:
         self.__dict__.pop("_counter_battery", None)
         self.__dict__.pop("_cb_warn", None)
         fresh = sector.saved is None
-        if not fresh:
+        prepared = self.__dict__.get('_destination_maps', {}).pop((sector.x, sector.y), None)
+        if prepared is not None:
+            self.map = prepared
+        elif not fresh:
             self.map = self._load_map(sector)
         else:
             # the ground you've been looking at across the edge is the ground you walk into
@@ -688,6 +700,9 @@ class Game:
                  f" - for the attack on {dst.name}.", "radio")
 
     def _edge_exit_point(self, edge, near, radius=10, rng=None):
+        landscape = self.__dict__.get('landscape')
+        if landscape is not None and landscape.frame is self.map:
+            return landscape.exit_point(self, edge)
         from .spawn import free_tile_near
         m = self.map
         x, y = near
@@ -843,56 +858,24 @@ class Game:
         self._sound_msgs[key] = self._sound_msgs.get(key, 0) + 1
 
     def go_forward(self, target_key):
-        """A staff car (or your own feet) to the front: sector by sector, time passing on the way."""
-        st = self.strategic
-        s = self.sector
-        p = self.player
-        if (s.x, s.y) == tuple(target_key):
-            return "You're there."
-        # the way through our own ground
-        from collections import deque
-        prev = {(s.x, s.y): None}
-        q = deque([(s.x, s.y)])
+        """Record a staff visit for ordinary travel; never advance time or teleport."""
         goal = tuple(target_key)
-        found = False
-        while q:
-            k = q.popleft()
-            if k == goal:
-                found = True
-                break
-            if abs(k[0] - s.x) + abs(k[1] - s.y) > 14:
-                continue
-            for e, (dx, dy) in EDGE_VEC.items():
-                nk = (k[0] + dx, k[1] + dy)
-                if nk in prev:
-                    continue
-                c = st.at(*nk, create=True)
-                if c is None or not c.playable:
-                    continue
-                if nk != goal and c.control != p.side:
-                    continue
-                prev[nk] = (k, e)
-                q.append(nk)
-        if not found:
-            return "There's no road there through our own lines."
-        path = []
-        k = goal
-        while prev[k] is not None:
-            k0, e = prev[k]
-            path.append(e)
-            k = k0
-        path.reverse()
-        car = p.rank >= 12 and self.theatre.get("id") not in ("iwojima45", "kohima44")
-        hop = 420 if car else 2400
-        for i, e in enumerate(path):
-            self._skip_time(hop)
-            if not p.alive:
-                break
-            if not self.travel(e):
-                break
-        return (f"{'Your driver gets you forward' if car else 'You make your way forward'} to "
-                f"{self.sector.name} ({len(path)} sector{'s' if len(path) != 1 else ''}, "
-                f"about {len(path) * hop // 60} minutes).")
+        target = self.strategic.at(*goal,create=True)
+        if not target.playable:
+            return "There is no land route to that destination."
+        if (self.sector.x,self.sector.y) == goal:
+            return "You're there."
+        from .base import _next_edge
+        edge = _next_edge(self,goal)
+        if edge is None:
+            return "There is no known route there."
+        self.field_order = dict(authority=self.player.rank,who=self.player.full_name,
+            reason='Your chosen staff visit.',issued=self.turn,edge=edge,
+            sector=(self.sector.x,self.sector.y),journey=goal,
+            text=f'Proceed to {target.name}. Travel by the actual roads and ground.')
+        self.order_focus = 'field'
+        self.update_orders(force=True)
+        return f'Route to {target.name} marked. F7 follows it until contact or a decision.'
 
     def _skip_time(self, n):
         """Time on the road: the war goes on without you watching it."""
@@ -1051,6 +1034,10 @@ class Game:
         return v
 
     def _save_map(self):
+        landscape = self.__dict__.get('landscape')
+        if landscape is not None and landscape.frame is self.map:
+            landscape.checkpoint(self)
+            return
         m = self.map
         s = self.sector
         pk = self._pack
@@ -1111,6 +1098,9 @@ class Game:
         return m
 
     def local_units(self) -> dict:
+        landscape = self.__dict__.get('landscape')
+        if landscape is not None and landscape.frame is self.map:
+            return landscape.sector_units(self).get((self.sector.x,self.sector.y), {s:Counter() for s in SIDES})
         out = {s: Counter() for s in SIDES}
         for sq in self.squads:
             if sq.side not in out:
@@ -1142,6 +1132,10 @@ class Game:
         return n is not None and n.playable
 
     def travel(self, edge):
+        landscape = self.__dict__.get('landscape')
+        if landscape is not None and landscape.frame is self.map:
+            self.msg('Follow the marked route across the boundary; F7 can handle routine travel.', 'info')
+            return False
         st = self.strategic
         s = self.sector
         dx, dy = EDGE_VEC[edge]
@@ -1353,6 +1347,10 @@ class Game:
         if self.soldier_at.get((a.x, a.y)) is a:
             del self.soldier_at[(a.x, a.y)]
         self._arr_turn = -1
+        landscape = self.__dict__.get('landscape')
+        if landscape is not None and landscape.frame is self.map:
+            landscape.actors.pop(a.id, None)
+            landscape.active_actors.discard(a.id)
 
     def remove_from_map(self, a):
         if self.soldier_at.get((a.x, a.y)) is a:
@@ -1434,16 +1432,33 @@ class Game:
         pos = np.array([(a.x, a.y) for a in acts], np.float32).reshape(-1, 2)
         self._arr = (pos, acts)
         self._arr_index = {a.id: i for i, a in enumerate(acts)}
+        buckets = {}
+        for a in acts:
+            buckets.setdefault((a.x//16, a.y//16), {})[a.id] = a
+        self._near_buckets = buckets
+        self._near_cells = {a.id:(a.x//16, a.y//16) for a in acts}
+        self._side_indices = {s: np.array([i for i,a in enumerate(acts) if a.side == s], dtype=np.intp) for s in SIDES}
         self._arr_turn = self.turn
         self._enemy_arr = {}
         self._enemy_idx = {}
+        self._enemy_buckets = {}
+        self._enemy_cells = {}
         return self._arr
 
     def near(self, x, y, r, side=None):
-        """Soldiers on foot within r tiles (square) of (x, y) - found with arrays, not a loop over everyone."""
+        """Exact square query; small searches inspect nearby spatial buckets."""
         pos, acts = self.actor_array()
         if not acts:
             return []
+        if r <= 48:
+            buckets = self._near_buckets
+            found = [a for bx in range(math.floor((x-r)/16), math.floor((x+r)/16)+1)
+                     for by in range(math.floor((y-r)/16), math.floor((y+r)/16)+1)
+                     for a in buckets.get((bx,by), {}).values()
+                     if abs(a.x-x) <= r and abs(a.y-y) <= r and (side is None or a.side == side)]
+            # Preserve actor order: tie-breaking and RNG consumption remain unchanged.
+            found.sort(key=lambda a: self._arr_index[a.id])
+            return found
         idx = np.nonzero((np.abs(pos[:, 0] - x) <= r) & (np.abs(pos[:, 1] - y) <= r))[0]
         return [acts[i] for i in idx if side is None or acts[i].side == side]
 
@@ -1454,11 +1469,23 @@ class Game:
             if i is not None:
                 self._arr[0][i, 0] = a.x
                 self._arr[0][i, 1] = a.y
+                cell = a.x//16, a.y//16
+                prev = self._near_cells[a.id]
+                if cell != prev:
+                    self._near_buckets[prev].pop(a.id, None)
+                    self._near_buckets.setdefault(cell, {})[a.id] = a
+                    self._near_cells[a.id] = cell
         for side, (pos, ents) in self._enemy_arr.items():
             k = self.__dict__.get("_enemy_idx", {}).get(side, {}).get(id(a))
             if k is not None:
                 pos[k, 0] = a.x
                 pos[k, 1] = a.y
+                cell = int(a.x)//32, int(a.y)//32
+                prev = self._enemy_cells[side][k]
+                if cell != prev:
+                    self._enemy_buckets[side][prev].discard(k)
+                    self._enemy_buckets[side].setdefault(cell, set()).add(k)
+                    self._enemy_cells[side][k] = cell
 
     def enemies_of(self, side):
         pl = self.player
@@ -1481,7 +1508,26 @@ class Game:
         pos = np.array([(e.x, e.y) for e in ents], np.float32).reshape(-1, 2)
         self._enemy_arr[side] = (pos, ents)
         self.__dict__.setdefault("_enemy_idx", {})[side] = {id(e): k for k, e in enumerate(ents)}
+        buckets, cells = {}, {}
+        for k,e in enumerate(ents):
+            cell = int(e.x)//32, int(e.y)//32
+            cells[k] = cell
+            buckets.setdefault(cell, set()).add(k)
+        self._enemy_buckets[side], self._enemy_cells[side] = buckets, cells
         return pos, ents
+
+    def enemy_candidates(self, a, radius):
+        """Exact nearby enemy indices, including vehicles, without an all-pairs matrix."""
+        pos, ents = self.enemy_array(a.side)
+        buckets = self._enemy_buckets[a.side]
+        ids = sorted(k for bx in range(math.floor((a.x-radius)/32), math.floor((a.x+radius)/32)+1)
+                     for by in range(math.floor((a.y-radius)/32), math.floor((a.y+radius)/32)+1)
+                     for k in buckets.get((bx,by), ()))
+        idx = np.asarray(ids, dtype=np.intp)
+        distances = np.sqrt(((pos[idx] - (a.x,a.y)) ** 2).sum(axis=1))
+        within = distances <= radius
+        idx, distances = idx[within], distances[within]
+        return idx[np.argsort(distances)][:40]
 
     def side_strength(self, side):
         return sum(sq.strength() for sq in self.squads if sq.side == side)
@@ -1583,9 +1629,11 @@ class Game:
             if not line or not a.alive or (a.vehicle is not None and a is not self.player and
                                            (self.player is None or self.player.vehicle is not a.vehicle)):
                 continue
-            self.audio("voice", a.x, a.y, 50 if tone == "talk" else 66,
+            from .prosody import style_for
+            emotion = style_for(a, tone)
+            self.audio("voice", a.x, a.y, 40 if emotion == "whisper" else 50 if tone == "talk" else 66,
                        extra=dict(text=line, nation=a.nation, sid=a.id, female=a.female, role=a.role,
-                                  style=tone, own=a.is_player))
+                                  style=tone, emotion=emotion, own=a.is_player))
 
     def msg_near(self, x, y, text, cat="info"):
         if self.player is not None and math.hypot(x - self.player.x, y - self.player.y) < 25:
@@ -2302,6 +2350,12 @@ class Game:
         self.shells.append(dict(x=x, y=y, t=self.turn + flight, power=power, radius=radius, frags=frags,
                                 frag_dmg=frag_dmg, attacker=attacker, source=source, whistle=whistle,
                                 sound=sound, side=side, fire=fire, pen=pen, smoke=smoke, evidence=current(self)))
+        landscape = self.__dict__.get('landscape')
+        if landscape is not None and landscape.frame is self.map and self.player is not None:
+            if not self.map.in_bounds(x,y) or any(a.id not in landscape.active_actors and a.alive and
+                    abs(a.x-(x+landscape.origin[0])) <= radius+32 and
+                    abs(a.y-(y+landscape.origin[1])) <= radius+32 for a in landscape.actors.values()):
+                landscape.center = None  # activate the impact neighborhood at the next safe frame boundary
 
     def _tick_shells(self):
         keep = []
@@ -2388,10 +2442,16 @@ class Game:
                 continue
             d2 = (pos[:, 0] - x) ** 2 + (pos[:, 1] - y) ** 2
             best = None
-            side_idx = [k for k, a in enumerate(acts) if a.side == s and a.active]
-            if side_idx:
-                k = min(side_idx, key=lambda k: d2[k])
-                best = acts[k]
+            side_idx = self._side_indices[s]
+            if len(side_idx):
+                k = side_idx[np.argmin(d2[side_idx])]
+                if acts[k].active:
+                    best = acts[k]
+                else:
+                    live = [i for i in side_idx if acts[i].active]
+                    if live:
+                        k = min(live, key=lambda i: d2[i])
+                        best = acts[k]
             if best is None:
                 continue
             lvl = sound_at(self, x, y, loud, best.x, best.y)
@@ -2662,10 +2722,18 @@ class Game:
 
     # ================================================================== waves & strategic
     def schedule_wave(self, side, units, edge, delay=200, landing=False):
+        landscape = self.__dict__.get('landscape')
+        if landscape is not None and landscape.frame is self.map:
+            landscape.reserves.setdefault((self.sector.x, self.sector.y), []).append(
+                dict(side=side, units=Counter(units), edge=edge, turn=self.turn+delay, landing=landing))
+            return
         self.waves.append(dict(side=side, units=Counter(units), edge=edge, turn=self.turn + delay,
                                landing=landing))
 
     def _tick_waves(self):
+        landscape = self.__dict__.get('landscape')
+        if landscape is not None and landscape.frame is self.map:
+            return landscape.tick_waves(self)
         from .spawn import spawn_units, split_local
         keep = []
         for w in self.waves:
@@ -2711,9 +2779,16 @@ class Game:
         if not hasattr(st, "order_news"):
             st.order_news = []
         if self.__dict__.get("domain") == "aboard":
+            if self.__dict__.get('landscape') is not None:
+                self.landscape.suspend(self)
             events = st.tick(None, None)        # at sea: the land war goes on without you in it
             events = [e for e in events if e[0] not in ("reinforce", "sally")]
         else:
+            landscape = self.__dict__.get('landscape')
+            if landscape is not None and landscape.frame is self.map:
+                for key, units in landscape.sector_units(self).items():
+                    if key in st.materialized:
+                        st.at(*key, create=True).units = units
             events = st.tick(self.sector, self.local_units())
         if self.support is not None and self.sector is not None:
             try:
@@ -2732,6 +2807,20 @@ class Game:
         if self.player.alive:
             cmd.consider_promotion(self)
         for ev in events:
+            if ev[0] == 'world_transfer' and self.__dict__.get('landscape') is not None:
+                moved = self.landscape.transfer(self,ev[1],ev[2],ev[3],ev[4])
+                if ev[2] in st.materialized:
+                    for incoming in events:
+                        if incoming[0] == 'tactical_reinforce' and incoming[1] == ev[2] and incoming[2] == ev[3]:
+                            used = incoming[3] & moved
+                            incoming[3].subtract(used)
+                            moved -= used
+                continue
+            if ev[0] == 'tactical_reinforce':
+                self.landscape.reserves.setdefault(ev[1], []).append(dict(
+                    side=ev[2], units=ev[3], edge=ev[4] or self.home_edge(ev[2]),
+                    turn=self.turn+self.rng.randint(10, 90), landing=False))
+                continue
             if ev[0] == "sally":
                 self._sally(ev[1], ev[2], ev[3])
                 continue
@@ -2745,6 +2834,8 @@ class Game:
             if self.player_near_radio(self.player_side) or self.rng.random() < 0.3:
                 self.msg(f"Word comes down the line: {n}", "radio")
         st.news = []
+        if self.__dict__.get('landscape') is not None:
+            self.landscape.reconcile(self)
 
     def player_near_radio(self, side) -> bool:
         p = self.player
@@ -2797,6 +2888,9 @@ class Game:
             self.msg("The enemy is falling back!", "good")
 
     def _battle_check(self):
+        landscape = self.__dict__.get('landscape')
+        if landscape is not None and landscape.frame is self.map:
+            return landscape.battle_check(self)
         s = self.sector
         present = {side: any(a.side == side and a.active and not a.is_player and not a.ai.get("civilian") for a in self.actors) or
                    any(v.side == side and v.active for v in self.vehicles) or
@@ -2814,7 +2908,8 @@ class Game:
     def _sector_won(self, side):
         p = self.player
         for rec in getattr(self.map, "gen_positions", []):
-            if rec.get("homefront") and not rec.get("destroyed"):
+            if rec.get("homefront") and not rec.get("destroyed") and \
+                    rec.get('_world_sector', (self.sector.x,self.sector.y)) == (self.sector.x,self.sector.y):
                 rec["side"] = side
         if side == p.side:
             self.msg(f"{self.sector.name} is clear of the enemy. The sector is ours.", "good")
@@ -2823,6 +2918,12 @@ class Game:
         else:
             self.msg(f"{self.sector.name} is in enemy hands. You're behind their lines.", "warn")
         self.update_orders(force=True)
+
+    def sector_for(self, entity):
+        landscape = self.__dict__.get('landscape')
+        if landscape is not None and landscape.frame is self.map:
+            return landscape.sector_at(self, entity.x, entity.y)
+        return self.sector
 
     # ================================================================== orders (diegetic)
     def update_orders(self, force=False):
@@ -2993,12 +3094,18 @@ class Game:
         return n
 
     def world_turn(self):
+        landscape = self.__dict__.get('landscape')
+        if landscape is not None and landscape.frame is self.map:
+            landscape.refresh(self)
         mv = self.__dict__.get("medevac")
         if mv is not None and mv.get("stage") == "arrived":
             from .medevac import hospital
             hospital(self)                         # (between turns: the map changes under everyone)
         self.turn += 1
         self.clock += 1
+        landscape = self.__dict__.get('landscape')
+        if landscape is not None and landscape.frame is self.map:
+            landscape.background_tick(self)
         rng = self.rng
         m = self.map
         p = self.player
@@ -3504,6 +3611,8 @@ class Game:
         path = path or os.path.join(SAVE_DIR, "save.pkl")
         with gzip.open(path, "rb") as f:
             g = pickle.load(f)
+        g._arr_turn, g._arr, g._enemy_arr = -1, None, {}
+        g.__dict__.pop('_vis_mat',None)
         g._reset_counters()
         if not hasattr(g, "noise"):
             g.noise = 0.0

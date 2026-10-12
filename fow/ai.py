@@ -123,9 +123,10 @@ class Squad:
 
     def strength(self) -> float:
         # (the wounded gone back to the aid post aren't in the line)
-        s = sum(1 for m in self.members if m.active and not m.downed and m.ai.get("to_aid") is None
+        # Detailed AI sleeping outside the circle is not a casualty.
+        s = sum(1 for m in self.members if m.state == 'ok' and not m.downed and m.ai.get("to_aid") is None
                 and m.ai.get("at_aid") is None)
-        s += sum(4 for v in self.vehicles if v.active)
+        s += sum(4 for v in self.vehicles if not v.dead and not v.abandoned and v.crew > 0)
         return s
 
     def anchor(self):
@@ -136,8 +137,8 @@ class Squad:
         act = self.active_members()
         if act:
             return (sum(m.x for m in act) // len(act), sum(m.y for m in act) // len(act))
-        if self.vehicles:
-            v = self.vehicles[0]
+        v = next((v for v in self.vehicles if v.active), None)
+        if v is not None:
             return v.pos
         return None
 
@@ -537,15 +538,16 @@ def fix_stance(game, a, s) -> int:
 def squad_update(game, sq: Squad):
     t = game.turn
     sq.members = [m for m in sq.members if m.alive and m.state == "ok"]
-    sq.vehicles = [v for v in sq.vehicles if v.active]
+    sq.vehicles = [v for v in sq.vehicles if v.active or v.__dict__.get('_stream_dormant') and not v.dead]
     if not sq.members and not sq.vehicles:
         sq.gone = True
         return False
     # leader succession
-    if sq.leader is None or not sq.leader.active or sq.leader not in sq.members or sq.leader.downed:
+    if sq.leader is None or (not sq.leader.active and not sq.leader.__dict__.get('_stream_dormant')) or \
+            sq.leader not in sq.members or sq.leader.downed:
         cands = [m for m in sq.members if m.active and not m.downed]
         if cands:
-            new = max(cands, key=lambda m: (m.is_player and sq.player_led, m.rank, m.skill))
+            new = max(cands, key=lambda m: (m.is_player and sq.player_led, m.command_grade, m.skill))
             old_leader = sq.leader
             if old_leader is not None and new is not old_leader and old_leader.is_player is False:
                 if game.rng.random() < 0.7 and not new.is_player:
@@ -585,7 +587,7 @@ def squad_update(game, sq: Squad):
     act = [m for m in sq.members if m.active]
     avg_sup = sum(m.suppression for m in act) / max(1, len(act))
     avg_mor = sum(m.morale for m in act) / max(1, len(act)) if act else 50.0
-    lead_bonus = 8 if sq.leader is not None and sq.leader.active else -10
+    lead_bonus = 8 if sq.leader is not None and sq.leader.state == 'ok' and not sq.leader.downed else -10
     sq.morale = avg_mor - cas * 35 - avg_sup * 0.15 + lead_bonus
     # enemy tanks nearby with no AT weapon
     if brain.contacts:
@@ -1220,6 +1222,11 @@ def soldier_act(game, a) -> int:
         if c:
             return c
     # ---- carrying a message
+    if a.ai.get("personnel_dispatch"):
+        from .career import runner_act as personnel_runner
+        c = personnel_runner(game, a, vis)
+        if c:
+            return c
     if a.ai.get("situation_dispatch"):
         from .dispatches import act as dispatch_act
         c = dispatch_act(game, a, vis)
@@ -2185,7 +2192,7 @@ def _willing(game, receiver) -> bool:
 def buddy_aid_act(game, a, vis) -> int | None:
     """A mate bleeding near you and no medic about: patch him up.  Your buddy, you go to further, and sooner
     (social.wounded: he called his name)."""
-    from .squadcare import sees, claimed
+    from .squadcare import sees, claimed, aid_claimed
     hb = a.ai.get("help_buddy")
     if hb is not None and game.turn - hb[1] < 150 and not (vis and min(dist(a, e) for e in vis) < 6):
         o = next((m for m in game.near(a.x, a.y, 12, a.side) if m.id == hb[0]), None)
@@ -2209,15 +2216,16 @@ def buddy_aid_act(game, a, vis) -> int | None:
     if a.medical("bandage") is None and a.medical("tourniquet") is None:
         return None
     best = None
-    for o in game.near(a.x, a.y, 4, a.side):
+    for o in game.near(a.x, a.y, 7, a.side):
         if o is a or not o.alive or o.vehicle is not None or o.state != "ok":
             continue
-        if max(abs(o.x - a.x), abs(o.y - a.y)) > 4 or o.body.bleed_rate() < 0.8 or o.ai.get("carried_by"):
+        if o.body.bleed_rate() < 0.8 or o.ai.get("carried_by"):
             continue
-        if not sees(game, a, o, 4) or (dist(a, o) > 1.5 and claimed(game, o, "aid", a)):
+        if not sees(game, a, o, 7) or (dist(a, o) > 1.5 and aid_claimed(game, o, a)):
             continue
         if any(m is not o and m.role in ("medic", "surgeon") and m.active and not m.downed and
-               m.ai.get("patient") == o.id for m in game.near(o.x, o.y, 6, a.side)):
+               m.ai.get("patient") == o.id and dist(m, o) < dist(a, o)
+               for m in game.near(o.x, o.y, 6, a.side)):
             continue
         if best is None or o.body.bleed_rate() > best.body.bleed_rate():
             best = o
@@ -2348,7 +2356,7 @@ def role_act(game, a, vis, sq, sstate) -> int | None:
 def medic_act(game, a, vis) -> int | None:
     """Triage: the worst case you can reach first.  Treat, then get him out."""
     from . import medical as MED
-    from .squadcare import sees, claimed
+    from .squadcare import sees, aid_claimed, care_need
     if a.carrying is not None:
         return evacuate_act(game, a, vis)
     near_enemy = min((dist(a, e) for e in vis), default=999)
@@ -2357,14 +2365,31 @@ def medic_act(game, a, vis) -> int | None:
     calm = game.turn - a.ai.get("med_enemy", -99) > 8          # (a few quiet seconds before he goes out again)
     committed = a.ai.get("patient")
     best = None
-    bs = 0.0
-    for o in game.near(a.x, a.y, 30, a.side):
+    bs = (0, 0.0)
+    sightings = a.ai.setdefault('casualty_sightings', {})
+    sightings = a.ai['casualty_sightings'] = {k: v for k, v in sightings.items() if game.turn - v[1] <= 30}
+    triage = a.ai.setdefault('casualty_triage', {})
+    a.ai['casualty_triage'] = triage = {k:v for k,v in triage.items() if k in sightings}
+    for o in game.near(a.x, a.y, 42, a.side):
         if not o.alive or o.state != "ok" or o.vehicle is not None or o is a:
             continue
         if o.ai.get("surgery") is not None or o.ai.get("carried_by") is not None:
             continue
         d = dist(a, o)
-        if d > 30:
+        if d > 42 or o.z != a.z:
+            continue
+        if o.id not in sightings and not o.downed and MED.needs_care(o.body) < 1:
+            continue  # no possible care decision; avoid tracing a healthy man's sight line
+        seen = sees(game, a, o, 42)
+        if not seen:
+            if o.id not in sightings or o.id not in triage:
+                continue
+            last_pos, last_turn = sightings[o.id]
+            d = math.hypot(a.x-last_pos[0], a.y-last_pos[1])
+            tier, need = triage[o.id]
+            score = (tier, need/(1+d*.12)+(3 if committed == o.id else 0))
+            if score > bs:
+                bs, best = score, o
             continue
         b = o.body
         need = MED.needs_care(b)
@@ -2376,16 +2401,20 @@ def medic_act(game, a, vis) -> int | None:
             need = max(need, 12.0)
         if need < 1.0:
             continue
-        if not sees(game, a, o, 30) or (d > 1.5 and claimed(game, o, "aid", a)):
+        if d > 1.5 and aid_claimed(game, o, a):
             continue
-        s = need / (1.0 + d * 0.12)
+        sightings[o.id] = (o.pos, game.turn)
+        triage[o.id] = (care_need(o)[0], need)
+        # Remember where a casualty fell through brief smoke or lost sight.
+        # Never follow an unseen casualty's new position.
+        s = (care_need(o)[0], need / (1.0 + d * 0.12) + (3 if committed == o.id else 0))
         if s > bs:
             bs, best = s, o
     if best is None:
         a.ai.pop("patient", None)
         return None
     a.ai["patient"] = best.id                     # (pace.py: a medic with a patient runs)
-    if dist(a, best) <= 1.5:
+    if dist(a, best) <= 1.5 and sees(game, a, best, 2):
         a.ai.pop("patient", None)
         fix_stance(game, a, 1 if a.stance == 0 else a.stance)
         c = MED.first_aid(game, a, best) if MED.can_help(game, a, best) else None
@@ -2402,9 +2431,14 @@ def medic_act(game, a, vis) -> int | None:
     if a.ai.get("coming_shout", -99) < game.turn - 30:
         a.ai["coming_shout"] = game.turn
         a.say(phrase(game.rng, a.nation, "medic_coming"), game.turn)
-    c = path_step(game, a, best.x, best.y)
+    target = sightings[best.id][0]
+    if max(abs(a.x - target[0]), abs(a.y - target[1])) <= 1 and target != best.pos:
+        sightings.pop(best.id, None)
+        a.ai.pop('patient', None)
+        return None
+    c = path_step(game, a, *target, margin=42)
     if c:
-        fix_stance(game, a, 1)
+        fix_stance(game, a, 0 if near_enemy > 18 and a.suppression < 35 else 1)
     return c
 
 

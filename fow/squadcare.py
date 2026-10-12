@@ -89,6 +89,20 @@ def claimed(game, recipient, kind, except_actor=None):
                for a in cache[1].get((recipient.id, kind), ()))
 
 
+def aid_claimed(game, patient, helper):
+    """An urgent casualty should not wait for a more distant assigned helper."""
+    if not claimed(game, patient, 'aid', helper):
+        return False
+    if care_need(patient)[0] < 3:
+        return True
+    own_distance = distance(helper, patient)
+    return any(a is not helper and a.active and not a.downed and a.vehicle is None and
+               (job := a.ai.get('support_job')) and job['kind'] == 'aid' and
+               job['target'] == patient.id and job['until'] > game.turn and
+               distance(a, patient) <= own_distance
+               for a in game.near(patient.x, patient.y, own_distance + 1, patient.side))
+
+
 def available(a, sq):
     return a is not sq.leader and not a.is_player and a.active and not a.downed and \
         a.vehicle is None and a.carrying is None and a.role in HANDS and \

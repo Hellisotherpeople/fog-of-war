@@ -99,8 +99,8 @@ def _stairs_in(m, rect):
     from . import tiles as T
     x0, y0, bw, bh = rect
     sid = T.ID["stairs"]
-    for x in range(x0, x0 + bw):
-        for y in range(y0, y0 + bh):
+    for x in range(max(0, x0), min(m.w, x0 + bw)):
+        for y in range(max(0, y0), min(m.h, y0 + bh)):
             if m.t[x, y] == sid:
                 return (x, y)
     return None

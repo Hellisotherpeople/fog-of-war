@@ -24,6 +24,7 @@ import numpy as np
 import tcod
 
 from . import fastpath
+from .distancefield import field as navigation_field
 from . import tiles as T
 from .constants import BIG, OCTANT_VEC, other_side
 
@@ -109,6 +110,7 @@ class SideBrain:
         self.exp_cost = None
         self.obj_maps: dict = {}
         self.veh_maps: dict = {}
+        self.veh_used: dict = {}
         self.flank_cache: dict = {}
         self.local_cache: dict = {}
         self.last_update = -999
@@ -247,7 +249,16 @@ class SideBrain:
         self.flank_cache = {k: v for k, v in self.flank_cache.items() if v[0] > g.turn}
         if moved or wv[0] != getattr(self, "_veh_version", (None,))[0]:
             self.veh_maps = {}
+            self.veh_used = {}
             self._veh_version = wv
+        else:
+            # Moving vehicles leave many old destination fields behind. Keep
+            # routes in use, not every point visited since the terrain changed.
+            # An expired route is recomputed exactly if it is requested again.
+            used = self.__dict__.setdefault('veh_used', {})
+            self.veh_maps = {k:v for k,v in self.veh_maps.items()
+                             if k[0] == 'vc' or g.turn-used.get(k,-999) <= self.MAP_TTL}
+            self.veh_used = {k:t for k,t in used.items() if k in self.veh_maps}
         self.local_cache = {}
         if self.arty_cooldown > 0:
             self.arty_cooldown -= 4
@@ -368,7 +379,7 @@ class SideBrain:
         cost = self.exp_cost if covered else self.cost
         if covered and o.owner != self.side:
             cost = cost + self._open_ground(o)
-        mp = dijkstra(goals, cost)
+        mp = navigation_field(goals, cost)
         self.obj_maps[key] = (self.game.turn, mp)
         return mp
 
@@ -402,7 +413,7 @@ class SideBrain:
         goals &= self.cost > 0
         if not goals.any():
             goals[max(0, min(m.w - 1, x)), max(0, min(m.h - 1, y))] = True
-        mp = dijkstra(goals, self.exp_cost if covered else self.cost)
+        mp = navigation_field(goals, self.exp_cost if covered else self.cost)
         self.local_cache[key] = mp
         return mp
 
@@ -438,7 +449,7 @@ class SideBrain:
             goals &= self.exposure < 2.5
         if not goals.any():
             return None
-        mp = dijkstra(goals, self.exp_cost)
+        mp = navigation_field(goals, self.exp_cost)
         self.flank_cache[key] = (g.turn + 12, mp)
         return mp
 
@@ -487,6 +498,7 @@ class SideBrain:
               ("vm", tx // 3, ty // 3, crush, wheeled, wide, radius)
         mp = self.veh_maps.get(key)
         if mp is not None:
+            self.__dict__.setdefault('veh_used', {})[key] = self.game.turn
             return mp
         cost = self.vehicle_cost(crush, wheeled, wide)
         m = self.game.map
@@ -504,8 +516,9 @@ class SideBrain:
             goals |= (cost > 0) & (np.abs(np.arange(m.w)[:, None] - tx) + np.abs(np.arange(m.h)[None, :] - ty) < 12)
             if not goals.any():
                 return None
-        mp = dijkstra(goals, cost)
+        mp = navigation_field(goals, cost)
         self.veh_maps[key] = mp
+        self.__dict__.setdefault('veh_used', {})[key] = self.game.turn
         return mp
 
     # ------------------------------------------------------------ queries

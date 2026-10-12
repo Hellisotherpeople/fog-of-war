@@ -18,7 +18,7 @@ from fow.play import PlayState
 
 def scene():
     g = Game("bocage44", "usa", role="regiment_commander", seed=25,
-             setup={"battlefield": "standard"})
+             setup={"battlefield": "standard", "seamless": False})
     g.turn = 1000
     p = g.player
     p.x, p.y, p.rank = 10, 10, 13
@@ -126,24 +126,24 @@ def test_witness_must_get_report_out_and_dead_witness_loses_unsent_evidence():
     assert R.state(g)["credited"] == 1
 
 
-def test_promotion_requires_vacancy_service_review_and_delivery():
+def test_promotion_requires_reviewed_service_delivery_and_a_choice():
+    from fow import career
     g = scene()
     p = g.player
     p.rank = 2
     ledger = R.state(g)
-    ledger["credited"] = 100
-    radio(p)
-    assert not R.consider(g) and ledger["pending"] is None
-    g.turn = 86400
-    assert not R.consider(g) and ledger["pending"]
     unradio(p)
-    g.turn += 3600
-    assert not R.consider(g) and p.rank == 2
+    ledger['credited'] = 100
+    assert not R.consider(g) and ledger['pending']
+    assert not career.accept(g, 'line:3')
     radio(p)
-    assert R.consider(g) and p.rank == 3
-    ledger["credited"] += 1000
-    g.turn += 86400 * 30
-    assert not R.consider(g)  # no higher billet is vacant
+    assert R.consider(g) and p.rank == 2
+    assert ledger['pending']['via'] == 'radio'
+    assert career.accept(g, 'line:3', 'command')
+    assert p.rank == 3 and p.squad.leader is p and p.squad.player_led
+    before = ledger['spent'], len(g.command.promotions)
+    assert not career.accept(g, 'line:3')
+    assert (ledger['spent'], len(g.command.promotions)) == before
 
 
 def test_order_delivery_rechecks_rank_and_working_radio():
@@ -372,6 +372,8 @@ def test_radio_repairs_need_nearby_fitter_spares_and_work_hull_needs_workshop():
 def test_service_ticket_routes_and_conference_delivers_new_orders():
     g = scene()
     g.map.gen_positions = [dict(kind="hq", side=g.player.side, x=12, y=12)]
+    officer = soldier(g,11,10,role='adjutant',rank=15)
+    officer.name = 'General Test'
     g.player.ai["service_order"] = dict(kind="conference", issued=g.turn, authority=15,
                                        who="General Test", how="radio", text="Report to headquarters.")
     app = FakeApp()

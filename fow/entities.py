@@ -109,7 +109,9 @@ class Item:
 
     @property
     def functional(self) -> bool:
-        return self.condition > 0
+        # Clamping a positive value to 1 cannot change this predicate. Avoid
+        # repeated min/max/property calls in every radio and equipment check.
+        return (self.data or {}).get('condition', 1.) > 0
 
     @property
     def _base_name(self) -> str:
@@ -312,14 +314,24 @@ class Actor:
     def himself(self) -> str:
         return "herself" if self.female else "himself"
 
+    @property
+    def command_grade(self):
+        from .data.rank_profiles import current
+        r = current(self)
+        return r.command_grade if r else self.rank
+
     # ------------------------------------------------------------ naming
     @property
     def rank_short(self) -> str:
-        return rank_name(self.nation, self.rank, True, self.__dict__.get("service", "army"))
+        from .data.rank_profiles import current
+        r = current(self)
+        return r.short if r else rank_name(self.nation, self.rank, True, self.__dict__.get("service", "army"))
 
     @property
     def rank_full(self) -> str:
-        return rank_name(self.nation, self.rank, False, self.__dict__.get("service", "army"))
+        from .data.rank_profiles import current
+        r = current(self)
+        return r.title if r else rank_name(self.nation, self.rank, False, self.__dict__.get("service", "army"))
 
     @property
     def full_name(self) -> str:
@@ -347,7 +359,7 @@ class Actor:
     def active(self) -> bool:
         """Alive, conscious, not surrendered - can act."""
         b = self.body                                 # (body.alive and body.conscious, without the calls:
-        return not b.dead and b.unconscious <= 0 and self.state == "ok"    # this is asked millions of times)
+        return not self.__dict__.get("_stream_dormant", False) and not b.dead and b.unconscious <= 0 and self.state == "ok"    # this is asked millions of times)
 
     @property
     def downed(self) -> bool:
@@ -443,7 +455,7 @@ class Actor:
 
     def has_tool(self, tool: str) -> Item | None:
         for i in self.inv:
-            if i.functional and (i.t.tool == tool or (tool == "shovel" and i.tid == "shovel")):
+            if (i.t.tool == tool or (tool == "shovel" and i.tid == "shovel")) and i.functional:
                 return i
         return None
 
@@ -673,7 +685,7 @@ class Vehicle:
 
     @property
     def active(self) -> bool:
-        return not self.dead and not self.abandoned and self.crew > 0
+        return not self.__dict__.get("_stream_dormant", False) and not self.dead and not self.abandoned and self.crew > 0
 
     @property
     def static(self) -> bool:

@@ -151,43 +151,19 @@ def finish_review(game):
 
 
 def career_offer(game):
+    from .career import grades
     p, s = game.player, R.state(game)
-    if p.rank >= GR.MARSHAL:
+    choices = grades(game)
+    if not choices:
         return None, 'You hold the highest campaign rank.'
-    if s.get('pending') or s.get('appointment'):
-        return None, 'Your appointment is already under review.'
-    if 'last_debrief' not in s:
-        return None, 'Complete an HQ debrief first.'
     required = game.command.promotion_need(p.rank)
     if s['credited'] - s['spent'] < required:
-        return None, f'Next appointment needs {required:g} reviewed service; {s["credited"] - s["spent"]:.1f} banked.'
-    minimum = 86400 if p.rank < GR.LT2 else 7 * 86400
-    left = minimum - (game.turn - s['last_promotion'])
-    if left > 0:
-        return None, f'Continue serving: next appointment review in about {max(1, (left + 3599) // 3600)} hours.'
-    grade = GR.LT2 if GR.STAFF_SGT <= p.rank < GR.LT2 else p.rank + 1
-    from .skills import level
-    needed = min(6.5, 3 + grade * .2) if grade >= GR.LT2 else 0
-    if level(p, 'leadership') < needed:
-        return None, f'Leadership training needed for this appointment ({needed:.1f}); the HQ course remains available.'
-    title = ('junior NCO appointment' if grade <= GR.SERGEANT else 'senior NCO appointment' if grade < GR.LT2 else
-             'junior officer appointment' if grade <= GR.LT else 'unit command / staff appointment' if grade < GR.BRIGADIER else
-             'higher command / general staff appointment')
-    return dict(grade=grade, title=title, **{'from': p.rank}), ''
+        return None, f'Next advancement needs {required:g} reviewed service; {s["credited"] - s["spent"]:.1f} banked.'
+    return dict(grade=choices[0], title='field appointment', **{'from': p.rank}), ''
 
 
 def apply_career(game):
-    if not settled(game):
-        return False
-    offer, why = career_offer(game)
-    if offer is None:
-        game.msg(why, 'info')
-        return False
-    R.state(game)['appointment'] = offer
-    R.consider(game)
-    game.msg('HQ endorses your application for ' + offer['title'] + '. Personnel approval and delivery are still required. '
-             'Your remaining service record is retained for later advancement.', 'good')
-    return True
+    return R.consider(game)
 
 
 def support_units(game):
@@ -202,7 +178,7 @@ def support_units(game):
 
 
 def allocate(game, kind, squad=None):
-    if not settled(game) or not requests(game):
+    if not eligible(game) or not requests(game):
         return False
     s, p = R.state(game), game.player
     if kind == 'kit':
@@ -222,7 +198,7 @@ def allocate(game, kind, squad=None):
     elif kind == 'refit':
         v = p.vehicle
         if v is None or not v.active or v.ai.get('hq_refit'):
-            game.msg('Bring your vehicle to HQ; only one refit can be in progress.', 'info')
+            game.msg('Only one refit can be reserved for an active vehicle.', 'info')
             return False
         from .maintenance import shells_short, mg_short
         from .sustain import stores, take
@@ -241,7 +217,7 @@ def allocate(game, kind, squad=None):
         v.ai['hq_refit'] = dict(shells=shells, belts=belts, fuel=fuel, parts=parts, work=0, duration=duration,
                                 sector=(game.sector.x, game.sector.y))
         text = f'Stores reserved: {shells} shells, {belts} MG rounds, fuel {fuel:.0f}, spares {parts:g}. '
-        text += f'Remain at HQ for {duration // 60:g} minutes to load. Components still need repair work; hull damage needs a workshop.'
+        text += f'Load at a friendly HQ: {duration // 60:g} minutes. Components still need repair work; hull damage needs a workshop.'
     else:
         return False
     s['support_used'] = s.get('support_used', 0) + 1
@@ -288,71 +264,20 @@ def tick(game):
         deliver(game.sector, v.side, 'fuel', (job['fuel'] - fuel) / 5)
         v.ai.pop('hq_refit')
         game.msg(f'The {v.vt.name} has taken aboard its authorized ammunition, fuel and field spares.', 'good')
+    R.consider(game)
     maybe_report(game)
 
 
 def maybe_report(game):
     # The player's notebook can remember to report an action without magically telling HQ.
     s = R.state(game)
-    changed = (sum(c['weight'] for c in s['claims']) + s['credited'] - s.get('last_debrief_credit', 0) >= 3
-               or len(game.command.medals) > s.get('last_debrief_awards', 0)
-               or len(game.command.promotions) > s.get('last_debrief_promotions', 0)
-               or any(a['due'] <= game.turn for a in s['awards']))
+    # A desk visit is useful for evidence that has no reporting channel. Radio
+    # recognition and field promotion never generate a mandatory trip back.
+    changed = sum(c['weight'] for c in s['claims'] if c.get('reported') is None) >= 3 and not R.channel(game)
     if changed and s.get('debrief_started') is None and game.turn - s.get('last_debrief', -3600) >= 600:
         request_report(game, automatic=True)
 
 
 def menu(ps):
-    from .command_work_ui import _menu
-    from .constants import UI_DIM, UI_TEXT
-    g, p = ps.game, ps.game.player
-    if not settled(g):
-        request_report(g)
-        g.msg('The HQ report route is in T. Your present operational orders still govern until you can be released.', 'info')
-        return ps.cmd_orders_book()
-    s = R.state(g)
-    offer, why = career_offer(g)
-    from .data.ranks import rank_title
-    title = 'Apply for ' + rank_title(p.nation, offer['grade'], False) if offer else 'Career appointment: not yet eligible'
-    lines = [(f'Reviewed service: {s["credited"]:.1f}; banked toward advancement: {s["credited"] - s["spent"]:.1f}. '
-              f'Authorized support requests: {requests(g)}.', UI_TEXT),
-             ('You can keep your crew position. Decorations, unit support and career advancement are separate decisions.', UI_DIM)]
-    if not offer:
-        lines.append((why, UI_DIM))
-    if s.get('pending'):
-        lines.append((f'Personnel decision pending: about {max(0, (s["pending"]["due"] - g.turn + 59) // 60)} minutes.', UI_DIM))
-    if s.get('awards'):
-        lines.append((f'{len(s["awards"])} decoration recommendation(s) awaiting approval.', UI_DIM))
-    if s.get('debrief_started') is not None:
-        lines.append((f'Debrief: {s.get("debrief_work", 0):.0f}/300 seconds at HQ.', UI_TEXT))
-    if s.get('training'):
-        lines.append((f'Leadership course: {s["training"]["work"]:.0f}/3600 seconds at HQ.', UI_TEXT))
-    opts = [('Submit / review my after-action report', 'review', None, s.get('debrief_started') is None),
-            (title, 'career', None, offer is not None),
-            ('Leadership course: one hour at HQ (+0.5; up to staff competence)', 'train', None,
-             not s.get('training') and p.skills.get('leadership', 0) < 6.7),
-            ('Wait at HQ for ten minutes (interruptible)', 'wait', None, True),
-            ('Equipment requisition authority — 1 support request', 'kit', None, requests(g) > 0),
-            ('Vehicle ammunition, fuel and field spares — 1 request', 'refit', None,
-             requests(g) > 0 and p.vehicle is not None and not p.vehicle.ai.get('hq_refit')),
-            ('Attach an available local support unit — 1 request', 'support', None, requests(g) > 0),
-            ('Keep my present job / return to duty', 'done', None, True)]
-    def pick(kind):
-        if kind == 'review':
-            review(g)
-        elif kind == 'career':
-            apply_career(g)
-        elif kind == 'train':
-            if settled(g) and not s.get('training') and p.skills.get('leadership', 0) < 6.7:
-                s['training'] = dict(work=0)
-                g.msg('The staff course begins. Remain at HQ for an hour; leaving or fighting pauses instruction.', 'info')
-        elif kind == 'wait':
-            return ps.begin_wait('time', 600)
-        elif kind == 'support':
-            units = support_units(g)
-            return _menu(ps, 'Available units — retain their leaders',
-                         [(sq.name, sq, None, True) for sq in units] or [('None available; retain your allocation', None, UI_DIM, False)],
-                         lambda sq: allocate(g, 'support', sq) if sq else None)
-        elif kind != 'done':
-            allocate(g, kind)
-    _menu(ps, 'HQ — service review and support', opts, pick, lines)
+    from .career import menu as field_menu
+    return field_menu(ps)

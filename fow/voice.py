@@ -27,7 +27,7 @@ import wave
 import numpy as np
 
 SR = 44100
-CACHE_DIR = os.path.join(os.path.expanduser("~"), ".fogofwar", "voices")
+CACHE_DIR = os.path.join(os.environ.get("FOW_HOME", os.path.join(os.path.expanduser("~"), ".fogofwar")), "voices")
 
 LOCALE = {"usa": "en_US", "uk": "en_GB", "canada": "en_US", "australia": "en_AU", "newzealand": "en_GB",
           "india": "en_IN", "ussr": "ru_RU", "france": "fr_FR", "poland": "pl_PL", "china": "zh_CN",
@@ -486,22 +486,25 @@ class VoiceBank:
         eng = "piper" if (spk.voice or "").startswith("piper:") else self.synth.name
         return hashlib.sha1(f"{eng}|{spk.voice}|{spk.pbas}|{rate}|{text}".encode()).hexdigest()[:20]
 
-    def request(self, spk, line, style="shout", warm=False):
+    def request(self, spk, line, style="shout", warm=False, emotion=None):
         """Ask for a line.  Returns a processed clip if it's ready, else queues it and returns None."""
+        from .prosody import STYLES, shape
+        delivery = emotion or style
+        acoustic = "radio" if style == "radio" else "scream" if delivery in ("scream", "pain") else "shout" if delivery in ("shout", "panic", "urgent") else "talk"
         if spk.voice is None:
-            key = ("babble", line, round(spk.pitch, 2), spk.female)
+            key = ("babble", line, round(spk.pitch, 2), spk.female, style, delivery)
             clip = self.clips.get(key)
             if clip is None:
                 rng = np.random.default_rng(abs(hash(key)) % (2 ** 32))
-                clip = process(babble(line, rng, spk.pitch, spk.female), style, rng)
+                clip = shape(process(babble(line, rng, spk.pitch, spk.female), acoustic, rng), delivery, SR)
                 self._store(key, clip)
             return clip
         text = native(line, spk.locale)
         if not text:
             return None
-        rate = {"shout": 225, "scream": 240, "radio": 205, "talk": 185}.get(style, 210)
+        rate = STYLES.get(delivery, STYLES["talk"]).rate
         rk = self._key(spk, text, rate)
-        ck = (rk, round(spk.pitch, 2), style)
+        ck = ("expressive-v1", rk, round(spk.pitch, 2), style, delivery)
         clip = self.clips.get(ck)
         if clip is not None:
             return clip
@@ -514,7 +517,9 @@ class VoiceBank:
                     self.jobs.put((1 if warm else 0, self._seq, (rk, spk.voice, text, rate, spk.pbas)))
                 return None
         x, sr = raw
-        clip = process(_resample(x, sr, SR, spk.pitch), style, self.rng)
+        seed = int(hashlib.sha1(str(ck).encode()).hexdigest()[:8], 16)
+        clean = _resample(x, sr, SR, spk.pitch)
+        clip = shape(process(clean, acoustic, np.random.default_rng(seed)), delivery, SR, seed)
         self._store(ck, clip)
         return clip
 

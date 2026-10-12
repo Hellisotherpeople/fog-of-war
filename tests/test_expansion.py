@@ -231,6 +231,7 @@ def test_civilians_do_not_block_capture_and_can_cross_sectors_with_you():
     from fow.gamemap import Objective
     from fow.spawn import place
     g = game()
+    g.setup["seamless"] = False  # this fixture explicitly exercises the legacy transfer API
     to_land(g, rear(g, g.player.side))
     p = g.player
     civilian = next(a for a in g.actors if a.ai.get("civilian"))

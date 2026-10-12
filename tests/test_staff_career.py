@@ -33,13 +33,14 @@ def test_debrief_routes_to_staff_checks_witnesses_and_pauses_away():
     adj = hq(g)
     witness = soldier(g, 14, 10, role='rifleman')
     assert R.claim(g, 'kills', 12, 'a witnessed action', (14, 10))
+    assert D.request_report(g)
     report = next(o for o in orders.book(g) if o['key'] == 'personnel')
     assert report['point'] == (*adj.pos, adj.full_name)
     assert report['due'] is None and not report['deferred']
     assert D.review(g)
     D.tick(g)
     desk_time(g, 150)
-    assert not D.requests(g)
+    assert D.requests(g) == 1  # evidence unlocks field support before the optional interview
     move(g, g.player, (30, 30))
     desk_time(g, 300)
     assert R.state(g)['debrief_work'] == 150
@@ -67,57 +68,54 @@ def test_broken_vehicle_radio_crew_can_report_in_person():
     ledger['claims'] = [dict(kind='kills', weight=5, why='crew evidence', witnesses=[('crew', v.id)],
                              turn=g.turn, reported=None, sector=(g.sector.x, g.sector.y))]
     R.process(g)
-    assert ledger['claims'][0]['due'] == g.turn + 300
-    g.turn += 300
-    R.process(g)
+    assert not ledger['claims']  # the crew can report to the adjacent staff now
     assert ledger['credited'] == 5
 
 
-def test_full_private_to_five_star_career_banks_service_and_requires_time():
+def test_full_private_to_five_star_banks_service_and_never_forces_a_commission():
+    from fow import career
+    from fow.data.rank_profiles import current
     g = scene()
-    hq(g)
+    radio(g.player)
     p, ledger = g.player, R.state(g)
     p.rank = 0
-    p.skills['leadership'] = 7
-    ledger.update(credited=1000, last_debrief=g.turn, last_promotion=g.turn)
-    assert not D.apply_career(g)
-    ranks = [p.rank]
-    spent = 0
-    while p.rank < 18:
-        old = p.rank
-        g.turn += 86400 if old < 8 else 7 * 86400
-        assert D.apply_career(g)
-        assert p.rank == old and ledger['pending']
-        spent += g.command.promotion_need(old)
-        g.turn = ledger['pending']['due']
+    ledger.update(credited=10000, last_promotion=g.turn)
+    start = g.turn
+    names = []
+    for _ in range(30):
         assert R.consider(g)
-        assert p.rank == (8 if old == 4 else old + 1)
-        assert ledger['spent'] == spent and ledger['credited'] == 1000
-        ranks.append(p.rank)
-    assert ranks == [0, 1, 2, 3, 4, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18]
+        choices = career.options(g)
+        if p.rank == 7:
+            assert current(p).title in ('Master Sergeant', 'First Sergeant')
+            assert all(r.grade >= 8 or r.branch.startswith('warrant') for r in choices)
+            assert p.rank == 7  # can leave these orders pending indefinitely
+        chosen = next((r for r in choices if r.branch == 'line' and r.grade < 8), None) or next(r for r in choices if r.branch == 'line')
+        assert career.accept(g, chosen.key, 'keep')
+        names.append(p.rank_full)
+        if p.rank == 18:
+            break
+    assert p.rank == 18 and 'Technical Sergeant' in names
+    assert 'Master Sergeant' in names or 'First Sergeant' in names
+    assert g.turn == start and ledger['credited'] == 10000
     assert D.career_offer(g)[0] is None
-    assert len(g.command.promotions) == len(ranks) - 1
+    assert len(g.command.promotions) == len(names)
 
 
-def test_approved_awards_wait_for_staff_and_create_an_order():
+def test_approved_awards_are_delivered_over_radio_without_a_staff_visit():
     g = scene()
     unradio(g.player)
     R.recommend_award(g, 4, 'for gallantry')
-    g.turn += 86400
+    g.turn += 60
+    R.process(g)
+    assert not g.command.medals
     radio(g.player)
     R.process(g)
-    assert not g.command.medals
-    assert D.entry(g)['key'] == 'personnel'
-    adj = hq(g)
-    adj.body.dead = True
-    R.process(g)
-    assert not g.command.medals
-    adj.body.dead = False
-    R.process(g)
     assert len(g.command.medals) == 1 and not R.state(g)['awards']
-    D.finish_review(g)
+    from fow.career import sync_support
+    sync_support(g)
     assert D.requests(g) == 4
-    D.finish_review(g)
+    R.process(g)
+    sync_support(g)
     assert D.requests(g) == 4
 
 
@@ -176,7 +174,7 @@ def papers(g, side='axis'):
     return it
 
 
-def test_captured_intelligence_gets_order_retargets_and_requires_physical_handover():
+def test_captured_intelligence_keeps_assignment_and_requires_physical_handover():
     g = scene()
     g.sector.control = g.player.side
     first = soldier(g, 13, 10, role='intel', rank=9)
@@ -188,6 +186,9 @@ def test_captured_intelligence_gets_order_retargets_and_requires_physical_handov
         entry = next(o for o in orders.book(g) if o['key'] == 'intelligence')
         assert entry['point'][:2] == first.pos
         first.body.dead = True
+        assert C.entry(g)['point'] is None
+        assert g.player.ai['intelligence_order']['destination_lost']
+        C.request(g, 'intel')  # explicit replacement, never silently reroute
         assert C.entry(g)['point'][:2] == second.pos
     from fow.qmui import hand_over_papers, credit
     before = credit(g)
@@ -212,6 +213,7 @@ def test_report_does_not_release_active_operational_orders():
     g = scene()
     hq(g)
     R.state(g)['credited'] = 12
+    D.request_report(g)
     g.field_order = dict(text='Defend the bridge', point=(40, 40), issued=g.turn, authority=17,
                          sector=(g.sector.x, g.sector.y), who='General', reason='Hold', edge=None)
     entries = orders.book(g)
@@ -351,7 +353,7 @@ def test_hq_shortcut_and_command_search_reach_menu_without_stealing_run_left():
     hq(g)
     ps = PlayState(FakeApp(), g)
     ps.on_key(Key(char='Q'))
-    assert ps.popups and ps.popups[-1].title == 'HQ — service review and support'
+    assert ps.popups and ps.popups[-1].title == 'Field service — support choices'
     ps.popups.clear()
     ps.on_key(Key(char='H'))
     assert ps.running == (-1, 0) and not ps.popups

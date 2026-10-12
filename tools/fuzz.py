@@ -32,6 +32,7 @@ from fow.constants import ALLIES, AXIS  # noqa: E402
 import tcod.event as E  # noqa: E402
 
 ROLE_POOL = None
+TURN_LIMIT = int(os.environ.get('FOW_FUZZ_TURN_LIMIT', '2000'))
 
 def draw(app, ps):
     """Render a frame the way the real window does (sprite layers or ASCII, then the compositor)."""
@@ -54,12 +55,14 @@ def run(th, nat, seed, steps, app, verbose=False):
     app.states = [ps]
     rng = random.Random(seed)
     t0 = time.perf_counter()
+    start_turn = g.turn
     for step in range(steps):
-        if g.game_over or app.states[-1] is not ps:
+        if g.game_over or app.states[-1] is not ps or g.turn-start_turn >= TURN_LIMIT:
             break
         ps.anim = 0
         n = 0
-        while ps.wants_tick() and n < 80 and not g.game_over:
+        input_turn = g.turn
+        while ps.wants_tick() and n < 80 and not g.game_over and g.turn-input_turn < 60 and g.turn-start_turn < TURN_LIMIT:
             ps.anim_next = 0
             ps.tick(); n += 1
         if g.game_over: break
@@ -184,8 +187,10 @@ def run(th, nat, seed, steps, app, verbose=False):
                 book.on_key(Key(sym=rng.choice((E.KeySym.RETURN, E.KeySym.ESCAPE))))
                 if app.states[-1] is book:
                     app.pop()
-        elif r < 0.993:
+        elif r < 0.99:
             key(c='A')                                 # autopilot on / off
+        elif r < 0.993:
+            key(sym=E.KeySym.F7)                       # real-action objective travel
         elif r < 0.996:
             key(c='E')                                 # talk to whoever's beside you (the menus: popups above)
         elif r < 0.998:
@@ -196,7 +201,10 @@ def run(th, nat, seed, steps, app, verbose=False):
             draw(app, ps)
     dt = time.perf_counter() - t0
     p = g.player
-    return dict(th=th, nat=nat, seed=seed, rank=p.rank_short, orders=g.command.battle.get('orders'), turns=g.turn, over=g.game_over, death=(g.death_text or '')[:110], secs=round(dt,1), role=p.role, kills=g.stats['kills'], sectors=len(g.sector_log))
+    return dict(th=th, nat=nat, seed=seed, rank=p.rank_short, orders=g.command.battle.get('orders'), turns=g.turn,
+                inputs=step+1, turn_limit=g.turn-start_turn >= TURN_LIMIT, over=g.game_over,
+                death=(g.death_text or '')[:110], secs=round(dt,1), role=p.role,
+                kills=g.stats['kills'], sectors=len(g.sector_log))
 
 if len(sys.argv) > 5 and sys.argv[5] == 'cmd':
     ROLE_POOL = ['officer', 'squad_leader', 'company_commander', 'battalion_commander', 'regiment_commander',
@@ -214,6 +222,7 @@ except Exception as ex:
 ths = sys.argv[1].split(',') if len(sys.argv) > 1 and sys.argv[1] != 'all' else list(THEATRES)
 seeds = int(sys.argv[2]) if len(sys.argv) > 2 else 1
 steps = int(sys.argv[3]) if len(sys.argv) > 3 else 300
+failures = 0
 for th in ths:
     for s in range(seeds):
         side = random.Random(s).choice((ALLIES, AXIS)) if len(sys.argv) < 5 else sys.argv[4]
@@ -223,6 +232,8 @@ for th in ths:
             res = run(th, nat, 1000 + s, steps, app)
             print(res, flush=True)
         except Exception:
+            failures += 1
             print("CRASH", th, nat, s)
             traceback.print_exc()
             break
+raise SystemExit(bool(failures))

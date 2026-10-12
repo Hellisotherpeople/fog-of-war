@@ -196,7 +196,7 @@ def act(game, a):
 
 
 def casualty(game, a, killer):
-    hf = game.sector.__dict__.get("homefront")
+    hf = game.sector_for(a).__dict__.get("homefront")
     if hf is not None:
         hf["casualties"] += 1
         hf["goodwill"] = max(-100, hf["goodwill"] - 8)
@@ -213,17 +213,21 @@ def tick(game):
         if rec.get("kind") not in FACILITIES or rec.get("destroyed"):
             continue
         targets = rec.get("targets", [])
+        if any(not game.map.in_bounds(x,y) for x,y in targets):
+            continue
         if targets and sum(game.map.t[x, y] == rec["target_tile"] for x, y in targets) <= len(targets) * .35:
             rec["destroyed"] = True
-            for inst in game.sector.installations:
+            key = rec.get('_world_sector', (game.sector.x,game.sector.y))
+            sector = game.strategic.at(*key, create=True)
+            for inst in sector.installations:
                 if inst[:2] == [rec["kind"], rec["side"]]:
                     inst[2] = False
             resource = FACILITIES[rec["kind"]][2]
-            stores = sustain.stores(game.sector, rec["side"])
+            stores = sustain.stores(sector, rec["side"])
             if resource in stores:
                 stores[resource] *= .15
-            game.strategic.interdict(rec["side"], game.sector, .45,
-                                     f"{rec['name'].capitalize()} at {game.sector.name} is out of action.")
+            game.strategic.interdict(rec["side"], sector, .45,
+                                     f"{rec['name'].capitalize()} at {sector.name} is out of action.")
             if game.can_see(rec["x"], rec["y"]):
                 game.msg(f"{rec['name'].capitalize()} is out of action. The district loses its supplies.", "warn")
     from .medical import at_aid_post
@@ -233,8 +237,8 @@ def tick(game):
             a.ai["home"] = a.pos
             if not a.ai.get("rescued"):
                 a.ai["rescued"] = True
-                game.sector.homefront["evacuated"] += 1
-                game.sector.homefront["goodwill"] += 5
+                game.sector_for(a).homefront["evacuated"] += 1
+                game.sector_for(a).homefront["goodwill"] += 5
                 game.command.merit += .5
                 game.msg(f"{a.name} reaches the hospital. The orderlies take over.", "good")
 
