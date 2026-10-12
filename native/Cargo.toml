@@ -1,0 +1,28 @@
+[package]
+name = "fow-native"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+
+[lib]
+name = "_fow_native"
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = ["gpu"]
+gpu = ["dep:wgpu", "dep:pollster", "dep:bytemuck"]
+
+[dependencies]
+pyo3 = { version = "0.28", features = ["extension-module"] }
+numpy = "0.28"
+rayon = "1.12"
+wgpu = { version = "30", optional = true, default-features = false, features = ["std", "wgsl", "metal", "vulkan", "dx12"] }
+pollster = { version = "0.4", optional = true }
+bytemuck = { version = "1.25", optional = true }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+
+[lints.rust]
+unsafe_code = "forbid"

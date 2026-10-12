@@ -1,0 +1,240 @@
+{
+  "date": "2026-10-12",
+  "hardware": {
+    "cpu": "Apple M4 Pro",
+    "performance_cores": 10,
+    "efficiency_cores": 4,
+    "gpu_cores": 20,
+    "ram_gib": 48
+  },
+  "methodology": "Sequential fresh processes; release Rust build; Numba installed; 5 warm-up plus 180 timed real world turns; no concurrent tests or builds. GPU microbenchmarks include transfers, readback and any CPU completion, median of 5 warmed calls. Stationary player, seed 42; rendering and speech excluded.",
+  "world_runs": [
+    {
+      "acceleration": {
+        "adapter": null,
+        "backend": null,
+        "calibration": {},
+        "cpu_routes": 0,
+        "fallback_reason": null,
+        "gpu_completed": 0,
+        "gpu_mode": "auto",
+        "gpu_routes": 0,
+        "native": null
+      },
+      "battlefield": "large",
+      "final_actors": 496,
+      "initial_actors": 539,
+      "initialization_s": 1.43,
+      "machine": "arm64",
+      "max_ms": 134.52,
+      "mean_ms": 47.236,
+      "p95_ms": 107.377,
+      "peak_rss_mb": 440.5,
+      "profiled": false,
+      "python": "3.12.11",
+      "radius": 240,
+      "requested_native": "off",
+      "seed": 42,
+      "state_digest": "579df6ca19622c4b166c7b6b6b46aa8e92b08d7ef879fbc29426b8710942fecd",
+      "terrain_tiles": 370881,
+      "theatre": "bocage44",
+      "turns": 180,
+      "vehicles": 21
+    },
+    {
+      "acceleration": {
+        "adapter": null,
+        "backend": null,
+        "calibration": {
+          "(19, True, False, 2, 3)": {
+            "reason": "long or varying wavefront",
+            "selected": "cpu"
+          },
+          "(19, True, True, 2, 3)": {
+            "reason": "long or varying wavefront",
+            "selected": "cpu"
+          }
+        },
+        "cpu_routes": 88,
+        "fallback_reason": null,
+        "gpu_completed": 0,
+        "gpu_mode": "auto",
+        "gpu_routes": 0,
+        "native": "0.1.0"
+      },
+      "battlefield": "large",
+      "final_actors": 496,
+      "initial_actors": 539,
+      "initialization_s": 1.447,
+      "machine": "arm64",
+      "max_ms": 93.639,
+      "mean_ms": 41.735,
+      "p95_ms": 77.481,
+      "peak_rss_mb": 448.2,
+      "profiled": false,
+      "python": "3.12.11",
+      "radius": 240,
+      "requested_native": "auto",
+      "seed": 42,
+      "state_digest": "579df6ca19622c4b166c7b6b6b46aa8e92b08d7ef879fbc29426b8710942fecd",
+      "terrain_tiles": 370881,
+      "theatre": "bocage44",
+      "turns": 180,
+      "vehicles": 21
+    },
+    {
+      "acceleration": {
+        "adapter": null,
+        "backend": null,
+        "calibration": {},
+        "cpu_routes": 0,
+        "fallback_reason": null,
+        "gpu_completed": 0,
+        "gpu_mode": "auto",
+        "gpu_routes": 0,
+        "native": null
+      },
+      "battlefield": "large",
+      "final_actors": 2875,
+      "initial_actors": 2965,
+      "initialization_s": 4.726,
+      "machine": "arm64",
+      "max_ms": 1710.834,
+      "mean_ms": 323.881,
+      "p95_ms": 885.027,
+      "peak_rss_mb": 2364.3,
+      "profiled": false,
+      "python": "3.12.11",
+      "radius": 640,
+      "requested_native": "off",
+      "seed": 42,
+      "state_digest": "a4638a111e4118b733f92bba0d6eca4fb4589bbfacbfe06828380c67461697cc",
+      "terrain_tiles": 1985281,
+      "theatre": "bocage44",
+      "turns": 180,
+      "vehicles": 130
+    },
+    {
+      "acceleration": {
+        "adapter": null,
+        "backend": null,
+        "calibration": {
+          "(21, True, False, 2, 3)": {
+            "reason": "long or varying wavefront",
+            "selected": "cpu"
+          },
+          "(21, True, True, 2, 3)": {
+            "reason": "long or varying wavefront",
+            "selected": "cpu"
+          }
+        },
+        "cpu_routes": 95,
+        "fallback_reason": null,
+        "gpu_completed": 0,
+        "gpu_mode": "auto",
+        "gpu_routes": 0,
+        "native": "0.1.0"
+      },
+      "battlefield": "large",
+      "final_actors": 2875,
+      "initial_actors": 2965,
+      "initialization_s": 4.847,
+      "machine": "arm64",
+      "max_ms": 1053.876,
+      "mean_ms": 276.983,
+      "p95_ms": 740.039,
+      "peak_rss_mb": 2479.0,
+      "profiled": false,
+      "python": "3.12.11",
+      "radius": 640,
+      "requested_native": "auto",
+      "seed": 42,
+      "state_digest": "a4638a111e4118b733f92bba0d6eca4fb4589bbfacbfe06828380c67461697cc",
+      "terrain_tiles": 1985281,
+      "theatre": "bocage44",
+      "turns": 180,
+      "vehicles": 130
+    },
+    {
+      "acceleration": {
+        "adapter": "Apple M4 Pro",
+        "backend": "Metal",
+        "calibration": {},
+        "cpu_routes": 0,
+        "fallback_reason": null,
+        "gpu_completed": 2,
+        "gpu_mode": "on",
+        "gpu_routes": 88,
+        "native": "0.1.0"
+      },
+      "battlefield": "large",
+      "final_actors": 496,
+      "initial_actors": 539,
+      "initialization_s": 1.499,
+      "machine": "arm64",
+      "max_ms": 107.972,
+      "mean_ms": 44.916,
+      "p95_ms": 86.082,
+      "peak_rss_mb": 461.8,
+      "profiled": false,
+      "python": "3.12.11",
+      "radius": 240,
+      "requested_native": "auto",
+      "seed": 42,
+      "state_digest": "579df6ca19622c4b166c7b6b6b46aa8e92b08d7ef879fbc29426b8710942fecd",
+      "terrain_tiles": 370881,
+      "theatre": "bocage44",
+      "turns": 180,
+      "vehicles": 21
+    }
+  ],
+  "kernel_benchmark": {
+    "adapter": "Apple M4 Pro",
+    "backend": "Metal",
+    "repeats": 5,
+    "results": [
+      {
+        "gpu_converged": false,
+        "gpu_ms": 57.678,
+        "kernel": "routes",
+        "numba_ms": 65.133,
+        "rust_cpu_ms": 48.474,
+        "seed_fraction": 5.037070319012775e-07,
+        "tiles": 1985281
+      },
+      {
+        "gpu_converged": false,
+        "gpu_ms": 52.656,
+        "kernel": "routes",
+        "numba_ms": 61.587,
+        "rust_cpu_ms": 44.218,
+        "seed_fraction": 0.1,
+        "tiles": 1985281
+      },
+      {
+        "gpu_converged": true,
+        "gpu_ms": 6.038,
+        "kernel": "routes",
+        "numba_ms": 60.16,
+        "rust_cpu_ms": 29.348,
+        "seed_fraction": 0.9,
+        "tiles": 1985281
+      },
+      {
+        "kernel": "smoke",
+        "numpy_ms": 3.125,
+        "rust_ms": 1.647,
+        "tiles": 1985281
+      }
+    ],
+    "size": 1409
+  },
+  "validation": {
+    "apple_metal": "Physical Apple M4 Pro GPU, exact routes and battle replay",
+    "nvidia": "Portable Vulkan/DX12 backend implemented; no physical Nvidia device available locally",
+    "full_suite": "330 passed, 3 existing tcod UI deprecation warnings; installed release wheel; FOW_REQUIRE_GPU=1",
+    "native_tests": 42,
+    "python_only_fallback": "19 passed, 2 optional-Numba tests skipped with FOW_NATIVE=off FOW_NO_NUMBA=1",
+    "rust_checks": "cargo fmt --check; cargo clippy --all-targets -- -D warnings; cargo check --no-default-features"
+  }
+}

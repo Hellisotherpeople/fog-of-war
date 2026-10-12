@@ -57,7 +57,11 @@ for _ in range(a.turns):
 if a.profile:
     profiler.disable()
     profiler.dump_stats(a.profile)
-result = dict(python=platform.python_version(),machine=platform.machine(),theatre=a.theatre,
+try:
+    from fow.native import status as native_status
+except ImportError:  # Archived game revisions predate the optional native module.
+    native_status = lambda: {'native': None}
+result = dict(acceleration=native_status(),python=platform.python_version(),machine=platform.machine(),theatre=a.theatre,
     seed=a.seed,battlefield=a.battlefield,radius=a.radius,turns=a.turns,initial_actors=initial,profiled=bool(a.profile),
     final_actors=len(g.actors),vehicles=len(g.vehicles),terrain_tiles=g.map.w*g.map.h,
     initialization_s=round(init,3),mean_ms=round(float(np.mean(samples)),3),

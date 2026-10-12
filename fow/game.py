@@ -2721,18 +2721,23 @@ class Game:
         # smoke diffusion and decay
         sm = m.smoke
         if sm.max() > 0.01:
-            nb = np.zeros_like(sm)
-            nb[1:, :] += sm[:-1, :]
-            nb[:-1, :] += sm[1:, :]
-            nb[:, 1:] += sm[:, :-1]
-            nb[:, :-1] += sm[:, 1:]
-            sm = sm * 0.55 + nb * 0.1
             wx, wy = self.wind
-            if self.turn % 3 == 0 and (wx or wy):
-                sm = np.roll(np.roll(sm, wx, axis=0), wy, axis=1) * 0.97
-            sm *= 0.96 if not rain else 0.9
-            sm[sm < 0.02] = 0
-            m.smoke = sm.astype(np.float32)
+            drift = self.turn % 3 == 0 and bool(wx or wy)
+            from . import native
+            if native.core is not None:
+                m.smoke = native.core.diffuse(sm, wx, wy, drift, rain)
+            else:
+                nb = np.zeros_like(sm)
+                nb[1:, :] += sm[:-1, :]
+                nb[:-1, :] += sm[1:, :]
+                nb[:, 1:] += sm[:, :-1]
+                nb[:, :-1] += sm[:, 1:]
+                sm = sm * 0.55 + nb * 0.1
+                if drift:
+                    sm = np.roll(np.roll(sm, wx, axis=0), wy, axis=1) * 0.97
+                sm *= 0.96 if not rain else 0.9
+                sm[sm < 0.02] = 0
+                m.smoke = sm.astype(np.float32)
         m.update_see()
 
     def _weather_tick(self):
