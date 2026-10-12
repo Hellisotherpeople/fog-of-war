@@ -881,12 +881,19 @@ def _hunt_tick(game):
     if h is None:
         return
     sq = next((q for q in game.squads if q.id == h["squad"]), None)
-    if sq is None or not any(a.active for a in sq.members) or game.turn - h["turn"] > 3600:
+    landscape = game.__dict__.get('landscape')
+    if sq is None and landscape is not None:
+        sq = landscape.squads.get(h['squad'])
+    # Leaving the detailed circle makes an actor inactive, not dead or captured.
+    # Keep tracking the same physical detachment in the persistent world.
+    capable = sq is not None and any(not a.body.dead and a.body.unconscious <= 0 and a.state == 'ok'
+                                     for a in sq.members)
+    if not capable or game.turn - h["turn"] > 3600:
         st["hunt"] = None
         st["df"] = 0.0
         return
     for v in sq.vehicles:
-        if not v.dead and game.can_see(v.x, v.y) and not h.get("seen"):
+        if not v.__dict__.get('_stream_dormant') and not v.dead and game.can_see(v.x, v.y) and not h.get("seen"):
             h["seen"] = True
             game.msg("A black car crawls along the road with a loop aerial turning on its roof. The detector car.",
                      "warn")
