@@ -5,7 +5,7 @@ line-of-sight batches, smoke, movement scoring, spatial queries and lighting. Po
 route and light-mask computation uses wgpu/Metal/Vulkan/DX12.
 [Installation and backend controls](NATIVE.md). A complete Rust rewrite has **not** been performed;
 most actor decisions still execute in Python. The older full-port estimates below remain estimates,
-not measured gains from this first stage.
+not measured gains from the implemented stages.
 
 ## Second native stage: all six implementation areas
 
@@ -26,7 +26,72 @@ simulation state. Reloads, medicine, action frequency, strategic abstraction and
 boundaries keep their existing rules. Scheduling fewer soldier turns is not part of the change.
 Regional invalidation and reusable terrain also work without the optional extension.
 
-## Hybrid build measured on 12 October 2026
+### Measured second-stage results, 12 October 2026
+
+Apple M4 Pro (10 performance + 4 efficiency cores, 20 GPU cores, 48 GiB), CPython 3.12.11,
+release extension, Numba installed. These comparisons are against the **preceding hybrid game**,
+not the original Python build. Sequential fresh processes used seed 42, large forces and five
+warm-up turns, with no concurrent local tests or builds. Rendering and speech are excluded.
+
+| Scenario | Initial people | Previous mean | New mean | Mean cost reduction | Previous → new peak RSS |
+|---|---:|---:|---:|---:|---:|
+| Bocage, radius 240, 180 turns | 539 | 42.64 ms | **39.48 ms** | 7.4% | 477.8 → 447.4 MiB |
+| Bocage, radius 640, 180 turns | 2,965 | 280.74 ms | **247.36 ms** | 11.9% | 2,417.7 → 2,607.9 MiB |
+| Real travel, radius 240, 180 actions | 539 | 50.33 ms/action | **46.65 ms/action** | 7.3% | 482.9 → 481.5 MiB |
+| Normandy night, radius 240, 180 turns | 552 | 36.45 ms | **32.78 ms** | 10.1% | 475.5 → 436.2 MiB |
+| Bocage, radius 240, 1,200 turns | 539 | 32.61 ms | **30.89 ms** | 5.3% | 516.5 → 501.3 MiB |
+
+The maximum battle's p95 fell from **733.63 to 529.82 ms** (27.8%); its slowest turn was
+976.69 ms. Mean throughput increased 13.5%. That case consumed **190.2 MiB more peak RAM**
+(7.9%); faster execution does not mean lower memory use at every radius. Earlier development
+samples of the same maximum battle measured 253–255 ms and 2,504–2,556 MiB. These are individual
+measurements, not confidence intervals or guarantees. The maximum still takes about 6.3 times
+the new default's average turn time; this work does not establish default-like latency for
+3,000 fully detailed people or justify automatically increasing everyone's radius.
+
+All five pairs produced matching recorded core-state digests. Real travel used normal path
+steps and action costs: 180 actions advanced **183 world turns** and moved **120 world tiles**.
+The streamed terrain window reused 1,066,046 overlapping cells during that run. The 1,200-turn
+comparison also matched after combat, casualties and repeated terrain refreshes. The digest
+covers selected actor, wound, ammunition, vehicle, squad/order, objective, terrain and Python RNG
+state; it is replay evidence alongside the regression tests, not an exhaustive proof of every
+subsystem. No actor turns or game outcomes are skipped to obtain these timings.
+
+The stationary baselines used native 0.1.0. Later travel, night and long-run baselines used
+the archived game code with the installed 0.2.0 library through its old API, keeping library
+builds identical within those pairs. The final maximum and long-run samples include the last
+bounded route-workspace allocation cleanup; the other samples preceded it. Exact versions,
+digests, repeat measurements and limitations are recorded in the
+[raw second-stage results](benchmarks/2026-10-12-native-expansion.json).
+
+### Additional GPU lighting measurements
+
+Complete-call medians over five warmed calls, 1,985,281 tiles, physical M4 Pro/Metal:
+
+| Light workload | Native CPU | Metal GPU |
+|---|---:|---:|
+| 200 lights, radius 16 | **0.108 ms** | 0.525 ms |
+| 4,000 lights, radius 16 | **0.548 ms** | 1.334 ms |
+| 2,000 lights, radius 80 (stress case) | 3.129 ms | **2.576 ms** |
+
+The synthetic heavy case benefits from the GPU, but its 17.7% improvement in this sample is
+below the automatic selector's 20% margin. Normal sparse lighting is faster on CPU. Forcing
+Metal in the night battle exercised **130 GPU lighting calls** and produced the same digest,
+but took 34.42 ms/turn versus auto's 32.78 ms. Auto retained CPU lighting while using GPU
+routes for a separately measured suitable route workload. GPU dispatch is an optional exact
+backend, not a presumed whole-game speed multiplier. Nvidia Vulkan/DX12 support is implemented;
+physical Nvidia timing and validation remain unavailable on this machine.
+
+The local full suite passed 345 tests with physical GPU availability required. After the final
+allocation cleanup and additional GPU-failure regression, all 76 focused native, incremental-world
+and streaming tests passed. Pure-Python checks passed 27 tests with Rust and Numba disabled
+(two optional Numba cases skipped). Rust formatting, Clippy with warnings denied and CPU-only
+compilation passed.
+The [final source CI run](https://github.com/Hellisotherpeople/fog-of-war/actions/runs/38301158750)
+passed on all three operating systems: **346 tests on macOS**, **332 tests plus 14 hardware-GPU
+skips on Linux and Windows**, and **29 original-backend/save checks on each platform**.
+
+## First hybrid stage measured on 12 October 2026
 
 Apple M4 Pro, 10 performance and 4 efficiency CPU cores, 20 GPU cores, 48 GiB RAM; CPython 3.12.11.
 Release Rust build, Numba installed for remaining kernels. Each configuration used a fresh process,
@@ -138,8 +203,9 @@ better field reuse, and parallel independent computations.
 ## Estimated rewrite gains
 
 These are engineering planning ranges with considerable uncertainty, **not measured Rust results**.
-They are relative to the current Python/Numba build on the same machine and the same workload.
-The rows are alternative levels of work, not multipliers to stack.
+They were relative to the earlier Python/Numba baseline above (339.3 ms at radius 640), before
+either native stage, on the same machine and workload. They are not updated forecasts for 0.2.0.
+The rows are alternative levels of work, not multipliers to stack with the measured gains.
 
 | Implementation | Estimated whole-turn speedup | Current maximum workload would take |
 |---|---:|---:|
@@ -167,12 +233,12 @@ must not silently alter wounds, sight or ballistics.
 
 ## Remaining CPU and GPU work without changing the war
 
-[Rayon](https://docs.rs/rayon/latest/rayon/) now distributes large smoke stencils across a bounded
-thread pool, and PyO3 detaches owned native computations from Python's GIL. For further kernels,
-benchmark worker counts instead of
+[Rayon](https://docs.rs/rayon/latest/rayon/) now distributes independent route pairs, spatial-query
+batches, lighting rows and large smoke stencils across a bounded thread pool. PyO3 detaches owned
+native computations from Python's GIL. For further kernels, benchmark worker counts instead of
 assuming fourteen equal cores or a fourteen-fold gain. Leave capacity for rendering and speech.
-Independent distance fields, spatial queries and batches of sight lines are better first targets
-than concurrent mutation of each soldier's state.
+Expand independent precomputation with live-state revalidation before attempting concurrent
+mutation of each soldier's state.
 
 Today soldiers act in a shuffled but ordered sequence against shared state. A naive parallel
 rewrite could change who fires first, what somebody sees, who takes ammunition, or which medic
@@ -181,8 +247,8 @@ precomputation needs dependency checks and revalidation before ordered applicati
 replay comparisons must cover movement, terrain, weapons, inventories, medical care, objectives,
 save/load and streaming before expanding the tactical radius.
 
-Beyond the integer route implementation measured above, GPU candidates include large regular
-grids for smoke/fire, lighting, weather and batched visibility. Those additional kernels still
+Beyond the integer route and lighting implementations measured above, GPU candidates include
+large regular grids for smoke/fire, weather and batched visibility. Those additional kernels still
 need measured prototypes and cross-device numerical parity checks. Branch-heavy decisions,
 inventories and small searches generally belong on the CPU. [wgpu](https://docs.rs/wgpu/latest/wgpu/)
 provides the implemented compute access through Metal, Vulkan and DirectX 12. Apple Silicon's
@@ -207,8 +273,16 @@ Run separately, with other tests and benchmark processes stopped:
 ```sh
 .venv/bin/python tools/benchmark_world.py --radius 240 --turns 180 --digest
 .venv/bin/python tools/benchmark_world.py --radius 640 --turns 180 --digest
+.venv/bin/python tools/benchmark_world.py --radius 240 --turns 180 --walk --digest
+.venv/bin/python tools/benchmark_world.py --radius 240 --turns 180 --theatre normandy_airborne44 --digest
+.venv/bin/python tools/benchmark_world.py --radius 240 --turns 1200 --digest
 .venv/bin/python tools/benchmark_world.py --radius 640 --turns 180 --profile /tmp/world.prof
+.venv/bin/python tools/benchmark_native.py --size 1409 --repeats 5
 ```
+
+`FOW_CODE_ROOT=/path/to/archived/revision` selects an older game for the same world benchmark
+harness. It does not replace the installed native extension; preserve its reported version when
+comparing results. `--walk` times normal player actions and reports actual world turns separately.
 
 For the recorded full-scan reference, only the candidate loops in `commander.update_objectives`
 and `ai.surgeon_act` used `game.actors` instead of `game.near(...)`; their remaining code and the
