@@ -961,6 +961,10 @@ class Game:
         d.pop("_speech_captions", None)     # screen-time captions are not simulation/save state
         d.pop("_order_hint", None)
         d.pop("_vis_mat", None)             # this turn's distance matrix
+        d.pop("_native_near", None)
+        d.pop("_native_enemy", None)
+        d.pop("_light_cache", None)
+        d["_arr_turn"] = -1                 # derived indexes rebuild on Python-only installs too
         # the id counters, so nothing made after loading can share an id with something already in the world
         import itertools
         from . import entities
@@ -1431,13 +1435,17 @@ class Game:
             return self._arr
         acts = [a for a in self.actors if a.alive and a.vehicle is None]
         pos = np.array([(a.x, a.y) for a in acts], np.float32).reshape(-1, 2)
+        from . import native
+        self._native_near = native.core.SpatialIndex(pos) if native.core is not None and hasattr(native.core, 'SpatialIndex') else None
+        self._native_enemy = {}
         self._arr = (pos, acts)
         self._arr_index = {a.id: i for i, a in enumerate(acts)}
         buckets = {}
-        for a in acts:
-            buckets.setdefault((a.x//16, a.y//16), {})[a.id] = a
+        if self._native_near is None:
+            for a in acts:
+                buckets.setdefault((a.x//16, a.y//16), {})[a.id] = a
         self._near_buckets = buckets
-        self._near_cells = {a.id:(a.x//16, a.y//16) for a in acts}
+        self._near_cells = {a.id:(a.x//16, a.y//16) for a in acts} if self._native_near is None else {}
         self._side_indices = {s: np.array([i for i,a in enumerate(acts) if a.side == s], dtype=np.intp) for s in SIDES}
         self._arr_turn = self.turn
         self._enemy_arr = {}
@@ -1451,6 +1459,9 @@ class Game:
         pos, acts = self.actor_array()
         if not acts:
             return []
+        if self.__dict__.get('_native_near') is not None:
+            return [acts[i] for i in self._native_near.near(x, y, r)
+                    if side is None or acts[i].side == side]
         if r <= 48:
             buckets = self._near_buckets
             found = [a for bx in range(math.floor((x-r)/16), math.floor((x+r)/16)+1)
@@ -1463,6 +1474,30 @@ class Game:
         idx = np.nonzero((np.abs(pos[:, 0] - x) <= r) & (np.abs(pos[:, 1] - y) <= r))[0]
         return [acts[i] for i in idx if side is None or acts[i].side == side]
 
+    def near_people_many(self, queries):
+        """Exact roster-ordered queries including vehicle crew, on an immutable position snapshot.
+
+        The native workers only search packed positions. Eligibility and radio/visibility
+        checks happen afterwards against the live actors, in the original order.
+        """
+        from . import native
+        actors = self.actors
+        if native.core is not None and hasattr(native.core, 'SpatialIndex'):
+            pos = np.array([(a.x, a.y) for a in actors], np.float32).reshape(-1, 2)
+            index = native.core.SpatialIndex(pos)
+            return [[actors[i] for i in ids] for ids in index.near_many(queries)]
+        buckets = {}
+        for i, a in enumerate(actors):
+            buckets.setdefault((math.floor(a.x/16), math.floor(a.y/16)), []).append(i)
+        result = []
+        for x, y, radius in queries:
+            ids = sorted(i for bx in range(math.floor((x-radius)/16), math.floor((x+radius)/16)+1)
+                         for by in range(math.floor((y-radius)/16), math.floor((y+radius)/16)+1)
+                         for i in buckets.get((bx, by), ())
+                         if abs(actors[i].x-x) <= radius and abs(actors[i].y-y) <= radius)
+            result.append([actors[i] for i in ids])
+        return result
+
     def note_move(self, a):
         """Keep the cached position arrays in step with a soldier who just moved."""
         if self._arr is not None and self._arr_turn == self.turn:
@@ -1470,23 +1505,29 @@ class Game:
             if i is not None:
                 self._arr[0][i, 0] = a.x
                 self._arr[0][i, 1] = a.y
-                cell = a.x//16, a.y//16
-                prev = self._near_cells[a.id]
-                if cell != prev:
-                    self._near_buckets[prev].pop(a.id, None)
-                    self._near_buckets.setdefault(cell, {})[a.id] = a
-                    self._near_cells[a.id] = cell
+                if self.__dict__.get('_native_near') is not None:
+                    self._native_near.move_to(i, a.x, a.y)
+                else:
+                    cell = a.x//16, a.y//16
+                    prev = self._near_cells[a.id]
+                    if cell != prev:
+                        self._near_buckets[prev].pop(a.id, None)
+                        self._near_buckets.setdefault(cell, {})[a.id] = a
+                        self._near_cells[a.id] = cell
         for side, (pos, ents) in self._enemy_arr.items():
             k = self.__dict__.get("_enemy_idx", {}).get(side, {}).get(id(a))
             if k is not None:
                 pos[k, 0] = a.x
                 pos[k, 1] = a.y
-                cell = int(a.x)//32, int(a.y)//32
-                prev = self._enemy_cells[side][k]
-                if cell != prev:
-                    self._enemy_buckets[side][prev].discard(k)
-                    self._enemy_buckets[side].setdefault(cell, set()).add(k)
-                    self._enemy_cells[side][k] = cell
+                if side in self.__dict__.get('_native_enemy', {}):
+                    self._native_enemy[side].move_to(k, a.x, a.y)
+                else:
+                    cell = int(a.x)//32, int(a.y)//32
+                    prev = self._enemy_cells[side][k]
+                    if cell != prev:
+                        self._enemy_buckets[side][prev].discard(k)
+                        self._enemy_buckets[side].setdefault(cell, set()).add(k)
+                        self._enemy_cells[side][k] = cell
 
     def enemies_of(self, side):
         pl = self.player
@@ -1508,12 +1549,16 @@ class Game:
         ents = self.enemies_of(side)
         pos = np.array([(e.x, e.y) for e in ents], np.float32).reshape(-1, 2)
         self._enemy_arr[side] = (pos, ents)
+        from . import native
+        if native.core is not None and hasattr(native.core, 'SpatialIndex'):
+            self.__dict__.setdefault('_native_enemy', {})[side] = native.core.SpatialIndex(pos)
         self.__dict__.setdefault("_enemy_idx", {})[side] = {id(e): k for k, e in enumerate(ents)}
         buckets, cells = {}, {}
-        for k,e in enumerate(ents):
-            cell = int(e.x)//32, int(e.y)//32
-            cells[k] = cell
-            buckets.setdefault(cell, set()).add(k)
+        if side not in self.__dict__.get('_native_enemy', {}):
+            for k,e in enumerate(ents):
+                cell = int(e.x)//32, int(e.y)//32
+                cells[k] = cell
+                buckets.setdefault(cell, set()).add(k)
         self._enemy_buckets[side], self._enemy_cells[side] = buckets, cells
         return pos, ents
 
@@ -1521,7 +1566,8 @@ class Game:
         """Exact nearby enemy indices, including vehicles, without an all-pairs matrix."""
         pos, ents = self.enemy_array(a.side)
         buckets = self._enemy_buckets[a.side]
-        ids = sorted(k for bx in range(math.floor((a.x-radius)/32), math.floor((a.x+radius)/32)+1)
+        index = self.__dict__.get('_native_enemy', {}).get(a.side)
+        ids = index.near(a.x, a.y, radius) if index is not None else sorted(k for bx in range(math.floor((a.x-radius)/32), math.floor((a.x+radius)/32)+1)
                      for by in range(math.floor((a.y-radius)/32), math.floor((a.y+radius)/32)+1)
                      for k in buckets.get((bx,by), ()))
         idx = np.asarray(ids, dtype=np.intp)

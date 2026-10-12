@@ -175,6 +175,11 @@ def best_step(game, a, maps, exposure_w=0.0, cohesion=None, spread=4, stay_bias=
     best = None
     best_score = None
     mates = _mates_near(game, a) if crowd else None
+    from .native_movement import choose
+    handled, step = choose(game, a, maps, exp, exposure_w, cohesion, spread, stay_bias,
+                           avoid_fire, mates, keep_range, swap_cost, UNIT)
+    if handled:
+        return step
     # (this runs for every man who moves, every second: locals, and .item() for single cells)
     mt, fire, mines = m.t, m.fire, m.mines
     walk_t, door_t, water_t = T.WALK, T.DOOR, T.WATER

@@ -32,6 +32,7 @@ parser.add_argument('--theatre',default='bocage44')
 parser.add_argument('--battlefield',default='large')
 parser.add_argument('--profile',help='Write cProfile data for measured turns (timings then include profiler overhead)')
 parser.add_argument('--digest',action='store_true',help='Hash core simulation results after timing for optimization comparisons')
+parser.add_argument('--walk',action='store_true',help='Measure normal eastward movement actions and their real world turns, including terrain streaming')
 a = parser.parse_args()
 t0 = time.perf_counter()
 g = Game(a.theatre,'usa',seed=a.seed,setup={'battlefield':a.battlefield,'reality_radius':a.radius})
@@ -45,14 +46,29 @@ for _ in range(5):
     g.player.moves = 0
     g.world_turn()
 samples = []
+first_turn = g.turn
+first_world_pos = g.landscape.world_pos(*g.player.pos) if a.radius else g.player.pos
+destination = (first_world_pos[0] + max(40,a.radius//2), first_world_pos[1])
 if a.profile:
     import cProfile
     profiler = cProfile.Profile()
     profiler.enable()
 for _ in range(a.turns):
-    g.player.moves = 0
     start = time.perf_counter()
-    g.world_turn()
+    if a.walk:
+        from fow.ai import path_step
+        if g.game_over or not g.player.alive:
+            break
+        cost = None
+        if g.player.body.conscious and not g.player.downed:
+            origin = g.landscape.origin if a.radius else (0,0)
+            target = destination[0]-origin[0], destination[1]-origin[1]
+            cost = path_step(g,g.player,*target)
+        g.player.moves -= cost or 100
+        g.player_done()
+    else:
+        g.player.moves = 0
+        g.world_turn()
     samples.append((time.perf_counter()-start)*1000)
 if a.profile:
     profiler.disable()
@@ -67,6 +83,13 @@ result = dict(acceleration=native_status(),python=platform.python_version(),mach
     initialization_s=round(init,3),mean_ms=round(float(np.mean(samples)),3),
     p95_ms=round(float(np.percentile(samples,95)),3),max_ms=round(max(samples),3),
     peak_rss_mb=round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss/(1024**2 if sys.platform=='darwin' else 1024),1))
+result.update(walking=a.walk, actions=len(samples), simulated_turns=g.turn-first_turn,
+    start_world_pos=first_world_pos,
+    end_world_pos=g.landscape.world_pos(*g.player.pos) if a.radius else g.player.pos)
+result['los_cache_entries'] = sum(len(g.map.__dict__.get(k,(None,{}))[1]) for k in ('_los','_los_hi'))
+window = g.landscape.__dict__.get('_terrain_window') if a.radius else None
+result['terrain_reused_cells'] = window.reused if window else 0
+result['terrain_slab_mb'] = round(sum(v.nbytes for v in window.slabs.values())/1024**2,2) if window else 0
 if a.digest:
     import hashlib
     def scalar(value):

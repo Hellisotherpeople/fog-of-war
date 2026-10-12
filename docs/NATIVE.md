@@ -1,8 +1,10 @@
 # Python/tcod with Rust compute
 
 The game and interface remain Python/tcod. The optional `native/` package supplies PyO3
-kernels for eager and demand-driven shortest paths, batched sight lines, and smoke diffusion.
-It includes headless GPU pathfinding through wgpu: **Metal on Apple Silicon**, **Vulkan on
+kernels for eager and demand-driven shortest paths, batched sight lines, smoke diffusion,
+movement scoring, compact spatial indexes, and lighting. Version **0.2.0** adds the latter
+three and shares one bounded worker pool across independent native workloads.
+It includes headless GPU pathfinding and integer light masks through wgpu: **Metal on Apple Silicon**, **Vulkan on
 Linux/Nvidia**, and **DirectX 12 or Vulkan on Windows/Nvidia**. No CUDA toolkit is required.
 Rendering and speech keep their existing backends.
 
@@ -39,10 +41,10 @@ dependencies. The crate forbids unsafe code and uses release optimization and th
 |---|---|
 | `FOW_NATIVE=auto` (default) | Use Rust if installed; otherwise original Python/Numba/tcod |
 | `FOW_NATIVE=off` | Use the original implementation for comparisons or troubleshooting |
-| `FOW_GPU=auto` (default) | Measure eligible dense route fields; use GPU only with a measured advantage |
+| `FOW_GPU=auto` (default) | Measure eligible route fields and heavy lighting workloads; require a measured advantage |
 | `FOW_GPU=off` | Native CPU only; no GPU initialization |
-| `FOW_GPU=on` | Force GPU route attempts, including CPU completion of unconverged fields |
-| `FOW_NATIVE_THREADS=8` | Override the bounded smoke worker pool; default is available CPUs minus two, capped at eight |
+| `FOW_GPU=on` | Force GPU route and lighting attempts, including CPU completion of unconverged routes |
+| `FOW_NATIVE_THREADS=8` | Bound the shared smoke, route-batch, spatial-query and lighting pool; default is available CPUs minus two, capped at eight |
 | `WGPU_BACKEND=metal`, `vulkan`, or `dx12` | Select an available compute API |
 | `WGPU_ADAPTER_NAME=NVIDIA` | Select an adapter by a case-insensitive part of its name |
 
@@ -66,10 +68,19 @@ unsupported limits, device loss and failed parity checks fall back to exact CPU 
 Software GPU adapters are declined. `fow.native.status()` reports the adapter, timings,
 selection, fallback reason and route counts without initializing a GPU.
 
+Lighting uses integer circle tests and atomic writes of boolean light coverage, with no
+floating-point approximation. Sources, output and readback buffers are reused between
+calls. Auto mode considers GPU lighting only for large maps with substantial overlapping
+illumination, compares complete CPU/GPU calls, checks exact masks and requires the same
+20% advantage. Small/sparse workloads remain on CPU. The existing sources, lifetimes,
+fire-lighting rules and visibility range are preserved.
+
 ## Simulation fidelity and memory
 
 Soldier decisions, shared state and random draws remain in their existing turn order.
-The workers only compute independent smoke cells from an owned input snapshot. Rust keeps
+Workers compute independent smoke cells, complete independent route fields, batched nearby
+queries and disjoint lighting rows. They own input snapshots and never touch live Python
+actors or consume game randomness. Rust keeps
 the same float32 operation order, without fast math or fused multiply-add. Sight-line
 checks preserve Bresenham ties, roof rules and terrain crest tests. They borrow map arrays
 under the GIL rather than copying millions of cells for each observer.
@@ -81,16 +92,37 @@ Loading on a Python-only installation reconstructs the same routes. Existing sav
 readable. This adds acceleration without reducing actor turns or changing bubble boundaries.
 Eager route queues reuse thread-local workspace across calls; this avoids the allocator
 retention caused by repeatedly growing large seed/bucket vectors. Each calling thread owns
-its workspace, and no Python or game objects are retained in it.
+its workspace. Parallel route batches instead borrow from a shared cache of two queues,
+so jobs moving among workers do not leave a large retained queue on every worker thread.
+No Python or game objects are retained in either cache.
+
+Movement scores the complete eligible neighborhood in one native call. Python applies the
+same random tie-breaks, in the same order, then executes the existing movement action.
+The native position indexes are derived compact arrays updated by the ordinary movement
+hooks; actor objects remain authoritative. Query results retain roster order, including
+vehicle occupants for objective observers. Indexes are discarded on save and rebuilt on load.
+
+Unchanged safety, threat and flee fields survive routine refreshes only when their inputs
+are exactly equal. Terrain sight caches invalidate crossed 32-tile blocks; distant changes
+do not discard unrelated lines. Smoke still receives a live check. Light masks are reused
+only while their complete source list is unchanged, including source expiration.
+
+The moving terrain buffer uses padded NumPy slabs. A short reframe reuses the overlapping
+cells as views and imports only incoming strips; reaching a slab edge compacts the overlap.
+Authoritative replacement arrays (such as smoke output) are synchronized before shifting.
+Terrain, objects and events keep the same world coordinates. Slab padding and native indexes
+are transient, so saves do not duplicate them and Python-only machines can still load them.
 
 ## Verify and measure
 
 ```sh
 .venv/bin/python -m pytest -q tests
 FOW_REQUIRE_GPU=1 .venv/bin/python -m pytest -q tests/test_native.py
+FOW_REQUIRE_GPU=1 .venv/bin/python -m pytest -q tests/test_native_expansion.py
 .venv/bin/python tools/benchmark_native.py --size 1409 --repeats 5
 .venv/bin/python tools/benchmark_world.py --radius 640 --turns 180 --digest
 FOW_NATIVE=off .venv/bin/python tools/benchmark_world.py --radius 640 --turns 180 --digest
+.venv/bin/python tools/benchmark_world.py --radius 240 --turns 180 --walk --digest
 ```
 
 Run benchmarks sequentially, without another game, compiler or test process. Kernel timings

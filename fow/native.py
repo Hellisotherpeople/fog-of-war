@@ -25,7 +25,7 @@ _gpu = None
 _gpu_failed = False
 _choices = {}
 _measurements = {}
-_counts = {'cpu_routes': 0, 'gpu_routes': 0, 'gpu_completed': 0}
+_counts = {'cpu_routes': 0, 'gpu_routes': 0, 'gpu_completed': 0, 'cpu_lights': 0, 'gpu_lights': 0}
 
 
 def _local_frontier(dist, cost):
@@ -132,3 +132,44 @@ def status():
     return {'native': getattr(core, 'version', None), 'gpu_mode': os.environ.get('FOW_GPU', 'auto'),
             'adapter': _gpu.name if _gpu else None, 'backend': _gpu.backend if _gpu else None,
             'fallback_reason': _reason, 'calibration': dict(_measurements), **_counts}
+
+
+def light_mask(w, h, lights):
+    """Exact circle/square masks. Select compute by end-to-end cost, including readback."""
+    if core is None or not hasattr(core, 'light_mask'):
+        return None
+    mode = os.environ.get('FOW_GPU', 'auto').lower()
+    work = sum((2*r+1)**2 for _,_,r,_ in lights)
+    key = ('lighting', (w*h).bit_length(), max(1,work//max(1,w*h)).bit_length())
+    eligible = mode == 'on' or (mode == 'auto' and w*h >= 262144 and work >= 4*w*h
+                               and _choices.get(key, True))
+    device = gpu() if eligible else None
+    if device is not None and hasattr(device, 'light_mask'):
+        try:
+            if mode == 'auto' and key not in _choices:
+                expected = core.light_mask(w, h, lights)
+                device.light_mask(w, h, lights)
+                cpu_times, gpu_times = [], []
+                for _ in range(3):
+                    start = perf_counter()
+                    core.light_mask(w, h, lights)
+                    cpu_times.append(perf_counter()-start)
+                    start = perf_counter()
+                    candidate = device.light_mask(w, h, lights)
+                    gpu_times.append(perf_counter()-start)
+                    if not np.array_equal(expected, candidate):
+                        raise RuntimeError('GPU lighting parity check failed')
+                cpu_s, gpu_s = float(np.median(cpu_times)), float(np.median(gpu_times))
+                _choices[key] = gpu_s < cpu_s*.8
+                _measurements[str(key)] = {'cpu_ms':cpu_s*1000, 'gpu_ms':gpu_s*1000,
+                                          'selected':'gpu' if _choices[key] else 'cpu'}
+                if not _choices[key]:
+                    device.release_buffers()
+                _counts['cpu_lights'] += 1
+                return expected
+            _counts['gpu_lights'] += 1
+            return device.light_mask(w, h, lights)
+        except (RuntimeError, ValueError) as exc:
+            _disable_gpu(exc)
+    _counts['cpu_lights'] += 1
+    return core.light_mask(w, h, lights)

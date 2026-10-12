@@ -1,10 +1,30 @@
 # Simulation performance and the native core
 
 The game remains Python/tcod, with an optional **implemented Rust/PyO3 core** for route finding,
-line-of-sight batches and smoke. Portable GPU route computation uses wgpu/Metal/Vulkan/DX12.
+line-of-sight batches, smoke, movement scoring, spatial queries and lighting. Portable GPU
+route and light-mask computation uses wgpu/Metal/Vulkan/DX12.
 [Installation and backend controls](NATIVE.md). A complete Rust rewrite has **not** been performed;
 most actor decisions still execute in Python. The older full-port estimates below remain estimates,
 not measured gains from this first stage.
+
+## Second native stage: all six implementation areas
+
+The 0.2.0 extension and game changes implement these six areas while preserving the
+ordinary action loop, random-draw order, actor eligibility and existing tactical radius:
+
+| Area | Implemented behavior |
+|---|---|
+| Exact nearby queries | Objective observers use batched spatial queries including vehicle crew; nearby actors and enemy candidates use roster-ordered native indexes with normal movement updates. |
+| Native movement and packed hot data | Rust scores the full eligible movement neighborhood in one call. Compact native position indexes accelerate repeated queries; Python actors remain authoritative and Python retains random tie-breaks and action execution. |
+| More CPU concurrency | A bounded Rayon pool runs independent nearby-query batches, home/threat route pairs, lighting rows and smoke cells. Workers never mutate soldiers or consume game randomness. |
+| Exact reuse | Equal safety/threat/flee inputs retain their fields. Sight caches use regional terrain versions; smoke is still checked live. Light masks retain results until sources, fires or expiry change them. |
+| Reusable terrain storage | Padded array views reuse overlapping terrain on short reframes; only incoming strips are imported. Periodic compaction handles larger shifts. Mutable replacement arrays are synchronized, and padding is omitted from saves. |
+| Additional GPU computation | Integer light masks use Metal/Vulkan/DX12 with persistent buffers, exact parity checks, failure recovery and automatic selection by complete CPU/GPU call cost. Ordinary sparse lighting stays on CPU. |
+
+This is not a full Rust actor-AI port. Native positions are derived query data, not a second
+simulation state. Reloads, medicine, action frequency, strategic abstraction and bubble
+boundaries keep their existing rules. Scheduling fewer soldier turns is not part of the change.
+Regional invalidation and reusable terrain also work without the optional extension.
 
 ## Hybrid build measured on 12 October 2026
 

@@ -107,15 +107,17 @@ def tick(game):
         dispatch_tick(game)
 
 
-def objective_owner(game, side, index):
+def objective_owner(game, side, index, observers=None):
     """Start-line briefing, then nearby observations that can reach command."""
     ob = game.map.objectives[index]
     known = game.map.__dict__.setdefault("objective_reports", {s: {} for s in SIDES})[side]
     if index not in known:
         known[index] = ob.owner if game.turn < 30 else None
     from .senses import los_clear
+    if observers is None:
+        observers = game.near_people_many([(ob.x, ob.y, ob.radius + 6)])[0]
     if any(a.side == side and a.active and not a.downed and distance(a.pos, (ob.x, ob.y)) <= ob.radius + 6
-           and radio_link(game, a) and los_clear(game, a.x, a.y, ob.x, ob.y) for a in game.actors):
+           and radio_link(game, a) and los_clear(game, a.x, a.y, ob.x, ob.y) for a in observers):
         known[index] = ob.owner
     return known[index]
 

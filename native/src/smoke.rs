@@ -1,29 +1,9 @@
 //! Fused stencil, preserving NumPy's f32 rounding and neighbor addition order.
 use crate::array2;
+use crate::workers::pool;
 use numpy::{PyArray2, PyReadonlyArray2};
 use pyo3::prelude::*;
 use rayon::prelude::*;
-use std::sync::OnceLock;
-
-fn pool() -> &'static rayon::ThreadPool {
-    static POOL: OnceLock<rayon::ThreadPool> = OnceLock::new();
-    POOL.get_or_init(|| {
-        let default = std::thread::available_parallelism()
-            .map_or(2, usize::from)
-            .saturating_sub(2)
-            .clamp(1, 8);
-        let n = std::env::var("FOW_NATIVE_THREADS")
-            .ok()
-            .and_then(|s| s.parse::<usize>().ok())
-            .unwrap_or(default)
-            .clamp(1, 64);
-        rayon::ThreadPoolBuilder::new()
-            .num_threads(n)
-            .thread_name(|i| format!("fow-grid-{i}"))
-            .build()
-            .expect("native worker pool")
-    })
-}
 
 #[pyfunction]
 pub fn diffuse<'py>(

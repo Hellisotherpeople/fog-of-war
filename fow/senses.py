@@ -263,6 +263,21 @@ def compute_light(game):
     if daylight(game) > 0.6:
         game.lit = None
         return
+    m.lights = [light for light in m.lights if light[3] >= game.turn]
+    fx, fy = np.nonzero(m.fire > 0)
+    lights = [(x,y,r,0) for x,y,r,_ in m.lights]
+    lights.extend((int(x),int(y),3,1) for x,y in zip(fx[:200],fy[:200]))
+    key = (id(m), m.w, m.h, tuple(lights))
+    cached = game.__dict__.get('_light_cache')
+    if cached is not None and cached[0] == key:
+        game.lit = cached[1]
+        return
+    from . import native
+    result = native.light_mask(m.w, m.h, lights)
+    if result is not None:
+        game._light_cache = (key,result)
+        game.lit = result
+        return
     lit = np.zeros((m.w, m.h), bool)
     xs = np.arange(m.w)[:, None]
     ys = np.arange(m.h)[None, :]
@@ -282,6 +297,7 @@ def compute_light(game):
     for x, y in zip(fx[:200], fy[:200]):
         lit[max(0, x - 3):x + 4, max(0, y - 3):y + 4] = True
     game.lit = lit
+    game._light_cache = (key,lit)
 
 
 def _line_clear(see, x0, y0, x1, y1, m=None, h0=1.6, h1=1.6) -> bool:
@@ -317,8 +333,10 @@ def los_clear(game, x0, y0, x1, y1, high=False, h0=1.6, h1=1.6) -> bool:
     slot = "_los_hi" if high else "_los"
     cache = m.__dict__.get(slot)
     ver = m.__dict__.get("see_base_version", m.version)
-    if cache is None or cache[0] != ver or len(cache[1]) > 250000:
-        cache = (ver, {})
+    blocks = m.__dict__.get('_see_blocks')
+    generation = id(blocks) if blocks is not None else ver
+    if cache is None or cache[0] != generation or len(cache[1]) > 250000:
+        cache = (generation, {})
         m.__dict__[slot] = cache
     if (x0, y0) <= (x1, y1):
         key, ha, hb = (x0, y0, x1, y1), h0, h1
@@ -326,11 +344,15 @@ def los_clear(game, x0, y0, x1, y1, high=False, h0=1.6, h1=1.6) -> bool:
         key, ha, hb = (x1, y1, x0, y0), h1, h0
     if rel:
         key = key + (int(ha * 2), int(hb * 2))
-    v = cache[1].get(key)
-    if v is None:
-        v = cache[1][key] = _line_clear(m.high_base() if high else m.see_base, key[0], key[1], key[2], key[3],
-                                        mm, ha, hb)
-    return v
+    cached = cache[1].get(key)
+    if cached is not None and cached[0] == ver:
+        return cached[2]
+    token = (blocks[min(x0,x1)//32:max(x0,x1)//32+1,
+                    min(y0,y1)//32:max(y0,y1)//32+1].tobytes() if blocks is not None else ver)
+    value = cached[2] if cached is not None and cached[1] == token else _line_clear(
+        m.high_base() if high else m.see_base, key[0], key[1], key[2], key[3], mm, ha, hb)
+    cache[1][key] = (ver, token, value)
+    return value
 
 
 def _high(e) -> bool:

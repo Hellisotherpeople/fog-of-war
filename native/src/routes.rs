@@ -2,7 +2,7 @@
 use crate::{BIG, array2};
 use numpy::{PyArray2, PyReadonlyArray2};
 use pyo3::{exceptions::PyValueError, prelude::*};
-use std::{cell::RefCell, cmp::Reverse, collections::BinaryHeap};
+use std::{cell::RefCell, cmp::Reverse, collections::BinaryHeap, sync::Mutex};
 
 #[derive(Default)]
 struct Scratch {
@@ -34,6 +34,30 @@ fn neighbors(mut f: impl FnMut(usize, i32), node: usize, w: usize, h: usize, car
 }
 
 pub fn solve(dist: &mut [i32], cost: &[i32], w: usize, h: usize, card: i32, diag: i32) {
+    SCRATCH.with(|scratch| solve_inner(dist, cost, w, h, card, diag, &mut scratch.borrow_mut()));
+}
+
+pub fn solve_batch(dist: &mut [i32], cost: &[i32], w: usize, h: usize, card: i32, diag: i32) {
+    // Jobs may move among Rayon workers. Retain two reusable queues across the
+    // pool, rather than a giant per-worker allocation on every thread touched.
+    static FREE: Mutex<Vec<Scratch>> = Mutex::new(Vec::new());
+    let mut scratch = FREE.lock().unwrap().pop().unwrap_or_default();
+    solve_inner(dist, cost, w, h, card, diag, &mut scratch);
+    let mut free = FREE.lock().unwrap();
+    if free.len() < 2 {
+        free.push(scratch);
+    }
+}
+
+fn solve_inner(
+    dist: &mut [i32],
+    cost: &[i32],
+    w: usize,
+    h: usize,
+    card: i32,
+    diag: i32,
+    scratch: &mut Scratch,
+) {
     let maxc = cost.iter().copied().max().unwrap_or(0).max(0) as i64;
     let width = maxc * card.max(diag) as i64 + 1;
     // Exceptional user/mod costs must not allocate enormous bucket arrays or overflow.
@@ -68,61 +92,58 @@ pub fn solve(dist: &mut [i32], cost: &[i32], w: usize, h: usize, card: i32, diag
         }
         return;
     }
-    SCRATCH.with(|scratch| {
-        let mut scratch = scratch.borrow_mut();
-        let Scratch { seeds, buckets } = &mut *scratch;
-        seeds.clear();
-        seeds.extend(
-            dist.iter()
-                .enumerate()
-                .filter(|(_, v)| **v < 10_000_000)
-                .map(|(i, v)| (*v, i)),
-        );
-        seeds.sort_unstable_by_key(|p| p.0);
-        buckets.resize_with(width as usize, Vec::new);
-        for bucket in buckets.iter_mut() {
-            bucket.clear();
+    let Scratch { seeds, buckets } = scratch;
+    seeds.clear();
+    seeds.extend(
+        dist.iter()
+            .enumerate()
+            .filter(|(_, v)| **v < 10_000_000)
+            .map(|(i, v)| (*v, i)),
+    );
+    seeds.sort_unstable_by_key(|p| p.0);
+    buckets.resize_with(width as usize, Vec::new);
+    for bucket in buckets.iter_mut() {
+        bucket.clear();
+    }
+    let mut si = 0;
+    let mut pending = 0;
+    let mut cur = seeds.first().map_or(0, |s| s.0);
+    while pending > 0 || si < seeds.len() {
+        if pending == 0 && si < seeds.len() {
+            cur = cur.max(seeds[si].0);
         }
-        let mut si = 0;
-        let mut pending = 0;
-        let mut cur = seeds.first().map_or(0, |s| s.0);
-        while pending > 0 || si < seeds.len() {
-            if pending == 0 && si < seeds.len() {
-                cur = cur.max(seeds[si].0);
-            }
-            let b = cur.rem_euclid(width as i32) as usize;
-            while si < seeds.len() && seeds[si].0 == cur {
-                buckets[b].push(seeds[si].1);
-                pending += 1;
-                si += 1;
-            }
-            while let Some(node) = buckets[b].pop() {
-                pending -= 1;
-                if dist[node] != cur {
-                    continue;
-                }
-                neighbors(
-                    |n, weight| {
-                        if cost[n] <= 0 {
-                            return;
-                        }
-                        let value = cur as i64 + cost[n] as i64 * weight as i64;
-                        if value < dist[n] as i64 {
-                            dist[n] = value as i32;
-                            buckets[(value.rem_euclid(width)) as usize].push(n);
-                            pending += 1;
-                        }
-                    },
-                    node,
-                    w,
-                    h,
-                    card,
-                    diag,
-                );
-            }
-            cur += 1;
+        let b = cur.rem_euclid(width as i32) as usize;
+        while si < seeds.len() && seeds[si].0 == cur {
+            buckets[b].push(seeds[si].1);
+            pending += 1;
+            si += 1;
         }
-    });
+        while let Some(node) = buckets[b].pop() {
+            pending -= 1;
+            if dist[node] != cur {
+                continue;
+            }
+            neighbors(
+                |n, weight| {
+                    if cost[n] <= 0 {
+                        return;
+                    }
+                    let value = cur as i64 + cost[n] as i64 * weight as i64;
+                    if value < dist[n] as i64 {
+                        dist[n] = value as i32;
+                        buckets[(value.rem_euclid(width)) as usize].push(n);
+                        pending += 1;
+                    }
+                },
+                node,
+                w,
+                h,
+                card,
+                diag,
+            );
+        }
+        cur += 1;
+    }
 }
 
 enum Costs {
@@ -153,6 +174,22 @@ pub struct DistanceField {
 }
 
 impl DistanceField {
+    pub(crate) fn sample(&mut self, x: usize, y: usize) -> PyResult<i32> {
+        if x >= self.w || y >= self.h {
+            return Err(PyValueError::new_err("query outside distance field"));
+        }
+        let i = x * self.h + y;
+        if self.cost.at(i) > 0 && !self.settled[i] && self.pending > 0 {
+            self.advance(x, y, x + 1, y + 1);
+        }
+        Ok(
+            if self.dist[i] > 0 && (self.settled[i] || self.dist[i] == 1) {
+                self.dist[i] - 1
+            } else {
+                BIG
+            },
+        )
+    }
     fn advance(&mut self, x0: usize, y0: usize, x1: usize, y1: usize) {
         let mut remaining = 0;
         for x in x0..x1 {

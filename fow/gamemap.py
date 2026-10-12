@@ -34,18 +34,21 @@ class Objective:
 
 
 class GameMap:
-    def __init__(self, w: int, h: int, seed: int = 0):
+    def __init__(self, w: int, h: int, seed: int = 0, *, layers=None, defer_refresh=False):
         self.w = w
         self.h = h
-        rng = np.random.default_rng(seed)
-        self.t = np.full((w, h), T.ID["grass"], np.int32)
-        self.hp = np.zeros((w, h), np.int32)
-        self.var = rng.integers(0, 256, (w, h), dtype=np.int32)
-        self.fire = np.zeros((w, h), np.int16)
-        self.smoke = np.zeros((w, h), np.float32)
-        self.blood = np.zeros((w, h), np.uint8)
-        self.scorch = np.zeros((w, h), np.uint8)
-        self.explored = np.zeros((w, h), bool)
+        if layers is None:
+            rng = np.random.default_rng(seed)
+            self.t = np.full((w, h), T.ID["grass"], np.int32)
+            self.hp = np.zeros((w, h), np.int32)
+            self.var = rng.integers(0, 256, (w, h), dtype=np.int32)
+            self.fire = np.zeros((w, h), np.int16)
+            self.smoke = np.zeros((w, h), np.float32)
+            self.blood = np.zeros((w, h), np.uint8)
+            self.scorch = np.zeros((w, h), np.uint8)
+            self.explored = np.zeros((w, h), bool)
+        else:
+            self.__dict__.update(layers)
         self.visible = np.zeros((w, h), bool)
         self.remembered_glyph = None
         self.items: dict[tuple[int, int], list] = {}
@@ -59,7 +62,8 @@ class GameMap:
         self.name = "Unnamed sector"
         self.edges = {}                      # side -> edge letter
         self.buildings: list[tuple[int, int, int, int]] = []
-        self.refresh()
+        if not defer_refresh:
+            self.refresh()
 
     def __setstate__(self, d):
         e = d.get("elev")
@@ -144,6 +148,9 @@ class GameMap:
         self.crush = T.CRUSH[t]
         self.vcost = vcost
         self.see_base_version = self.__dict__.get("see_base_version", 0) + 1
+        # A full refresh changes the token for every cached line. Local refreshes
+        # below touch only the intersecting 32-tile blocks, including high sight.
+        self._see_blocks = np.full(((self.w+31)//32, (self.h+31)//32), self.see_base_version, np.uint64)
         self.update_see(force=True)
         self._compute_cover_dir()
         self.version += 1
@@ -186,6 +193,9 @@ class GameMap:
         if see_changed:
             self.see_version = self.__dict__.get("see_version", 0) + 1
             self.see_base_version = self.__dict__.get("see_base_version", 0) + 1
+            blocks = self.__dict__.get('_see_blocks')
+            if blocks is not None:
+                blocks[x0//32:(x1-1)//32+1, y0//32:(y1-1)//32+1] = self.see_base_version
         # cover directions depend on the neighbours: redo a one-tile border
         cx0, cy0, cx1, cy1 = max(0, x0 - 1), max(0, y0 - 1), min(self.w, x1 + 1), min(self.h, y1 + 1)
         self.cover_dir[:, cx0:cx1, cy0:cy1] = self._cover_dir_window(cx0, cy0, cx1, cy1)
