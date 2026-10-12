@@ -121,7 +121,7 @@ The rows are alternative levels of work, not multipliers to stack.
 |---|---:|---:|
 | Careful full Rust port, similar algorithms, mostly one CPU thread | 2–4× | roughly 85–170 ms |
 | Native core with compact data, batching and useful multicore work | 4–10× | roughly 34–85 ms |
-| Additional GPU work | No credible whole-game multiplier yet | Requires a measured prototype |
+| Additional GPU work | No credible whole-game multiplier yet | Route prototype measured above; benefits depend on workload |
 
 The upper end requires substantial design work. For perspective, making 80% of a turn ten times
 faster only gives `1 / (0.20 + 0.80/10) = 3.57×` overall. This explains why isolated 20× or 100×
@@ -141,10 +141,11 @@ spatial index's ordering rules. Profile optimized builds with representative bat
 Compiler settings should earn their place through measurements; relaxed floating-point arithmetic
 must not silently alter wounds, sight or ballistics.
 
-## CPU and GPU use without changing the war
+## Remaining CPU and GPU work without changing the war
 
-[Rayon](https://docs.rs/rayon/latest/rayon/) can distribute independent native work across a bounded
-thread pool, and PyO3 can detach that work from Python's GIL. Benchmark worker counts instead of
+[Rayon](https://docs.rs/rayon/latest/rayon/) now distributes large smoke stencils across a bounded
+thread pool, and PyO3 detaches owned native computations from Python's GIL. For further kernels,
+benchmark worker counts instead of
 assuming fourteen equal cores or a fourteen-fold gain. Leave capacity for rendering and speech.
 Independent distance fields, spatial queries and batches of sight lines are better first targets
 than concurrent mutation of each soldier's state.
@@ -156,11 +157,11 @@ precomputation needs dependency checks and revalidation before ordered applicati
 replay comparisons must cover movement, terrain, weapons, inventories, medical care, objectives,
 save/load and streaming before expanding the tactical radius.
 
-The M4 Pro's GPU could help with large regular grids: smoke/fire updates, lighting, weather and
-batched visibility computations. Exact distance-field algorithms are another research candidate;
-branch-heavy decisions, inventories and small heap searches generally belong on the CPU. This is
-an assessment of this workload, not a measured GPU result. [wgpu](https://docs.rs/wgpu/latest/wgpu/)
-provides compute access through Metal on macOS and other backends elsewhere. Apple Silicon's
+Beyond the integer route implementation measured above, GPU candidates include large regular
+grids for smoke/fire, lighting, weather and batched visibility. Those additional kernels still
+need measured prototypes and cross-device numerical parity checks. Branch-heavy decisions,
+inventories and small searches generally belong on the CPU. [wgpu](https://docs.rs/wgpu/latest/wgpu/)
+provides the implemented compute access through Metal, Vulkan and DirectX 12. Apple Silicon's
 [shared memory](https://developer.apple.com/documentation/metal/mtlstoragemode/shared) still requires
 [CPU/GPU synchronization](https://developer.apple.com/documentation/metal/resource-synchronization).
 Keep fields resident and batch work; frequent readbacks or tiny dispatches can make it slower.

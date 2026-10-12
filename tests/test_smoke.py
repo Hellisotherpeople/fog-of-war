@@ -869,8 +869,10 @@ def test_agents():
             if b.side != p.side:
                 b.ammo = 0
         g.support.next_sortie = {k: 10 ** 9 for k in g.support.next_sortie}
-        people = list(landscape.actors.values()) if landscape is not None else list(g.actors)
-        for a in people:
+        people = {a.id:a for a in g.actors}
+        if landscape is not None:
+            people.update(landscape.actors)
+        for a in people.values():
             if a.side != p.side and a.alive:
                 a.body.dead = True
                 if not a.__dict__.get('_stream_dormant'):
@@ -921,11 +923,19 @@ def test_agents():
         if k % 5 == 0:
             quiet()
     assert st["sent"] >= 1, (st.get('tx'), p.alive, p.downed, [m.text for m in list(g.messages)[-5:]])
+    # The long first transmission may already have summoned a detector squad
+    # which quiet() removed. Settle that earlier hunt before testing a fresh bearing.
+    quiet()
+    AG._hunt_tick(g)
+    assert st['hunt'] is None
     st["df"] = AG.DF_ALARM - 5
     AG.radio_choice(ps, "report")
+    assert st["tx"] is not None, (p.alive, p.downed, AG.has_wireless(p))
     for k in range(20):
         p.moves = 0
         g.world_turn()
+        if st["hunt"] is not None:
+            break  # Observe arrival before later combat or leaving the detailed circle.
     assert st["hunt"] is not None and any(q.id == st["hunt"]["squad"] for q in g.squads)
     # the cover page draws
     import tcod
@@ -1544,6 +1554,17 @@ def test_landmarks_and_the_going():
 
 
 def test_waiting_goes_quickly():
+    # Exercise batching against a deterministic frame clock, with every real
+    # world turn still running. CI hardware speed belongs in benchmarks, not
+    # this assertion about how the waiting loop batches and interrupts turns.
+    import itertools
+    from unittest.mock import patch
+    ticks = itertools.count()
+    with patch('fow.play.time.perf_counter', new=lambda: next(ticks)*.001):
+        _check_waiting_goes_quickly()
+
+
+def _check_waiting_goes_quickly():
     """Z: a set time, until something happens, until orders - every second simulated, many to a frame; a new
     order stops it; without a watch the choices go by feel; aboard a quiet ship Z lets the hours go by."""
     from fow.play import Key, PlayState

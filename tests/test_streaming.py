@@ -31,6 +31,24 @@ def reframe(g, st, dx=30, dy=0):
     return st.refresh(g,force=True)
 
 
+def test_radio_hunt_survives_a_detachment_leaving_the_detailed_circle():
+    from types import SimpleNamespace as NS
+    from fow import agents
+    man = NS(active=False, body=NS(dead=False, unconscious=0), state='ok', _stream_dormant=True)
+    van = NS(dead=False, x=9000, y=-7000, _stream_dormant=True)
+    squad = NS(id=17, members=[man], vehicles=[van])
+    hunt = {'squad':17, 'pos':(50,50), 'turn':10}
+    def local_visibility(*args):
+        pytest.fail('Dormant world coordinates must not be used as local visibility coordinates')
+    g = NS(agent={'hunt':hunt, 'df':1100}, turn=20, squads=[],
+           landscape=NS(squads={17:squad}), can_see=local_visibility)
+    agents._hunt_tick(g)
+    assert g.agent['hunt'] is hunt and g.agent['df'] == 1100
+    man.body.dead = True
+    agents._hunt_tick(g)
+    assert g.agent['hunt'] is None and g.agent['df'] == 0
+
+
 def test_reframe_preserves_people_wounds_ammo_terrain_orders_and_ordnance():
     g,ps,st = world()
     p = g.player
