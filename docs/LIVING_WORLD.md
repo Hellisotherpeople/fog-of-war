@@ -43,6 +43,21 @@ wounds, suppression, immediate danger, a combat instruction or a menu stops auto
 Any key or click cancels. A still-hidden threat remains dangerous. `A` retains the separate
 full soldier AI mode, including combat decisions.
 
+Mission completion uses physical evidence. Breakout and rear-guard groups must reach the fixed,
+staffed rally post with their surviving members accounted for; crossing a generation boundary
+alone does nothing. Encircled starts place the group inside the field with actual blocking units.
+Patrol reports need observed enemy positions, sniper tasks count the specified kinds of targets,
+and holding orders count time actually on the assigned ground. Unloaded or missing targets are
+not presumed destroyed. Recovered drop supplies remain real inventory or ground items. Convoy
+escorts need arriving merchantmen; cover watches and rescues require work at the assigned place.
+Completion records service, while decorations require the separate witnessed-deeds review.
+
+Digging deadlines include the estimated remaining labor, using the same skill, climate, tool
+condition and action speed as actual digging. Active progress pauses the deadline. Combat,
+incapacitation and higher-priority orders also pause ordinary duty deadlines and allow time to
+resume afterward. An absent shovel is a supply problem, not refusal. The orders book explains
+why a deadline is paused; a safely ignored, feasible order can still have consequences.
+
 ## Personnel, medicine and speech
 
 A reviewed promotion can arrive by working radio, a nearby superior or a physical runner.
@@ -63,6 +78,12 @@ can affect delivery while radio filtering remains separate. This is an inexpensi
 to a neutral voice model, not the emotional range of an actor or an emotion-trained model.
 No cloud service or new runtime dependency is required.
 
+Audible dialogue also appears as readable captions, including with sound disabled. Visible
+soldiers have map bubbles; crew, radio and unseen voices use a strip inside the map. Unseen
+speakers do not reveal an identity or position. Reading time uses the screen clock, and actual
+TTS playback restores or extends the caption. Pending audio retains its world coordinates when
+the tactical buffer moves; distant chatter cannot displace the nearest audible voices.
+
 ## Verification
 
 `tests/test_streaming.py` exercises coordinate changes, physical sector crossings, actor/save
@@ -71,9 +92,12 @@ hospital returns, spatial queries and rendering. `tests/test_field_experience.py
 promotion choices/delivery, rank branches, real-time objective travel, casualty care and voice
 processing. The existing game suite and UI fuzzer cover the other systems.
 
-Validation on 12 October 2026: all 257 game tests passed; another 38 service/navigation and
-command checks passed with `FOW_NO_NUMBA=1`. The headless interface fuzzer ran all 26 theatres
-without crashes, exercising real input, world turns and rendering.
+Validation on 12 October 2026: all 288 game tests passed. The headless interface fuzzer ran all
+26 theatres without crashes, exercising 4,061 real inputs, 2,983 world turns and rendering.
+The mission, order-compliance and speech-caption regressions cover the follow-up fixes. The
+earlier streaming release also passed 38 service/navigation and command checks with `FOW_NO_NUMBA=1`.
+Tests isolate entity-ID counters, which affect AI scheduling, so their seeds remain reproducible
+regardless of test collection order.
 
 Run `tools/benchmark_world.py` in a fresh process per radius, without concurrent tests, to measure
 actual full world turns. Radius 0 is the old bounded-map comparison. `FOW_CODE_ROOT` can point
@@ -83,6 +107,9 @@ world-turn cost; larger presets are optional rather than a promise of identical 
 
 
 ### Measured radius costs
+
+These measurements are from the initial moving-world release. The latest measurements, profiles
+and estimates for a Rust core and GPU work are in [performance notes](PERFORMANCE.md).
 
 A reproducible sample on an Apple M4 Pro with 48 GiB RAM, Python 3.12.11 and Numba enabled:
 Bocage 1944, US forces, `large` density, seed 42. Each radius ran in its own process, with a

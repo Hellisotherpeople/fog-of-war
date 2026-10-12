@@ -648,7 +648,9 @@ def test_orders_propose_targets_and_tasks():
     assert TK.available(g, sq, (p.x, p.y))["medical"][0] > 0
     TK.assign(g, sq, "medical", by=p)
     job = sq.__dict__.get("task")
-    for _ in range(90):
+    # Allow the scheduled expiry check after the quarter-hour deadline. A search can use
+    # its entire allowance; reaching the exact deadline is not yet a timeout.
+    for _ in range(TK.DURATION // 10 + 2):
         _turns(g, 10)
         if sq.__dict__.get("task") is None:
             break

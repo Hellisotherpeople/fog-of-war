@@ -1467,6 +1467,8 @@ class CommandState:
     def on_kill(self, game, victim):
         if victim.side == game.player.side or getattr(victim, "state", "ok") != "ok":
             return
+        from .mission_evidence import on_kill
+        on_kill(game, victim)
         from .recognition import claim
         from .skills import use
         p = game.player

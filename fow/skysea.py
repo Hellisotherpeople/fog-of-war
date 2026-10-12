@@ -320,7 +320,7 @@ class SkySea:
     def _fly(self, p: Plane):
         from .weather import state as weather_state
         rng = self.rng()
-        if not p.player or self.station != "pilot":
+        if not p.player or self.station != "pilot" or p.ai.get("landing_assist"):
             self._pilot_ai(p)
         if not p.alive:
             return
@@ -524,9 +524,9 @@ class SkySea:
             if hp is not None:
                 want_hdg = bearing(p.x, p.y, hp[0], hp[1])
                 d = math.hypot(hp[0] - p.x, hp[1] - p.y)
-                want_alt = 1200 if d > 6 else 100
-                p.throttle = 0.7
-                if d < 1.5:
+                want_alt = 1200 if d > 6 else 80
+                p.throttle = 0.7 if d > 6 else 0.0
+                if d < 1.5 and p.alt <= 150 and p.kmh <= 320:
                     from .weather import flight_factor
                     if flight_factor(self.game) < .2:
                         p.hdg = (p.hdg + 12) % 360
@@ -538,7 +538,7 @@ class SkySea:
                         car.air[{"fighter": 0, "divebomber": 1, "torpedo": 2}.get(p.role, 0)] += 1
                     return
         # nobody flies into the ground on purpose
-        floor = 30 if role in ("torpedo", "kamikaze") else 150 if role == "attack" else 250
+        floor = 30 if role in ("torpedo", "kamikaze", "home") else 150 if role == "attack" else 250
         if p.alt < floor + 150 and want_alt < floor:
             want_alt = floor
         if p.alt < floor + 100 and p.pitch < 0:
@@ -1107,7 +1107,7 @@ class SkySea:
             rx, ry = m["rescue_pt"]
             d = math.hypot(rx - s.x, ry - s.y)
             s.order_hdg = bearing(s.x, s.y, rx, ry)
-            s.order_kn = top if d > 8 else max(4.0, top * 0.2)
+            s.order_kn = top if d > 8 else 3.0 if d > 1.5 else 0.0
             return
         if m.get("stage") in ("done", "failed") or k is None:
             hx, hy = m.get("home", (s.x, s.y))
@@ -1116,7 +1116,11 @@ class SkySea:
             s.order_kn = top * 0.6
             return
         if k == "convoy":
-            s.order_kn = min(top, 12)             # convoy speed: the slowest merchantman's
+            point = m.get("target_pt")
+            if point is not None:
+                s.order_hdg = bearing(s.x, s.y, *point)
+                d = math.hypot(point[0]-s.x, point[1]-s.y)
+                s.order_kn = min(top, 12) if d > 8 else 4.0 if d > 3 else 0.0
             return
         known = [e for e in (self.entity(-i) for i in m.get("enemies", [])) if e is not None and e.alive]
         if k == "bombard" and m.get("shore") and not enemies:

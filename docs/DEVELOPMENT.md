@@ -11,8 +11,8 @@ python3 -m venv .venv
 ```
 
 Python 3.10 or newer (developed on 3.12). The only runtime dependencies are `tcod`, `numpy` and
-`pillow`; `numba` (`requirements-fast.txt`) is optional and only speeds up the Dijkstra maps
-(`fow/fastpath.py`; `FOW_NO_NUMBA=1` turns it off, and the results are identical). `piper-tts`
+`pillow`; `numba` (`requirements-fast.txt`) is optional and speeds up distance fields and sight-line kernels
+(`fow/fastpath.py`; `FOW_NO_NUMBA=1` turns it off, retaining the reference implementations). `piper-tts`
 (`requirements-voices.txt`) is optional too: natural voices (`fow/neural_voice.py`), with models
 downloaded into `~/.fogofwar/piper` on first use. Spoken voices use the OS speech engine if there is one: `say` on macOS (built in),
 `espeak-ng` on Linux (`sudo apt install espeak-ng`). Without it, everything else still works.
@@ -46,6 +46,10 @@ isolated single-field scene for focused tests.
 
 `tools/benchmark_world.py --radius 240 --turns 180` measures full tactical turns. Run each radius
 in a fresh process, with no concurrent tests; see [world notes](LIVING_WORLD.md).
+Add `--profile /tmp/world.prof` for a separate cProfile run. Profiled timings include instrumentation
+overhead and must not be compared directly with ordinary runs. See [native-core estimates](PERFORMANCE.md).
+`--digest` adds a hash of core simulation results after timing, useful when comparing optimizations
+at the same seed and turn count. It includes random-generator state, but is not an exhaustive replay verifier.
 
 `FOW_DEBUG=1` makes an exception inside one soldier's AI stop the game instead of being logged
 and skipped. Errors in a normal run go to `~/.fogofwar/error.log`.

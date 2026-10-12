@@ -385,6 +385,7 @@ def put_to_sea(game, kind, sid=None, station="bridge"):
     if kind == "convoy":
         mission["convoy"] = [s.id for s in ss.ships if s.side == side and s.cls == "ap"]
         mission["until"] = ss.t + 1800
+        _convoy_route(ss, mission)
     ss.mission = mission
     game.skysea = ss
     game.domain = "sea"
@@ -471,6 +472,7 @@ def new_orders(ss, game, kind, sorties=0, home=None) -> bool:
             conv.append(sh.id)
         m["convoy"] = conv
         m["until"] = ss.t + 1800
+        _convoy_route(ss, m)
     if kind == "cover":
         spot = _open_water(ss, x, y, 30, 80, rng) or (x, y)
         m["cover_pt"] = spot
@@ -485,6 +487,25 @@ def new_orders(ss, game, kind, sorties=0, home=None) -> bool:
         m["until"] = ss.t + 8 * 3600
     ss.mission = m
     return True
+
+
+def _convoy_route(ss, mission):
+    ship = ss.player_ship
+    point = None
+    for _ in range(20):
+        candidate = _open_water(ss, ship.x, ship.y, 60, 100, ss.rng())
+        if candidate is None:
+            break
+        steps = math.ceil(math.hypot(candidate[0]-ship.x, candidate[1]-ship.y))
+        if all(ss.is_sea(ship.x+(candidate[0]-ship.x)*i/steps,
+                         ship.y+(candidate[1]-ship.y)*i/steps) for i in range(steps+1)):
+            point = candidate
+            break
+    if point is None:
+        mission.update(stage="failed", text="No navigable escort route is available. Await fresh orders.")
+        return
+    mission["target_pt"] = point
+    mission["text"] = "Escort the merchantmen to the marked rendezvous. The ships must actually arrive."
 
 
 def air_raid(ss, game, target):
@@ -605,8 +626,7 @@ def check(ss: SkySea):
         g.msg(text, "good")
         g.command.merit += merit
         g.duty.rep += 2
-        if merit >= 8:
-            g.command._award(g, 1, f"for the {k} mission")
+        # Finishing a sortie is service; gallantry awards require witnessed deeds, as on land.
 
     def fail(text):
         m["stage"] = "failed"
@@ -686,17 +706,23 @@ def check(ss: SkySea):
             ss.over = ("landed", m["base"])
             return
         if me.state == "landed" and m["stage"] == "home":
+            hit = any(g2["dead"] for g2 in ss.ground) or any(s.sunk for s in ss.ships if s.side != me.side)
+            result = " Target destruction confirmed." if hit else " No target destruction confirmed."
+            if k not in ("attack", "dive", "strategic", "torpedo"):
+                result = " The assigned flight task is complete."
             done(f"{'The pilot puts' if g.__dict__.get('domain') == 'aboard' and ss.station != 'pilot' else 'You bring'} "
-                 f"the {me.name} down onto the field. Mission complete.", 8)
+                 f"the {me.name} down onto the field." + result, 8 if hit or k not in (
+                     "attack", "dive", "strategic", "torpedo") else 0)
             ss.over = ("landed", m["base"])
             return
         if m["stage"] == "home" and math.hypot(bx - me.x, by - me.y) < 2 and me.alt < 150 and me.kmh < 320:
-            done(f"You bring the {me.name} down onto the field. Mission complete.", 8)
-            ss.over = ("landed", m["base"])
+            # A low pass is not touchdown. The normal landing/flight code must finish the approach.
+            me.ai.update(role="home", home_pt=(bx, by))
+            me.ai["landing_assist"] = True
     # the sea
     if (k in SEA_MISSIONS or k in EXTRA_SEA) and ship is not None:
         enemies = [ss.entity(-i) for i in m.get("enemies", [])]
-        alive = [e for e in enemies if e is not None and e.alive]
+        alive = [e for e in enemies if e is None or e.alive]   # an absent entity is not a confirmed sinking
         if k == "rtb":
             px, py = m["port_pt"]
             if m.get("stage") == "rtb" and math.hypot(px - ship.x, py - ship.y) < 3:
@@ -709,13 +735,22 @@ def check(ss: SkySea):
                 if n and (ship.player or -ship.id in ss.contacts):
                     g.msg("Radar: 'Bogeys, many bogeys, closing from the " +
                           ("north" if rng.random() < 0.5 else "west") + "!'", "radio")
-            if ss.t >= m["until"]:
-                done("Relieved on station. The beachhead held, and their aircraft didn't get through to it.", 8)
+            elapsed = max(0, ss.t - m.get("station_checked", ss.t))
+            m["station_checked"] = ss.t
+            if math.hypot(ship.x-m["cover_pt"][0], ship.y-m["cover_pt"][1]) <= 15:
+                m["station_time"] = m.get("station_time", 0) + elapsed
+            if m.get("station_time", 0) >= m["until"] - m.get("start", 0):
+                done("The ordered air-cover watch is complete. Your ship remained on the assigned station.", 6)
             return
         if k == "rescue":
             rx, ry = m["rescue_pt"]
-            if math.hypot(rx - ship.x, ry - ship.y) < 2.5:
-                done(f"Scrambling nets over the side: you pull {m['survivors']} men out of the oil and the water.", 7)
+            elapsed = max(0, ss.t - m.get("rescue_checked", ss.t))
+            m["rescue_checked"] = ss.t
+            if math.hypot(rx - ship.x, ry - ship.y) < 2.5 and ship.kn <= 4:
+                m["rescue_work"] = m.get("rescue_work", 0) + elapsed
+                if m["rescue_work"] >= m["survivors"] * 6:
+                    ship.ai["rescued_survivors"] = ship.ai.get("rescued_survivors", 0) + m["survivors"]
+                    done(f"With the ship slowed for recovery, {m['survivors']} survivors are brought aboard.", 7)
             elif ss.t >= m["until"]:
                 fail("By the time she gets there, there's nobody left alive in the water.")
             return
@@ -735,16 +770,19 @@ def check(ss: SkySea):
                 fail("The enemy has slipped away. The force is ordered home.")
         elif k == "convoy":
             convoy = [ss.entity(-i) for i in m.get("convoy", [])]
-            lost = sum(1 for c in convoy if c is None or not c.alive)
-            if ss.t >= m["until"]:
-                if lost <= len(convoy) // 3:
-                    done(f"The convoy makes port. {lost} ship{'s' if lost != 1 else ''} lost.", 10)
-                else:
-                    fail(f"The convoy is scattered: {lost} ships lost.")
+            lost = sum(1 for c in convoy if c is not None and not c.alive)
+            point = m.get("target_pt")
+            if point is None:
+                _convoy_route(ss, m)       # old saves get one fixed physical destination
+            elif convoy and all(c is not None for c in convoy) and lost <= len(convoy)//3 and all(
+                    not c.alive or math.hypot(c.x-point[0], c.y-point[1]) <= 25 for c in convoy):
+                done(f"{len(convoy)-lost} merchantmen reach the escort rendezvous; {lost} ships were lost.", 6)
+            elif convoy and lost > len(convoy)//3:
+                fail(f"The escort has lost {lost} of its {len(convoy)} merchantmen.")
         elif k == "bombard" and m.get("shore") and m.get("shots", 0) >= 6:
-            done("Ashore, the troops are going forward behind your shells.", 8)
+            done(f"The requested fire programme is complete: {m['shots']} salvos delivered to the shore target.", 6)
         elif k == "bombard" and ss.t - m.get("start", 0) > 6 * 3600:
             if m.get("shots", 0) >= 2:
-                done("The shoot is called off: the army has what it needs.", 5)
+                done(f"The shoot is called off after {m['shots']} salvos; the full programme was not delivered.", 2)
             else:
                 fail("The bombardment is called off. The troops ashore went in without you.")

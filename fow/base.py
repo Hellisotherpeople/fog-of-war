@@ -1187,10 +1187,16 @@ def update(game):
     o = game.__dict__.get("base_order")
     if not o or _done(game, o):
         return
-    from .orders import deferred, pause_deadline
+    from .orders import deferred, compliance_pause
     blocked = deferred(game, "base")
-    pause_deadline(game, o, blocked)
-    if blocked:
+    target_sector = o.get("sector")
+    point = o.get("post") if target_sector == (game.sector.x, game.sector.y) else None
+    if point is None and target_sector:
+        from .orders import exit_point
+        edge = _next_edge(game, target_sector)
+        if edge:
+            point = exit_point(game, edge)
+    if compliance_pause(game, o, blocked, point=point):
         return
     p = game.player
     here = (game.sector.x, game.sector.y)

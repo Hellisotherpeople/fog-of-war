@@ -1,0 +1,125 @@
+{
+  "date": "2026-10-12",
+  "hardware": {
+    "cpu": "Apple M4 Pro",
+    "performance_cores": 10,
+    "efficiency_cores": 4,
+    "gpu_cores": 20,
+    "ram_gib": 48
+  },
+  "methodology": "Fresh process per run, no concurrent tests, 5 warmup turns then 180 timed turns. Reference differs only by full-roster scans in objective capture and aid-post surgeon selection. Digest covers core simulation state and RNG, not every subsystem.",
+  "runs": [
+    {
+      "battlefield": "large",
+      "final_actors": 2875,
+      "initial_actors": 2965,
+      "initialization_s": 4.871,
+      "machine": "arm64",
+      "max_ms": 1763.573,
+      "mean_ms": 379.801,
+      "p95_ms": 1050.566,
+      "peak_rss_mb": 2413.3,
+      "profiled": false,
+      "python": "3.12.11",
+      "radius": 640,
+      "seed": 42,
+      "state_digest": "a4638a111e4118b733f92bba0d6eca4fb4589bbfacbfe06828380c67461697cc",
+      "terrain_tiles": 1985281,
+      "theatre": "bocage44",
+      "turns": 180,
+      "variant": "reference",
+      "vehicles": 130
+    },
+    {
+      "battlefield": "large",
+      "final_actors": 2875,
+      "initial_actors": 2965,
+      "initialization_s": 4.977,
+      "machine": "arm64",
+      "max_ms": 1775.763,
+      "mean_ms": 339.313,
+      "p95_ms": 910.416,
+      "peak_rss_mb": 2388.5,
+      "profiled": false,
+      "python": "3.12.11",
+      "radius": 640,
+      "seed": 42,
+      "state_digest": "a4638a111e4118b733f92bba0d6eca4fb4589bbfacbfe06828380c67461697cc",
+      "terrain_tiles": 1985281,
+      "theatre": "bocage44",
+      "turns": 180,
+      "variant": "current",
+      "vehicles": 130
+    },
+    {
+      "battlefield": "large",
+      "final_actors": 496,
+      "initial_actors": 539,
+      "initialization_s": 1.529,
+      "machine": "arm64",
+      "max_ms": 144.543,
+      "mean_ms": 50.738,
+      "p95_ms": 113.388,
+      "peak_rss_mb": 433.7,
+      "profiled": false,
+      "python": "3.12.11",
+      "radius": 240,
+      "seed": 42,
+      "state_digest": "579df6ca19622c4b166c7b6b6b46aa8e92b08d7ef879fbc29426b8710942fecd",
+      "terrain_tiles": 370881,
+      "theatre": "bocage44",
+      "turns": 180,
+      "variant": "current",
+      "vehicles": 21
+    }
+  ],
+  "pre_optimization_profile": {
+    "total_seconds": 129.005,
+    "calls": 541260353,
+    "functions": [
+      {
+        "file": "fow/distancefield.py",
+        "function": "prepare",
+        "calls": 3364,
+        "self_seconds": 6.618,
+        "cumulative_seconds": 6.628
+      },
+      {
+        "file": "fow/commander.py",
+        "function": "update_objectives",
+        "calls": 36,
+        "self_seconds": 5.0,
+        "cumulative_seconds": 14.679
+      },
+      {
+        "file": "fow/ai.py",
+        "function": "soldier_act",
+        "calls": 493177,
+        "self_seconds": 2.769,
+        "cumulative_seconds": 75.449
+      },
+      {
+        "file": "fow/ai.py",
+        "function": "surgeon_act",
+        "calls": 5033,
+        "self_seconds": 3.17,
+        "cumulative_seconds": 7.155
+      },
+      {
+        "file": "fow/senses.py",
+        "function": "update_actor_vision",
+        "calls": 490104,
+        "self_seconds": 1.793,
+        "cumulative_seconds": 11.335
+      },
+      {
+        "file": "fow/fastpath.py",
+        "function": "dijkstra2d",
+        "calls": 95,
+        "self_seconds": 7.743,
+        "cumulative_seconds": 7.75
+      }
+    ],
+    "note": "Instrumented run before the two local-query optimizations; cumulative times overlap. Timings include profiler overhead."
+  }
+}

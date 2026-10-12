@@ -272,6 +272,28 @@ def _gather_drop(game, a, sq, t):
     before the enemy comes (agents.py)."""
     did = t.get("drop")
     m = game.map
+    cargo = [it for it in a.inv if (it.data or {}).get("drop") == did and not (it.data or {}).get("recovered")]
+    if cargo:
+        # Carry the actual stores to cover, then leave a physical pile that can be used or destroyed.
+        stash = t.get("drop_stash")
+        if stash is None:
+            choices = [(m.conceal[x,y], -math.hypot(x-a.x,y-a.y), x,y)
+                       for x in range(max(1,a.x-30),min(m.w-1,a.x+31))
+                       for y in range(max(1,a.y-30),min(m.h-1,a.y+31))
+                       if m.walk[x,y] and m.water[x,y] < 1 and math.hypot(x-a.x,y-a.y) >= 10]
+            if not choices:
+                return 100
+            _,_,x,y = max(choices)
+            stash = t["drop_stash"] = (x,y)
+        if max(abs(a.x-stash[0]),abs(a.y-stash[1])) > 1:
+            from .ai import path_step
+            return path_step(game,a,*stash) or 100
+        for it in cargo:
+            a.remove_item(it)
+            it.data["recovered"] = True
+            m.add_item(*stash,it)
+            t["found"]["stores carried to cover"] += 1
+        return 300
     tgt = a.ai.get("task_pile")
     if tgt is None:
         taken = {o.ai.get("task_pile") for o in sq.members if o is not a}
@@ -279,7 +301,7 @@ def _gather_drop(game, a, sq, t):
         for (x, y), items in list(getattr(m, "items", {}).items()):
             if (x, y) in taken:
                 continue
-            if any((it.data or {}).get("drop") == did for it in items):
+            if any((it.data or {}).get("drop") == did and not (it.data or {}).get("recovered") for it in items):
                 piles.append((math.hypot(x - a.x, y - a.y), x, y))
         if not piles:
             a.ai["task_done"] = True
@@ -296,11 +318,17 @@ def _gather_drop(game, a, sq, t):
         a.ai.pop("task_pile", None)
         return None
     for it in list(m.items_at(x, y)):
-        if (it.data or {}).get("drop") == did:
-            m.remove_item(x, y, it)
-            t["found"]["containers' worth of stores hidden"] += 1
+        if (it.data or {}).get("drop") == did and not (it.data or {}).get("recovered"):
+            loaded = a.add_item(it) is not None
+            if not loaded and a.invent.hands is None:
+                a.invent.hands = it
+                it.where = "carried"
+                loaded = True
+            if loaded:
+                m.remove_item(x, y, it)
+                break
     a.ai.pop("task_pile", None)
-    return 600                                        # unbuckling a parachute harness from a container, and away
+    return 600                                        # unbuckling and loading the real stores
 
 
 def _bring_papers(game, a, sq, t):

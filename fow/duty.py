@@ -191,10 +191,15 @@ class Duty:
             return                     # (he's already told you; or you've enough on)
         uid = self.__dict__.get("_uid", 0) + 1
         self._uid = uid
+        allowance = int(DEADLINE[kind] / STRICT.get(sup.nation, 1.0))
+        if kind == "dig":
+            from .actions import digging_seconds
+            allowance += digging_seconds(game, game.player)
+            target = target or game.player.pos
         ts.append(dict(kind=kind, by=sup.id, by_name=f"{sup.rank_short} {sup.last_name}", target=target,
                        by_role=sup.role_name, by_nation=sup.nation, by_rank=sup.rank, uid=uid,
                        _priority_checked=game.turn,
-                       issued=game.turn, deadline=game.turn + int(DEADLINE[kind] / STRICT.get(sup.nation, 1.0)),
+                       issued=game.turn, deadline=game.turn + allowance,
                        nagged=False, **data))
         self._say(game, sup, TASK_PHRASE[kind], TASK_TEXT[kind])
         game.update_orders(force=True)
@@ -297,18 +302,35 @@ class Duty:
         self.next_task = game.turn + rng.randint(60, 180)
 
     def _check_task(self, game, t):
-        from .orders import deferred, pause_deadline
+        from .orders import deferred, compliance_pause
         blocked = deferred(game, f"duty:{t.get('uid')}")
         was_blocked = t.get("_priority_paused", False)
-        pause_deadline(game, t, blocked)
+        p = game.player
+        working = False
+        if t["kind"] == "dig":
+            at = p.ai.get("dig_at") == p.pos and (t.get("target") is None or math.dist(p.pos, t["target"]) <= 2)
+            progress = p.dig_progress if at else 0
+            working = at and (progress > t.get("dig_seen", 0) or p.ai.get("dig_work_until", -1) >= game.turn)
+            t["dig_seen"] = progress
+            if not p.has_tool("shovel"):
+                working = True            # lack of tools is a supply problem, not refusal
+        elif t["kind"] == "track":
+            v = next((v for v in game.vehicles if v.id == t.get("vid")), None)
+            working = v is not None and p.ai.get("helping") == v.id and v.near(p.x, p.y) <= 1
+        elif t["kind"] == "help":
+            patient = self._actor(game, t.get("target"))
+            bleeding = patient.body.bleed_rate() if patient is not None else None
+            previous = t.get("bleeding_seen")
+            working = bleeding is not None and previous is not None and bleeding < previous
+            t["bleeding_seen"] = bleeding
+        paused = compliance_pause(game, t, blocked, working=working, point=self.task_point(game, t))
         if (blocked or was_blocked) and t["kind"] in ("help", "ammo", "come", "runner"):
             recipient = self._actor(game, t.get("target"))
             if recipient is None or not recipient.alive:
                 self._drop(t)  # nobody is punished for a task becoming impossible during higher duty
                 return
-        if blocked:
+        if paused:
             return
-        p = game.player
         k = t["kind"]
         tgt = t.get("target")
         m = game.map
@@ -358,7 +380,8 @@ class Duty:
             a = self._actor(game, tgt)
             done = a is None or max(abs(a.x - p.x), abs(a.y - p.y)) <= 5
         elif k == "dig":
-            done = m.pos_cover[p.x, p.y] >= 45
+            target = t.get("target") or p.pos
+            done = m.in_bounds(*target) and m.tile(*target).key in ("foxhole", "trench", "trench_snow")
         elif k == "runner":
             a = self._actor(game, tgt)
             if a is None or not a.alive:

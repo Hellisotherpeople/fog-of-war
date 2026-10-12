@@ -737,6 +737,24 @@ def _consume(owner, item):
         owner.remove_item(item)
 
 
+def digging_rate(game, a):
+    """Work per digging action, also used for honest time estimates and order deadlines."""
+    from .skills import level
+    shovel = a.has_tool("shovel")
+    if shovel is None:
+        return 0.
+    rate = (.65 + level(a, "construction") * .07) * (.5 if game.map.climate == "winter" else 1)
+    if game.map.tile(a.x, a.y).key in ("crater", "crater_big"):
+        rate *= 2
+    return rate * shovel.condition
+
+
+def digging_seconds(game, a):
+    import math
+    progress = a.dig_progress if a.ai.get("dig_at") == a.pos else 0
+    return math.ceil(max(0, 7200-progress) / max(.01, digging_rate(game, a)) * 100 / max(1, a.speed(game.turn)))
+
+
 def dig(game, a) -> int | None:
     m = game.map
     tid = m.t[a.x, a.y]
@@ -747,12 +765,11 @@ def dig(game, a) -> int | None:
     if a.ai.get("dig_at") != (a.x, a.y):
         a.ai["dig_at"] = (a.x, a.y)
         a.dig_progress = 0
-    from .skills import level, use
-    rate = (.65 + level(a, "construction") * .07) * (.5 if m.climate == "winter" else 1)
+    from .skills import use
+    rate = digging_rate(game, a)
     use(game, a, "construction", .015)
-    if T.DEFS[int(tid)].key in ("crater", "crater_big"):
-        rate *= 2
-    a.dig_progress += rate * a.has_tool("shovel").condition
+    a.dig_progress += rate
+    a.ai["dig_work_until"] = game.turn + max(2, math.ceil(100 / max(1, a.speed(game.turn))))
     if a.dig_progress % 10 == 0:
         game.emit_sound(a.x, a.y, 22, "digging", "digging", a.side, a)
     if a.dig_progress >= 7200:

@@ -400,6 +400,8 @@ class VoiceBank:
         self.ready: dict = {}          # render key -> mono float32 at SR (clean, unprocessed)
         self.failed: set = set()
         self.queued: set = set()
+        self.urgent: set = set()      # live lines promoted ahead of background warming
+        self.rendering: set = set()
         self.clips: dict = {}          # (render key, pitch, style) -> processed clip
         self.lock = threading.Lock()
         self.rng = np.random.default_rng(11)
@@ -511,8 +513,10 @@ class VoiceBank:
         with self.lock:
             raw = self.ready.get(rk)
             if raw is None:
-                if rk not in self.queued and rk not in self.failed:
+                if rk not in self.failed and (rk not in self.queued or not warm and rk not in self.urgent):
                     self.queued.add(rk)
+                    if not warm:
+                        self.urgent.add(rk)
                     self._seq += 1
                     self.jobs.put((1 if warm else 0, self._seq, (rk, spk.voice, text, rate, spk.pbas)))
                 return None
@@ -539,13 +543,21 @@ class VoiceBank:
     def _work(self):
         while True:
             _, _, (rk, voice, text, rate, pbas) = self.jobs.get()
+            with self.lock:
+                if rk not in self.queued or rk in self.rendering:
+                    continue                 # a promoted live request already completed this warm job
+                self.rendering.add(rk)
             try:
                 self._job(rk, voice, text, rate, pbas)
             except Exception:
                 # (a full disk or a vanished cache folder mustn't kill the worker - and with it every voice)
                 with self.lock:
                     self.queued.discard(rk)
+                    self.urgent.discard(rk)
                     self.failed.add(rk)
+            finally:
+                with self.lock:
+                    self.rendering.discard(rk)
 
     def _job(self, rk, voice, text, rate, pbas):
         if True:
@@ -574,6 +586,7 @@ class VoiceBank:
                     raw = None
             with self.lock:
                 self.queued.discard(rk)
+                self.urgent.discard(rk)
                 if raw is not None:
                     if len(self.ready) > self.MAX_READY:
                         for k in list(self.ready)[: self.MAX_READY // 4]:

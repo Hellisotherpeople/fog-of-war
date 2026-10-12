@@ -450,7 +450,7 @@ class Audio:
         self.apply_volume()
 
     def busy(self):
-        return bool(self.scheduled)
+        return bool(self.scheduled or self.voice_wait)
 
     def voices_on(self):
         return self.enabled and bool(self.settings.get("voices", True))
@@ -596,10 +596,6 @@ class Audio:
     # ---------------------------------------------------------------- voices
     def _warm(self, game):
         """Render the armies' stock lines in the background, before anyone needs them."""
-        key = (id(game), getattr(game.sector, "name", ""))
-        if key in self._warmed:
-            return
-        self._warmed.add(key)
         bank = self._bank()
         avail = bank.available() if callable(getattr(bank, "available", None)) else getattr(bank, "available", True)
         if not avail:
@@ -611,6 +607,10 @@ class Audio:
         order = ("contact", "attack", "grenade", "medic", "pain", "reload", "mg", "tank", "sniper", "retreat",
                  "surrender")
         for nat in sorted(nations, key=lambda n: n != game.player_nation):
+            key = (id(game), nat, self.settings.get("voice_engine", "neural"))
+            if key in self._warmed:
+                continue
+            self._warmed.add(key)
             sh = NATIONS[nat]["shouts"]
             lines = [x for k in order for x in sh.get(k, [])]
             lines += [x.replace("{rank}", "") for x in R.ACK.get(nat, [])] + all_lines(nat)
@@ -620,15 +620,21 @@ class Audio:
                     bank.request(spk, ln, "scream" if ln in pain else "shout", warm=True)
 
     def _voice_events(self, game, p, events):
-        # a long wait can produce dozens: only the last few lines matter
-        for ev in events[-6:]:
+        from .speech import voice_level, event_position
+        # Choose audible lines before limiting concurrency: far-away actors cannot crowd out nearby speech.
+        candidates = [(voice_level(p, *event_position(game, ev), ev[4], ev[7])[1], i, ev)
+                      for i, ev in enumerate(events)]
+        candidates = sorted((c for c in candidates if c[0] >= .015), key=lambda c: (-c[0], -c[1]))
+        for _gain, _i, ev in candidates[:6]:
             self.voice_wait.append((time.time() + (2.5 if ev[7].get("style") == "radio" else 1.2), ev))
+        self.voice_wait = self.voice_wait[-18:]
         self._retry_voices(game, p)
 
     def _retry_voices(self, game, p):
         if not self.voice_wait:
             return
         now = time.time()
+        from .speech import voice_level, playing, event_position
         bank = self._bank()
         keep = []
         lx, ly = (p.vehicle.x, p.vehicle.y) if p.vehicle is not None else (p.x, p.y)
@@ -636,15 +642,10 @@ class Audio:
         self.voice_until = [t for t in self.voice_until if t > now]
         for give_up, ev in self.voice_wait:
             kind, weapon, x, y, loud, power, turn, info = ev
+            x, y = event_position(game, ev)
             own = info.get("own")
             style = info.get("style", "shout")
-            d = 0.0 if (own or style == "radio") else math.hypot(x - lx, y - ly)
-            level = loud - 20 * math.log10(max(1.0, d))
-            amp = 10 ** ((level - 70) / 20.0) * (0.25 if deaf else 1.0)
-            if own:
-                amp = 0.45 * (0.3 if deaf else 1.0)
-            elif style == "radio":
-                amp = 0.4 * (0.35 if deaf else 1.0)
+            d, amp = voice_level(p, x, y, loud, info)
             if amp < 0.015:
                 continue                  # too far to hear a word
             spk = bank.speaker(info["nation"], info["sid"], info.get("female", False), info.get("role", ""))
@@ -665,6 +666,7 @@ class Audio:
                 gr = math.sin((pan + 1) * math.pi / 4)
             amp = min(0.9, amp * 1.6)
             self.play(clip, gl * amp, gr * amp, min(0.25, d / 340.0 * 2), cat="voices")
+            playing(game, info, turn, len(clip) / SR + min(0.25, d / 340.0 * 2), ev)
             self.voice_until.append(now + len(clip) / SR)
         self.voice_wait = keep
 

@@ -958,6 +958,7 @@ class Game:
         d = dict(self.__dict__)
         d.pop("_nb_cache", None)            # regenerated on demand
         d.pop("_prefs", None)               # the player's settings live in settings.json, not the save
+        d.pop("_speech_captions", None)     # screen-time captions are not simulation/save state
         d.pop("_order_hint", None)
         d.pop("_vis_mat", None)             # this turn's distance matrix
         # the id counters, so nothing made after loading can share an id with something already in the world
@@ -1614,9 +1615,11 @@ class Game:
         nation = p.nation
         if lang(nation) != "en" and not is_native(nation, line):
             return            # the report is in the game's language, not his: the set just crackles
-        self.audio("voice", p.x, p.y, 62, extra=dict(text=line, nation=nation, sid=("radio", who) if not mine else p.id,
-                                                      female=p.female if mine else False, role="",
-                                                      style="talk" if mine else "radio", own=mine))
+        info = dict(text=line, nation=nation, sid=("radio", who) if not mine else p.id,
+                    female=p.female if mine else False, role="", style="talk" if mine else "radio", own=mine)
+        from .speech import remember
+        remember(self, p.x, p.y, 62, info, p if mine else None)
+        self.audio("voice", p.x, p.y, 62, extra=info)
 
     def _collect_speech(self):
         """Every line spoken this turn becomes a sound (the audio system decides who hears it)."""
@@ -1626,14 +1629,18 @@ class Game:
                 continue
             a.spoken = None
             line, turn, tone = sp
-            if not line or not a.alive or (a.vehicle is not None and a is not self.player and
+            if not a.alive or (a.vehicle is not None and a is not self.player and
                                            (self.player is None or self.player.vehicle is not a.vehicle)):
                 continue
             from .prosody import style_for
             emotion = style_for(a, tone)
-            self.audio("voice", a.x, a.y, 40 if emotion == "whisper" else 50 if tone == "talk" else 66,
-                       extra=dict(text=line, nation=a.nation, sid=a.id, female=a.female, role=a.role,
-                                  style=tone, emotion=emotion, own=a.is_player))
+            loud = 40 if emotion == "whisper" else 50 if tone == "talk" else 66
+            info = dict(text=line, caption=a.shout[0] if a.shout else line, nation=a.nation,
+                        sid=a.id, female=a.female, role=a.role, style=tone, emotion=emotion, own=a.is_player)
+            from .speech import remember
+            remember(self, a.x, a.y, loud, info, a)
+            if line:
+                self.audio("voice", a.x, a.y, loud, extra=info)
 
     def msg_near(self, x, y, text, cat="info"):
         if self.player is not None and math.hypot(x - self.player.x, y - self.player.y) < 25:
@@ -2418,6 +2425,18 @@ class Game:
         ev = getattr(self, "audio_events", None)
         if ev is None:
             ev = self.audio_events = []
+        if kind == "voice" and self.__dict__.get("landscape") is not None and self.landscape.frame is self.map:
+            extra = dict(extra, speech_world=self.landscape.world_pos(x, y))
+        if kind == "voice" and self.player is not None:
+            from .speech import voice_level
+            if voice_level(self.player, x, y, loud, extra)[1] < .015:
+                return
+            if len(ev) >= 400:
+                # A busy battle may fill the effects queue before speech is collected this turn.
+                # Keep the bounded queue, but reserve a place for an audible spoken line.
+                oldest_effect = next((i for i, e in enumerate(ev) if e[0] != "voice"), None)
+                if oldest_effect is not None:
+                    ev.pop(oldest_effect)
         if len(ev) < 400:
             ev.append((kind, weapon, x, y, loud, power, self.turn, extra))
 

@@ -191,6 +191,9 @@ def hand_over_papers(ps, officer, via_qm=False):
         if via_qm:
             c = int(c * 0.7)
         p.remove_item(it)
+        mission = g.__dict__.get('mission') or {}
+        if mission.get('doc') == it.iid:
+            mission['documents_delivered'] = dict(turn=g.turn, officer=officer.id)
         total_c += c
         total_m += mrt
         what = "; ".join(info) if info else "tells us little"

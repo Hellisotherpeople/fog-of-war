@@ -1643,6 +1643,17 @@ def move_with_squad(game, a, sq, sstate) -> int:
     m = game.map
     if a.ai.get("to_aid") is not None:
         return 100                                    # (the walking wounded are going back, not with the squad)
+    mission = game.__dict__.get("mission") or {}
+    withdrawing = mission.get("kind") == "breakout" and mission.get("stage") == "break" or \
+        mission.get("kind") == "rearguard" and mission.get("stage") == "withdraw"
+    if withdrawing and not a.is_player and sq is not None and not sq.player_led and a.id in mission.get("roster", ()):
+        # The NPC-led group has the same withdrawal briefing as the player. Combat and medical AI
+        # still run first; this replaces its ordinary marching destination, not its actions.
+        from .mission_evidence import rally_point
+        target = rally_point(game, mission)
+        if target and max(abs(a.x-target[0]), abs(a.y-target[1])) > 4:
+            return path_step(game, a, *target[:2]) or 100
+        return 100
     if a.is_player and game.__dict__.get("autopilot"):
         from .orders import active, navigation
         current = active(game)
@@ -2494,7 +2505,7 @@ def surgeon_act(game, a, vis) -> int | None:
         return medic_act(game, a, vis)
     best = None
     bs = 0.0
-    for o in game.actors:
+    for o in game.near(a.x, a.y, 14, side=a.side):
         if o.side != a.side or not o.alive or o is a or o.vehicle is not None or o.ai.get("surgery") is not None:
             continue
         if max(abs(o.x - a.x), abs(o.y - a.y)) > 14 or not MED.at_aid_post(game, o):
