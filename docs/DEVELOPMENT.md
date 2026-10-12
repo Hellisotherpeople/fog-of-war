@@ -68,9 +68,6 @@ in any script that plays the game.
 .venv/bin/python -m pytest tests/test_staff_career.py tests/test_ui_search.py
 ```
 
-The optional sampler project under `integrations/` has its own dependencies and tests; the
-command above runs the game's suite without requiring its PyTorch installation.
-
 The smoke tests start every battle on both sides, every service, save and load aboard a ship
 and a bomber, check a carrier is built full size, and run a carrier battle for four hours of game
 time to make sure the war at sea goes somewhere. The full suite also exercises the moving land world;
