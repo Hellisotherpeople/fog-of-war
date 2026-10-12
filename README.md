@@ -49,9 +49,10 @@ That's all: three packages (`tcod`, `numpy`, `pillow`), no other assets to downl
 shouts and radio traffic are spoken through your system's speech engine if it has one: built in on
 macOS, and on Linux or Windows install [espeak-ng](https://github.com/espeak-ng/espeak-ng)
 (`sudo apt install espeak-ng`). Without it the game is the same, just quieter.
-Speech also appears as readable bubbles over visible soldiers. Crew, radio and unseen speakers
-get captions along the battlefield edge; these work with sound off and stay long enough to read
-while turns advance. Unseen voices do not reveal soldiers' identities or exact positions.
+Speech also appears as readable bubbles over visible soldiers, even with sound off, and stays
+long enough to read while turns advance. Extra captions along the battlefield edge are off by
+default; enable **Esc > Options > UI speech captions** for crew, radio, unseen speakers, and
+bubbles that cannot fit. Unseen voices do not reveal soldiers' identities or exact positions.
 
 **Natural voices (optional).** For voices that sound like people rather than a speech engine,
 install [Piper](https://github.com/rhasspy/piper), a small neural voice that runs on your own

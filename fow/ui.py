@@ -1742,6 +1742,9 @@ class OptionsState:
              "them, and the guesses still appear on the map).", ("all", "near", "off")),
             ("DISPLAY", None, "head", "", None),
             ("Graphics", "sprites", "toggle", "Sprites or ASCII (F2).", None),
+            ("UI speech captions", "speech_captions", "toggle",
+             "Show speech along the battlefield edge when its speaker is unseen, in a vehicle, or has no room "
+             "for a bubble. Soldier speech bubbles stay on. Off by default.", None),
             ("Font", "font", "cycle", "DejaVu Sans Mono or the classic bitmap font (F4).", ("ttf", "bitmap")),
             ("Animations", "anim_speed", "cycle", "How long shots and blasts stay on screen: slow ones play "
              "second by second in the order they happened.", ("fast", "normal", "slow", "very slow")),
