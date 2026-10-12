@@ -111,15 +111,38 @@ def objective_owner(game, side, index, observers=None):
     """Start-line briefing, then nearby observations that can reach command."""
     ob = game.map.objectives[index]
     known = game.map.__dict__.setdefault("objective_reports", {s: {} for s in SIDES})[side]
-    if index not in known:
-        known[index] = ob.owner if game.turn < 30 else None
+    # Reports belong to the persistent landmark, not its index in a moving terrain window.
+    reports = ob.__dict__.setdefault("reported_owners", {})
+    if side not in reports:
+        reports[side] = known.get(index, ob.owner if game.turn < 30 else None)
     from .senses import los_clear
     if observers is None:
         observers = game.near_people_many([(ob.x, ob.y, ob.radius + 6)])[0]
     if any(a.side == side and a.active and not a.downed and distance(a.pos, (ob.x, ob.y)) <= ob.radius + 6
            and radio_link(game, a) and los_clear(game, a.x, a.y, ob.x, ob.y) for a in observers):
-        known[index] = ob.owner
+        reports[side] = ob.owner
+    known[index] = reports[side]
     return known[index]
+
+
+def local_objective_owner(game, squad, index):
+    """A leader can use his section's nearby observations without informing distant HQ."""
+    from .command import leader_of
+    from .senses import los_clear
+    leader = leader_of(squad)
+    if leader is None or not leader.active or leader.downed:
+        return None
+    ob = game.map.objectives[index]
+    for a in squad.members:
+        if (not a.active or a.downed or a.ai.get("civilian") or a.side != squad.side
+                or distance(a.pos, ob.pos) > ob.radius + 6):
+            continue
+        if not los_clear(game, *a.pos, *ob.pos):
+            continue
+        if (a is leader or distance(a.pos, leader.pos) <= 12 and los_clear(game, *a.pos, *leader.pos)
+                or radio_link(game, a) and radio_link(game, leader)):
+            return ob.owner
+    return None
 
 
 def _snapshot(strategic, sector, side, turn):

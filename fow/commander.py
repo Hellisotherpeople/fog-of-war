@@ -5,19 +5,54 @@ from .ai import Order
 from .constants import SIDES, other_side
 
 
+def _presence(game, ob):
+    present = {s: 0 for s in SIDES}
+    r2 = ob.radius * ob.radius
+    for a in game.near(ob.x, ob.y, ob.radius):
+        if not a.active or a.downed or a.vehicle is not None or a.ai.get("civilian"):
+            continue
+        if (a.x - ob.x) ** 2 + (a.y - ob.y) ** 2 <= r2:
+            present[a.side] += 1
+    for v in game.vehicles:
+        if v.active and (v.x - ob.x) ** 2 + (v.y - ob.y) ** 2 <= r2:
+            present[v.side] += 2
+    return present
+
+
+def consolidate_objective(game, sq, index=None):
+    """Recognize secured ground locally; neither a capture award nor a radio transmission."""
+    from .intelligence import local_objective_owner
+    o = sq.order
+    if index is None:
+        if o.kind not in ("attack", "assault"):
+            return False
+        index = o.obj
+    if index is None or not 0 <= index < len(game.map.objectives):
+        return False
+    ob = game.map.objectives[index]
+    if ob.owner != sq.side or ob.contested or local_objective_owner(game, sq, index) != sq.side:
+        return False
+    # Squad updates can run between the five-second capture checks. An enemy who
+    # just entered the area still contests it, even before ob.contested is refreshed.
+    if _presence(game, ob)[other_side(sq.side)]:
+        return False
+    intent = sq.rep.get("intent")
+    if intent and intent.get("mission") == "seize" and tuple(intent["target"]) == ob.pos:
+        intent["completed"] = True
+    game.command.apply(game, sq, Order("defend", obj=index, radius=ob.radius,
+                                      issued=game.turn, src=o.src, roe=o.roe))
+    sq.rep["objective_secured_turn"] = game.turn
+    sq.rep["initiative_note"] = f"{ob.name.capitalize()} secured; holding the ground."
+    if sq is game.player.squad:
+        game.msg(f"Your section has secured {ob.name} and is holding the position.", "good")
+        game.update_orders(force=True)
+    return True
+
+
 def update_objectives(game, interval: int):
     m = game.map
     for i, o in enumerate(m.objectives):
-        present = {s: 0 for s in SIDES}
-        r2 = o.radius * o.radius
-        for a in game.near(o.x, o.y, o.radius):
-            if not a.active or a.downed or a.vehicle is not None or a.ai.get("civilian"):
-                continue
-            if (a.x - o.x) ** 2 + (a.y - o.y) ** 2 <= r2:
-                present[a.side] += 1
-        for v in game.vehicles:
-            if v.active and (v.x - o.x) ** 2 + (v.y - o.y) ** 2 <= r2:
-                present[v.side] += 2
+        present = _presence(game, o)
         sides_here = [s for s in SIDES if present[s] > 0]
         o.contested = len(sides_here) == 2
         if len(sides_here) == 1:
@@ -43,7 +78,7 @@ def commander_update(game, side: str):
     objs = m.objectives
     if not objs:
         return
-    from .intelligence import objective_owner
+    from .intelligence import objective_owner, local_objective_owner, distance
     observers = game.near_people_many([(o.x, o.y, o.radius + 6) for o in objs])
     owners = {i: objective_owner(game, side, i, observers[i]) for i in range(len(objs))}
     enemy = other_side(side)
@@ -89,9 +124,24 @@ def commander_update(game, side: str):
         anc = sq.anchor()
         if anc is None:
             continue
+        if consolidate_objective(game, sq):
+            continue
         o = sq.order
+        if (o.kind == "defend" and o.obj is not None and not objs[o.obj].contested
+                and objs[o.obj].owner == side
+                and game.turn - sq.rep.get("objective_secured_turn", -999) < 60):
+            continue
+        # This unit's own observations can correct its instructions without revealing them
+        # to other units. In particular, an unknown HQ report is not an order to retake
+        # friendly ground that the section can see it already holds.
+        local_owners = dict(owners)
+        for i, ob in enumerate(objs):
+            if distance(anc, ob.pos) <= ob.radius + 18:
+                local = local_objective_owner(game, sq, i)
+                if local is not None:
+                    local_owners[i] = local
         if side == attacker or game.attacker is None:
-            targets = [i for i, ob in enumerate(objs) if owners[i] != side]
+            targets = [i for i, ob in enumerate(objs) if local_owners[i] != side]
             if not targets:
                 # everything taken: consolidate
                 if o.kind != "defend":
@@ -120,7 +170,7 @@ def commander_update(game, side: str):
             sq.arrived = False
         else:
             # defender
-            if o.kind == "defend" and o.obj is not None and owners[o.obj] == enemy:
+            if o.kind == "defend" and o.obj is not None and local_owners[o.obj] == enemy:
                 # lost it - counterattack at once, before they've dug in, if what's left of us here can beat
                 # what we know is there (the German Gegenstoss); else fall back to another
                 near = [q for q in squads if q.order.obj == o.obj and q.anchor() is not None]
@@ -129,13 +179,13 @@ def commander_update(game, side: str):
                     sq.order = Order("attack", obj=o.obj, radius=objs[o.obj].radius, issued=game.turn)
                     sq.arrived = False
                     continue
-                mine = [i for i, ob in enumerate(objs) if owners[i] == side]
+                mine = [i for i, ob in enumerate(objs) if local_owners[i] == side]
                 if mine:
                     best = min(mine, key=lambda i: (objs[i].x - anc[0]) ** 2 + (objs[i].y - anc[1]) ** 2)
                     sq.order = Order("defend", obj=best, radius=objs[best].radius, issued=game.turn)
                     sq.arrived = False
                 continue
-            if o.kind == "attack" and o.obj is not None and owners[o.obj] == side:
+            if o.kind == "attack" and o.obj is not None and local_owners[o.obj] == side:
                 sq.order = Order("defend", obj=o.obj, radius=objs[o.obj].radius, issued=game.turn)
                 continue
             if o.kind in ("hold", "move") and sq.kind not in ("mg", "mortar", "sniper", "hq", "atgun"):

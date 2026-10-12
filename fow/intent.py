@@ -121,6 +121,9 @@ def _order(game, sq, kind, target):
 
 
 def update(game, sq):
+    from .commander import consolidate_objective
+    if not sq.gone:
+        consolidate_objective(game, sq)
     intent = sq.rep.get("intent")
     if not intent or sq.gone or game.turn < intent.get("next", 0):
         return
@@ -151,7 +154,13 @@ def update(game, sq):
     if intent.get("halted"):
         return
     if mission == "seize":
-        if distance(pos, target) <= 5 and not contacts:
+        objective = next((i for i, ob in enumerate(game.map.objectives) if ob.pos == target), None)
+        if objective is not None:
+            if not intent["completed"]:
+                consolidate_objective(game, sq, objective)
+            if intent["completed"]:
+                return
+        elif distance(pos, target) <= 5 and not contacts:
             if not intent["completed"]:
                 intent["completed"] = True
                 _order(game, sq, "dig", target)
