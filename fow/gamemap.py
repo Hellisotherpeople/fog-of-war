@@ -24,7 +24,8 @@ class Objective:
         self.radius = radius
         self.kind = kind
         self.owner = None         # side currently controlling it
-        self.hold_time = 0        # consecutive turns held uncontested by the owner
+        self.hold_time = 0        # consecutive seconds held uncontested by the capturing side
+        self.capturing_side = None
         self.contested = False
         self.value = 1
 

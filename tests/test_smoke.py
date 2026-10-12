@@ -474,6 +474,10 @@ def test_fire_support_comes_from_real_units():
     f = g.support.fires
     mine = [b for b in f.batteries if b.side == p.side]
     assert mine and all(b.name and b.guns > 0 and b.ammo > 0 for b in mine)
+    # A fire request needs a real radio, independently of the starting roster's
+    # chance of placing an available radioman within speaking distance.
+    from fow.entities import Item
+    p.invent.slots['pack'] = Item('radio')
     e = next(a for a in g.actors if a.side != p.side and a.alive)
     before = {b.id: b.ammo for b in mine}
     assert g.support.request_fire(p.side, e.x, e.y, caller=p)

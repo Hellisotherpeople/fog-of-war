@@ -3438,8 +3438,9 @@ class PlayState:
             g.duty.rep += 0.5
             return self.act(60)
         if what == "give_smoke":
-            cig = p.find(lambda i: i.t.tool == "cigarettes")
-            p.remove_item(cig, 1)
+            cig = p.find(lambda i: i.t.tool == "cigarettes" and i.uses > 0)
+            if cig is None or not p.consume_use(cig):
+                return
             who.morale = min(100.0, who.morale + 10)
             g.duty.rep += 1
             who.say(g.rng.choice(["Thanks, pal.", "God bless you.", "Lifesaver."]) if who.nation in (
@@ -4441,9 +4442,7 @@ class PlayState:
         rng = g.rng
 
         def used_one():
-            it.uses -= 1
-            if it.uses <= 0:
-                p.remove_item(it)
+            p.consume_use(it)
         if tool == "stimulant":
             used_one()
             last = p.ai.get("stim_turn", -10 ** 9)
@@ -4555,12 +4554,12 @@ class PlayState:
             g.msg("You take a drink." if tool == "canteen" else "The spirit burns going down. Better.", "info")
             return self.act(A.drink(g, p, it))
         if tool == "cigarettes":
-            it.uses -= 1
+            if not p.consume_use(it):
+                g.msg("The packet is empty.", "info")
+                return
             p.morale = min(100, p.morale + 6)
             p.suppression = max(0, p.suppression - 15)
             g.msg(f"You light a {NATIONS[p.nation]['cigs']}. Your hands stop shaking, a little.", "info")
-            if it.uses <= 0:
-                p.remove_item(it)
             if g.is_night():
                 g.map.lights.append([p.x, p.y, 1, g.turn + 30])
             return self.act(300)

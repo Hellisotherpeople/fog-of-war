@@ -290,9 +290,7 @@ class _Q:
     def smoke(game, a, mates, cig):
         t = game.turn
         a.morale = min(100.0, a.morale + 3)
-        cig.uses -= 1
-        if cig.uses <= 0:
-            a.remove_item(cig)
+        a.consume_use(cig)
         m = game.map
         if game.is_dark:
             m.lights.append((a.x, a.y, 1, t + 8))         # the glow of a cigarette: it can be seen
@@ -300,7 +298,7 @@ class _Q:
         if want and cig.uses > 0:
             o = want[0]
             if say(game, a, "offer_smoke", "talk", gap=3):
-                cig.uses -= 1
+                a.consume_use(cig)
                 o.morale = min(100.0, o.morale + 5)
                 o.ai["replies"] = ("thanks", t + 3)
                 _seen(game, a, f"{game.name_of(a)} shares a cigarette with {game.name_of(o)}.")
@@ -387,29 +385,22 @@ class _Q:
 
 
 def _swap(a, x, b, y) -> bool:
-    """Hand x (his) over for y (the other man's), if they both have room - else neither moves.  (Held apart
-    from stacks while it happens: an item merged into another stack can't be taken back out whole.)"""
-    marks = []
-    for it in (x, y):
-        if not it.data:
-            it.data = {"_swap": 1}
-            marks.append(it)
-    try:
-        ax = a.remove_item(x)
-        by = b.remove_item(y)
-        if a.add_item(by) is None:
-            a.add_item(ax)
-            b.add_item(by)
+    """Exchange whole offers only if both inventories can accommodate them."""
+    from copy import deepcopy
+    if not a.invent.contains(x) or not b.invent.contains(y):
+        return False
+    # Adding may merge or split stacks. Check both resulting inventories before
+    # touching either offer, so a failed trade cannot leave half an offer behind.
+    for actor, outgoing, incoming in ((a, x, y), (b, y, x)):
+        inv, out, inc = deepcopy((actor.invent, outgoing, incoming))
+        inv.remove(out)
+        inc.grid = inc.gpos = None
+        if inv.add(inc) is None:
             return False
-        if b.add_item(ax) is None:
-            a.remove_item(by)
-            a.add_item(ax)
-            b.add_item(by)
-            return False
-        return True
-    finally:
-        for it in marks:
-            it.data = None
+    ax, by = a.remove_item(x), b.remove_item(y)
+    a.add_item(by)
+    b.add_item(ax)
+    return True
 
 
 def _seen(game, a, text):

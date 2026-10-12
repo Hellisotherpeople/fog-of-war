@@ -585,9 +585,14 @@ def pickup(game, a, item, x=None, y=None) -> int | None:
         a.helmet = item
         _enemy_helmet_warning(game, a, item)
         return 150
+    before = item.count
     if a.add_item(item) is None:
-        return None
-    m.remove_item(x, y, item)
+        if item.count == before:
+            return None
+        # Some of a stack fitted. Its remainder stays at the original location,
+        # but actually picking up those supplies still takes an action.
+    else:
+        m.remove_item(x, y, item)
     if a.is_player:
         from .entities import lose_count
         lose_count(item)
@@ -631,7 +636,7 @@ def wield(game, a, item) -> int | None:
 
 def drink(game, a, item) -> int:
     t = item.t
-    if not item.functional:
+    if not item.functional or item.uses <= 0 or not a.invent.contains(item):
         return 0
     if t.tool == "canteen":
         needs = a.ai.setdefault("needs", dict(hunger=0., thirst=0., infection=0.))
@@ -645,9 +650,7 @@ def drink(game, a, item) -> int:
         a.body.alcohol += 1.0
         a.body.pain = max(0, a.body.pain - 10)
         a.morale = min(100, a.morale + 8)
-    item.uses -= 1
-    if item.uses <= 0:
-        a.remove_item(item)
+    a.consume_use(item)
     return 150
 
 
@@ -860,9 +863,13 @@ def resupply(game, a) -> int | None:
     if len(a.grenades()) < 2:
         gid = pick_grenade(game.rng, a.nation, game.year)
         n = min(2, int(stores(game.sector, a.side)["ammo"] * 2))
-        if gid and n and a.add_item(Item(gid, n)) is not None:
-            take(game.sector, a.side, "ammo", n / 2)
-            got.append(ITEMS[gid].name)
+        if gid and n:
+            bundle = Item(gid, n)
+            complete = a.add_item(bundle) is not None
+            received = n if complete else n - bundle.count
+            if received:
+                take(game.sector, a.side, "ammo", received / 2)
+                got.append(ITEMS[gid].name)
     if got:
         a.ai["resupplied_turn"] = game.turn
     if a.is_player:

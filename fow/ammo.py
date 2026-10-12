@@ -160,8 +160,11 @@ def reload(game, actor, gun=None, speed=False) -> int | None:
                     gun.loaded += use
                     need -= use
                     if use < n:
-                        # leftover rounds go loose into a pocket
-                        actor.add_item(_loose(gun, n - use))
+                        # The unused cartridges retain the clip's condition. Keep
+                        # them on the ground if the pockets cannot hold them all.
+                        leftover = _loose(gun, n - use, quality=it.condition)
+                        if actor.add_item(leftover) is None:
+                            game.map.add_item(actor.x, actor.y, leftover)
                     it.count -= 1
                     cost += 70
                 if it.count <= 0:
@@ -177,10 +180,11 @@ def reload(game, actor, gun=None, speed=False) -> int | None:
     return _reload_loose(game, actor, gun)
 
 
-def _loose(gun, n):
+def _loose(gun, n, quality=None):
     from .entities import Item
     rounds = Item(ammo_id(gun.t.cal), n)
-    quality = (gun.data or {}).get("rounds_condition", 1.)
+    if quality is None:
+        quality = (gun.data or {}).get("rounds_condition", 1.)
     if quality < 1:
         rounds.condition = quality
     return rounds
@@ -218,6 +222,7 @@ def unload(actor, gun):
     if gun.mag_item is not None:
         m = gun.mag_item
         m.loaded = gun.loaded
+        m.known_rounds = gun.known_rounds
         gun.mag_item = None
         gun.loaded = 0
         if actor.add_item(m) is None:

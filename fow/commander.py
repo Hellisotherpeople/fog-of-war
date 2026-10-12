@@ -58,16 +58,22 @@ def update_objectives(game, interval: int):
         if len(sides_here) == 1:
             s = sides_here[0]
             if o.owner != s:
+                if getattr(o, "capturing_side", None) != s:
+                    o.hold_time = 0
+                o.capturing_side = s
                 o.hold_time += interval
                 if o.hold_time >= 20:
                     prev = o.owner
                     o.owner = s
                     o.hold_time = 0
+                    o.capturing_side = None
                     game.on_objective_taken(i, s, prev)
             else:
                 o.hold_time = 0
-        elif not sides_here:
+                o.capturing_side = None
+        else:
             o.hold_time = 0
+            o.capturing_side = None
 
 
 def commander_update(game, side: str):

@@ -157,7 +157,7 @@ def _draw(ps, qm, t, kinds):
     elif t.kind == "medical" and t.med == "bandage":
         n = 2
     it = Item(t.id, n)
-    if p.add_item(it) is None:
+    if not p.invent.can_add(it) or p.add_item(it) is None:
         g.msg("You've no room to carry it.", "warn")
         return _draw_list(ps, qm, kinds)
     add_credit(g, -pr)

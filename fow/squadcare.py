@@ -69,6 +69,20 @@ def low_ammo(actor):
     return w.loaded <= max(1, w.t.mag // 2) and spare_rounds(actor, w) < max(1, w.t.mag)
 
 
+def _same_battlefield(game, job):
+    landscape = game.__dict__.get("landscape")
+    return (landscape is not None and landscape.frame is game.map) or \
+        job["sector"] == (game.sector.x, game.sector.y)
+
+
+def _valid_claim(game, a, recipient, kind):
+    job = a.ai.get("support_job")
+    return job and a.active and not a.downed and a.vehicle is None and \
+        a.suppression < 65 and a.morale >= 20 and a.z == recipient.z and \
+        job["target"] == recipient.id and job["kind"] == kind and \
+        job["until"] > game.turn and _same_battlefield(game, job)
+
+
 def claimed(game, recipient, kind, except_actor=None):
     # Medics consider many casualties. Index the few actual errands once per turn, not
     # every soldier for every candidate. Revalidate each entry as men get hit or diverted.
@@ -80,12 +94,7 @@ def claimed(game, recipient, kind, except_actor=None):
             if job:
                 by_target.setdefault((job["target"], job["kind"]), []).append(a)
         cache = game._support_claims = (game.turn, by_target)
-    return any((job := a.ai.get("support_job")) and a is not except_actor and a.active and
-               not a.downed and a.vehicle is None and
-               a.suppression < 65 and a.morale >= 20 and
-               job["target"] == recipient.id and
-               job["kind"] == kind and job["until"] > game.turn and
-               job["sector"] == (game.sector.x, game.sector.y)
+    return any(a is not except_actor and _valid_claim(game, a, recipient, kind)
                for a in cache[1].get((recipient.id, kind), ()))
 
 
@@ -96,9 +105,7 @@ def aid_claimed(game, patient, helper):
     if care_need(patient)[0] < 3:
         return True
     own_distance = distance(helper, patient)
-    return any(a is not helper and a.active and not a.downed and a.vehicle is None and
-               (job := a.ai.get('support_job')) and job['kind'] == 'aid' and
-               job['target'] == patient.id and job['until'] > game.turn and
+    return any(a is not helper and _valid_claim(game, a, patient, 'aid') and
                distance(a, patient) <= own_distance
                for a in game.near(patient.x, patient.y, own_distance + 1, patient.side))
 
@@ -129,7 +136,7 @@ def dispatch(game, sq):
     sq.support_checked = game.turn
     for member in sq.members:
         job = member.ai.get("support_job")
-        if job and (job["until"] <= game.turn or job["sector"] != (game.sector.x, game.sector.y)):
+        if job and (job["until"] <= game.turn or not _same_battlefield(game, job)):
             member.ai.pop("support_job", None)
     if any(m.ai.get("support_job") and m.active and not m.downed for m in sq.members):
         return
@@ -197,7 +204,7 @@ def act(game, helper, enemies):
         return None
     sq = helper.squad
     target = next((a for a in game.actors if a.id == job["target"]), None)
-    if job["until"] <= game.turn or job["sector"] != (game.sector.x, game.sector.y) or \
+    if job["until"] <= game.turn or not _same_battlefield(game, job) or \
             sq is None or sq.state in WITHDRAWING or sq.order.kind in WITHDRAWING or \
             sq.order.kind == "ambush" or sq.__dict__.get("task") is not None or \
             target is None or not eligible_patient(game, target, helper.side) or target.z != helper.z or \

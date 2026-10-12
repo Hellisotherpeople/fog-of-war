@@ -88,7 +88,18 @@ def squad(sq, dx, dy, seen):
             # Object identity is captured separately before objective lists change.
     sq.positions = {k: point(v, dx, dy) for k, v in sq.positions.items()}
     sq.flank_target = point(sq.flank_target, dx, dy)
+    for key in ('beaten', 'fired_from'):
+        if key in sq.__dict__:
+            setattr(sq, key, point(getattr(sq, key), dx, dy))
     records(sq.__dict__.get('rep', {}), dx, dy)
+
+
+def remember_objective(sq, m):
+    """An objective belongs to its order, never to a subsequent order for the squad."""
+    if sq.order.obj is not None and 0 <= sq.order.obj < len(m.objectives):
+        sq.order.world_objective = m.objectives[sq.order.obj]
+    # Legacy saves kept this on the squad, where it could outlive the order.
+    sq.__dict__.pop('_world_objective', None)
 
 
 class Landscape:
@@ -318,8 +329,7 @@ class Landscape:
             v._stream_dormant = True
             self.vehicles[v.id] = v
         for sq in ctx.squads:
-            if sq.order.obj is not None and sq.order.obj < len(m.objectives):
-                sq._world_objective = m.objectives[sq.order.obj]
+            remember_objective(sq, m)
             sq.order.obj = None
             squad(sq, dx, dy, seen)
             self.squads[sq.id] = sq
@@ -432,8 +442,7 @@ class Landscape:
                 self.works.append(project)
         # Preserve target objects before rebuilding the index used by Dijkstra maps.
         for sq in game.squads:
-            if sq.order.obj is not None and sq.order.obj < len(game.map.objectives):
-                sq._world_objective = game.map.objectives[sq.order.obj]
+            remember_objective(sq, game.map)
         self.actors.update((a.id, a) for a in game.actors)
         self.vehicles.update((v.id, v) for v in game.vehicles)
         self.squads.update((sq.id, sq) for sq in game.squads)
@@ -567,7 +576,20 @@ class Landscape:
         objective_ids = {ob._world_pos: i for i, ob in enumerate(m.objectives)}
         for sq in squads:
             squad(sq, -ox, -oy, seen)
-            sq.order.obj = objective_ids.get(getattr(sq.__dict__.get('_world_objective'), '_world_pos', None))
+            # Dormant squads from older saves have not yet passed through the
+            # active-order migration above. Preserve their original assignment.
+            legacy = sq.__dict__.pop('_world_objective', None)
+            if sq.order.world_objective is None:
+                sq.order.world_objective = legacy
+            ob = sq.order.world_objective
+            sq.order.obj = objective_ids.get(getattr(ob, '_world_pos', None))
+            if sq.order.obj is not None:
+                # A compressed sector can restore a new instance of the same
+                # persistent objective. Bind to the currently simulated one.
+                sq.order.world_objective = m.objectives[sq.order.obj]
+            elif ob is not None:
+                target_wx, target_wy = ob._world_pos
+                sq.order.target = (target_wx-ox, target_wy-oy)
         game.actors, game.vehicles, game.squads = actors, vehicles, squads
         for sq in squads:
             if sq.formation is None:
@@ -620,10 +642,11 @@ class Landscape:
         return dx, dy
 
     def _shift_game(self, g, dx, dy):
-        for key in ('shells', 'explosives', 'effects', 'impacts', 'medevac',
+        for key in ('shells', 'explosives', 'effects', 'medevac',
                     'field_order', 'base_order', 'mission', 'intel_pending', 'identity_check',
                     '_counter_battery', '_cb_warn', 'agent'):
             records(g.__dict__.get(key), dx, dy)
+        g.impacts = [point(v, dx, dy) for v in g.__dict__.get('impacts', ())]
         g.pending_explosions = [point(v, dx, dy) for v in g.pending_explosions]
         g.smoke_sources = [point(v, dx, dy) for v in g.smoke_sources]
         g.audio_events = [(kind, weapon, x+dx, y+dy, loud, power, turn, extra)
@@ -734,8 +757,7 @@ class Landscape:
                 v._stream_dormant = True
                 self.vehicles[v.id] = v
             for sq in ctx.squads:
-                if sq.order.obj is not None and sq.order.obj < len(m.objectives):
-                    sq._world_objective = m.objectives[sq.order.obj]
+                remember_objective(sq, m)
                 sq.order.obj = None
                 squad(sq, dx, dy, seen)
                 self.squads[sq.id] = sq
