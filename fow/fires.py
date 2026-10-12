@@ -521,8 +521,11 @@ class Fires:
                 m["player_left"] = 0
                 m["player_total"] = 0
             if m.get("player_left", 0) > 0 and "deadline" in m:
-                from .orders import deferred, pause_deadline
-                pause_deadline(game, m, deferred(game, "fire"))
+                from .orders import deferred, compliance_pause
+                fired = m.get("player_fired", 0)
+                working = fired > m.get("_compliance_fired", fired)
+                m["_compliance_fired"] = fired
+                compliance_pause(game, m, deferred(game, "fire"), working=working)
             if game.turn < m["start"]:
                 continue
             if m.get("player_left") and not m.get("announced"):

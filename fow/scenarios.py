@@ -352,6 +352,8 @@ def setup_player(game, sid, notes):
                                                                  "vehicles, then melt away into the woods.")
             notes.append("The road runs past the wood. Scouts say trucks come through most days.")
     elif sid in ("encircled", "rearguard"):
+        if sid == "encircled":
+            _encircled_pocket(game, home)
         for sq in game.squads:
             if sq.side == side:
                 for a in sq.members:
@@ -362,13 +364,14 @@ def setup_player(game, sid, notes):
             game.schedule_wave(enemy, Counter({"inf": rng.randint(3, 5), "mg": 1}), e, delay=rng.randint(200, 600))
         if sid == "encircled":
             game.mission = dict(kind="breakout", stage="break", home=home,
-                                text=f"Break out {_edge_word(home)} to our own lines. Bring the wounded if you can.")
+                                text="Get your group out of the pocket and account for the survivors at the "
+                                     "marked friendly rally post. Bring the wounded.")
             notes.append("The last radio message said the corridor is closing. Nobody is coming for you.")
         else:
             game.mission = dict(kind="rearguard", stage="hold", until=game.turn + rng.randint(1200, 2100), home=home,
                                 text="Hold this ground until the withdrawal is complete. Then fall back.")
-            notes.append("The column behind you is ten miles of trucks and horses. Every minute you hold is a "
-                         "thousand men who get away.")
+            notes.append("Hold the assigned ground for the ordered interval, then bring your group back to "
+                         "the rally post. Leaving the position early does not count as holding it.")
     elif sid == "sniper":
         sq = p.squad
         spot = make_soldier(game, p.nation, "rifleman")
@@ -400,6 +403,50 @@ def setup_player(game, sid, notes):
         authority = 13 if game.mission["kind"] == "agent" else \
             12 if sid in ("rearguard", "defence", "assault", "armour") else 10
         game.mission.setdefault("authority", min(18, max(authority, p.rank + 1)))
+        from .mission_evidence import prepare
+        prepare(game, game.mission)
+
+
+def _encircled_pocket(game, home):
+    """Start inside an actual pocket, with a physical blocking force on the route to friendly lines."""
+    from .ai import Order
+    from .spawn import place, make_squad, pick_nation
+    from .strategic import DIRS
+    p, m = game.player, game.map
+    sq = p.squad
+    if sq is None:
+        return
+    cx, cy = m.w // 2, m.h // 2
+    # Place the existing group, retaining its members, kit and vehicles.
+    for a in list(sq.members):
+        if a.vehicle is None:
+            game.remove_actor(a)
+            place(game, a, cx, cy, 10)
+    for v in sq.vehicles:
+        game.lift_vehicle(v)
+        old = v.pos
+        for dx in range(-12, 13):
+            for dy in range(-12, 13):
+                room = game._vehicle_room(v, cx + dx, cy + dy, v.facing)
+                if room is not None and not room[1] and not room[2]:
+                    v.x, v.y = cx + dx, cy + dy
+                    break
+            if v.pos != old:
+                break
+        game.place_vehicle(v)
+        for a in v.crew_actors + v.passengers:
+            a.x, a.y = v.pos
+    sq.order = Order("follow", issued=game.turn, src="player") if sq.leader is p else Order(
+        "move", target=(cx, cy), issued=game.turn)
+    dx, dy = DIRS[home]
+    enemy = other_side(p.side)
+    nation = pick_nation(game, enemy)
+    for ox, oy in ((dx, dy), (-dy, dx), (dy, -dx)):
+        x, y = cx + ox * 35, cy + oy * 35
+        blocking = make_squad(game, enemy, nation, "rifle", x, y, name="blocking detachment")
+        if blocking:
+            blocking.mission_cordon = True
+            blocking.order = Order("defend", target=(x, y), radius=8, issued=game.turn)
 
 
 def _set_night(game):
@@ -483,50 +530,44 @@ def update(game):
     p = game.player
     if p is None or not p.alive:
         return
-    rng = game.rng
     k = ms["kind"]
     side = p.side
-    st = game.strategic
-    home_side = game.sector.control == side and not ms.get("was_start_sector", False)
+    from . import mission_evidence as evidence
+    evidence.prepare(game, ms)
 
     def done(text, merit=6):
-        ms["stage"] = "done"
-        game.msg(text, "good")
-        game.command.merit += merit
-        game.duty.rep += merit
-        if merit >= 6:
-            game.command._award(game, 1 if merit < 10 else 2,
-                                f"for the {ms.get('award_for') or SCENARIOS[ms['sid']]['name'].lower()}")
-        game.update_orders(force=True)
+        evidence.complete(game, ms, text, merit)
 
     if "_start_sector" not in ms:
         ms["_start_sector"] = game.sector
     here = game.sector is ms["_start_sector"]          # objectives and targets are on the mission's own map
-    friendly_ground = game.sector.control == side and not here
+    friendly_ground = evidence.receiver(game, ms) is not None if ms.get("stage") in (
+        "return", "exfil", "home", "withdraw", "out") or k in ("breakout", "evader") else False
     if k == "patrol":
-        seen = len(game.brains[side].contacts) - ms["base"]
+        seen = evidence.observe(game, ms)
         if ms["stage"] == "observe" and seen >= ms["need"]:
             ms["stage"] = "return"
             ms["text"] = f"You've seen enough. Get back to our lines ({_edge_word(ms['home'])}) and report."
             game.msg("You've seen what you came to see. Now get home alive.", "good")
             game.update_orders(force=True)
         elif ms["stage"] == "return" and friendly_ground:
-            done("You make it back through the wire and report what you saw. The intelligence officer writes "
-                 "everything down.", 8)
+            ms["reported_positions"] = dict(ms["observations"])
+            done(f"At the rally post, you report {len(ms['observations'])} enemy positions your patrol observed.", 8)
     elif k == "raid":
         if ms["stage"] == "destroy" and here:
             rec = ms.get("rec")
             left = _explosive_count(game.map, rec)
-            guns = [v for v in game.vehicles if rec and not v.dead and v.side != side and v.vt.static
-                    and rec["rect"][0] <= v.x < rec["rect"][0] + rec["rect"][2]
-                    and rec["rect"][1] <= v.y < rec["rect"][1] + rec["rect"][3]]
-            if (ms["base"] and left <= ms["base"] * 0.4) or (rec and rec.get("kind") == "artillery" and not guns):
+            guns = [evidence.entity(game, vid, vehicles=True) for vid in ms.get("gun_targets", [])]
+            in_frame = rec and game.map.in_bounds(rec["rect"][0], rec["rect"][1]) and game.map.in_bounds(
+                rec["rect"][0] + rec["rect"][2] - 1, rec["rect"][1] + rec["rect"][3] - 1)
+            if (in_frame and ms["base"] and left <= ms["base"] * 0.4) or (
+                    guns and all(v is not None and (v.dead or v.side == side) for v in guns)):
                 ms["stage"] = "exfil"
                 ms["text"] = f"It's done. Get out - {_edge_word(ms['home'])}, back toward our lines."
-                game.msg("Secondary explosions tear the night apart. The target is burning. Go!", "good")
+                game.msg("The briefed target has been put out of action. Return to the rally post.", "good")
                 game.update_orders(force=True)
-        elif ms["stage"] == "exfil" and (friendly_ground or game.sector is not ms["_start_sector"]):
-            done("You slip away as the fires light the sky behind you. The raid is a success.", 10)
+        elif ms["stage"] == "exfil" and friendly_ground:
+            done("You reach the rally post and report the destruction of the raid's target.", 10)
     elif k == "agent" and ms.get("task") not in (None, "steal_plans"):
         from .agents import update as agent_update
         agent_update(game, ms, done, friendly_ground, here)
@@ -538,57 +579,76 @@ def update(game):
             game.msg("The operation orders. Maps, timings, units. Men will live because of these - if you get "
                      "them home.", "good")
             game.update_orders(force=True)
-        elif ms["stage"] == "home" and has and game.sector.control == side:
-            done("You cross into your own lines and hand the plans to the first officer you find. Within the hour "
-                 "they're on a staff car to Army headquarters.", 14)
+        elif ms["stage"] == "home" and ms.get("documents_delivered"):
+            done("The captured operation orders have been handed to friendly staff for intelligence review.", 14)
             from .logistics import _enemy_plan
             plan = _enemy_plan(game, side)
             if plan:
                 game.msg(f"Intelligence: the plans {plan}", "radio")
     elif k == "evader":
-        if game.sector.control == side and game.sector is not ms["_start_sector"]:
-            done("A sentry challenges you in your own language. You nearly weep. You're home.", 10)
+        if friendly_ground:
+            done("You reach the friendly post and identify yourself to its staff. Your escape is reported.", 2)
     elif k == "partisans":
         if ms["stage"] == "wait" and game.turn >= ms["convoy_turn"]:
             _spawn_convoy(game, ms)
             ms["stage"] = "ambush"
             game.msg("Engines on the road - the convoy is coming.", "warn")
         elif ms["stage"] == "ambush":
-            dead = sum(1 for v in game.vehicles if v.id in ms.get("convoy", []) and (v.dead or v.abandoned))
+            targets = [evidence.entity(game, vid, vehicles=True) for vid in ms.get("convoy", [])]
+            dead = sum(1 for v in targets if v is not None and v.dead)
             if dead >= ms["need"]:
                 ms["stage"] = "vanish"
                 ms["until"] = game.turn + 240
+                ms["withdraw_world"] = evidence.world_pos(game, p)
                 ms["text"] = "Enough. Melt away into the woods before their reaction force arrives."
                 game.msg("Trucks burning on the road. Now go, before they come.", "good")
                 game.update_orders(force=True)
         elif ms["stage"] == "vanish":
             enemy_near = any(a.side != side and a.active and max(abs(a.x - p.x), abs(a.y - p.y)) < 20
                              for a in game.actors)
-            if game.turn >= ms["until"] and not enemy_near:
-                done("By dawn you're ten miles away. Somewhere behind you, they're burning a village for it.", 8)
+            if not enemy_near and evidence.clear_of_target(game, ms, 40) and game.map.conceal[p.x, p.y] >= 25:
+                done("Your convoy targets are destroyed. You break contact and reach cover away from the ambush.", 8)
     elif k == "breakout":
-        if game.sector.control == side and game.sector is not ms["_start_sector"]:
-            done("You stagger into friendly lines with what's left. The breakout worked.", 10)
+        if friendly_ground:
+            arrived, dead, missing = evidence.team_at_rally(game, ms)
+            ms["accounted"] = dict(arrived=arrived, dead=dead, missing=missing)
+            if missing:
+                text = f"At the rally post: {len(arrived)} arrived, {len(dead)} killed, {len(missing)} still missing. " \
+                       "Your group's withdrawal is not complete. Regroup or recover the missing men."
+                if ms["text"] != text:
+                    ms["text"] = text
+                    game.msg(text, "warn")
+                    game.update_orders(force=True)
+            else:
+                done(f"The rally post accounts for your group: {len(arrived)} reached friendly lines; "
+                     f"{len(dead)} were killed. " + ("You are the only survivor." if len(arrived) == 1 else
+                     "The surviving group has been recovered."), 2 if len(arrived) == 1 else 6)
     elif k == "rearguard":
-        if ms["stage"] == "hold" and game.turn >= ms["until"]:
+        if ms["stage"] == "hold" and evidence.holding(game, ms, mission_objectives(game) if here else []):
             ms["stage"] = "withdraw"
-            ms["text"] = f"The withdrawal is complete. Fall back {_edge_word(ms['home'])}!"
-            game.msg("Radio: 'Withdrawal complete. Rearguard, pull out - pull out now!'", "radio")
+            ms["text"] = "Your ordered holding interval is complete. Bring the group back to the rally post."
+            game.msg(ms["text"], "good")
             game.update_orders(force=True)
-        elif ms["stage"] == "withdraw" and game.sector is not ms["_start_sector"]:
-            done("You break contact and fall back. Thousands got away because you held.", 10)
+        elif ms["stage"] == "withdraw" and friendly_ground:
+            arrived, dead, missing = evidence.team_at_rally(game, ms)
+            if not missing:
+                done(f"After holding the assigned ground, {len(arrived)} of your group reach the rally post; "
+                     f"{len(dead)} were killed.", 6)
     elif k == "sniper":
-        if p.kills - ms["base"] >= ms["need"]:
-            done("Word is the enemy won't show his head anywhere on this front. Your spotter carves another notch.",
-                 8)
+        if len(ms["confirmed_targets"]) >= ms["need"]:
+            done(f"You have put {len(ms['confirmed_targets'])} enemy leaders or weapon specialists out of action.", 8)
     elif k == "hold":
         objs = mission_objectives(game)
-        if here and game.turn >= ms["until"] and objs and all(o.owner == side for o in objs):
-            done("Relief arrives. You held.", 10)
+        if evidence.holding(game, ms, objs if here else []):
+            done("Your ordered holding interval is complete. The assigned objectives remain in friendly hands.", 6)
     elif k == "take":
         objs = mission_objectives(game)
-        if here and objs and all(o.owner == side for o in objs):
-            done("The field is ours.", 8)
+        armour = [evidence.entity(game, vid, vehicles=True) for vid in ms.get("armour_targets", [])]
+        defeated = all(v is not None and (v.dead or v.abandoned or v.side == side) for v in armour)
+        if here and objs and all(o.owner == side for o in objs) and defeated:
+            done("The briefed objectives are held by friendly forces." +
+                 (" The identified enemy armour has been put out of action." if armour else ""),
+                 6 if ms["capture_required"] or armour else 0)
 
 
 def _spawn_convoy(game, ms):
@@ -658,11 +718,15 @@ def mission_point(game):
     kind, stage = ms.get("kind"), ms.get("stage")
     going_home = stage in ("return", "exfil", "home", "withdraw", "away", "out") or kind in ("evader", "breakout")
     if going_home:
-        edge = ms.get("home") or game.home_edge(p.side)
-        if edge:
-            x, y = exit_point(game, edge)
-            return x, y, "Return toward friendly lines"
-        return None
+        if kind == "agent" and stage == "away":
+            return None                  # break contact and relocate; an edge is not an extraction
+        if kind == "agent" and stage == "home" and ms.get("doc"):
+            from .contacts import entry
+            delivery = entry(game)
+            if delivery:
+                return delivery["point"]
+        from .mission_evidence import rally_point
+        return rally_point(game, ms)
     start = ms.get("_start_sector", game.sector)
     if game.sector is not start:
         from .base import _next_edge

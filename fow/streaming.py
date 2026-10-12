@@ -18,8 +18,8 @@ LAYERS = ('t', 'hp', 'var', 'fire', 'smoke', 'blood', 'scorch', 'explored', 'ele
 POINTS = frozenset(('target', 'last_pos', 'last_seen_pos', 'origin', 'point', 'pos', 'destination',
                    'path_goal', 'post', 'rally', 'flank_target', 'staff_rendezvous', 'home',
                    'fired_on', 'throw_smoke', 'df_pos', 'anchor', 'src', 'aim_point', 'aim_target'))
-POINTS = POINTS | {'last_shot', 'dig_at', 'run_pos', 'source', 'dz'}
-POINT_LISTS = frozenset(('path', 'targets', 'tiles', 'route', 'pts'))
+POINTS = POINTS | {'last_shot', 'dig_at', 'run_pos', 'source', 'dz', 'task_pile', 'drop_stash'}
+POINT_LISTS = frozenset(('path', 'targets', 'tiles', 'route', 'pts', 'rail_tiles'))
 
 
 def point(value, dx, dy):
@@ -615,6 +615,8 @@ class Landscape:
             records(g.__dict__.get(key), dx, dy)
         g.pending_explosions = [point(v, dx, dy) for v in g.pending_explosions]
         g.smoke_sources = [point(v, dx, dy) for v in g.smoke_sources]
+        g.audio_events = [(kind, weapon, x+dx, y+dy, loud, power, turn, extra)
+                          for kind, weapon, x, y, loud, power, turn, extra in g.audio_events]
         for mark in g.sound_marks:
             mark.x += dx
             mark.y += dy

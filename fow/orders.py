@@ -116,7 +116,7 @@ def book(game) -> list:
                "patrol": "the company commander's briefing"}.get(ms.get("kind"),
                    "battalion's briefing" if ms.get("authority", mission_authority(ms)) >= 12 else "company's briefing")
         out.append(dict(key="mission", who=who, how="briefing", text=ml, issued=ms.get("start"), due=None,
-                        reward="a line in your record, and a medal recommendation if it's done well",
+                        reward="verified mission service; decorations require separately witnessed deeds",
                         penalty="the mission fails - and the men who sent you will know why", urgent=False,
                         point=point, authority=ms.get("authority", mission_authority(ms))))
     from .service import entry as service_entry
@@ -142,7 +142,8 @@ def book(game) -> list:
         text = f"Report back to {t['by_name']} with what you brought back." if returning else TASK_TEXT[t["kind"]]
         out.append(dict(key=f"duty:{t.get('uid')}", uid=t.get("uid"),
                         who=f"{t['by_name']}" + (f", {t['by_role'].lower()}" if t.get("by_role") else ""),
-                        how=how, text=text, issued=t["issued"], due=t["deadline"],
+                        how=how, text=text + (" (Deadline paused: " + t['compliance'] + ".)" if t.get('compliance') else ""),
+                        issued=t["issued"], due=t["deadline"],
                         reward=("his trust" if r < 3 else "his trust, and a line in your record") +
                         f" ({PRAISE.get(nat, 'he will remember it')})",
                         penalty=f"a strike against you: {sanction(t.get('by_nation', nat), next_level, p.rank)}",
@@ -454,6 +455,9 @@ def authorized_departure(game, edge):
         ms = game.mission
         if ms.get("stage") in ("return", "exfil", "home", "withdraw", "away", "out") or \
                 ms.get("kind") in ("evader", "breakout"):
+            if ms.get('rally_destination'):
+                from .base import _next_edge
+                return edge == _next_edge(game, ms['rally_destination']['sector'])
             return edge == (ms.get("home") or game.home_edge(game.player.side))
         if game.sector is not ms.get("_start_sector", game.sector):
             from .base import _next_edge
@@ -477,6 +481,45 @@ def pause_deadline(game, task, blocked):
             task["start"] += elapsed  # higher duty does not count as time served on the guard post
     task["_priority_checked"] = game.turn
     task["_priority_paused"] = blocked
+
+
+def compliance_pause(game, task, blocked=False, *, working=False, point=None):
+    """A deadline measures neglect, not time spent obeying or surviving an interruption."""
+    p = game.player
+    reason = "higher-priority orders" if blocked else None
+    safety = None
+    if not p.body.conscious or p.downed:
+        safety = "incapacitated"
+    elif p.suppression > 8 or game.turn - p.hit_turn < 30:
+        safety = "taking cover under fire"
+    else:
+        cache = game.__dict__.get("_duty_threat")
+        if cache is None or cache[0] != game.turn:
+            cache = game._duty_threat = (game.turn, bool(game.seen_enemies(within=35)))
+        if cache[1]:
+            safety = "enemy contact"
+    if safety:
+        task["resume_after"] = game.turn + 120
+    elif game.turn < task.get("resume_after", -1):
+        safety = "returning to the task after danger"
+    advancing = False
+    if point is not None:
+        distance = math.hypot(p.x-point[0], p.y-point[1])
+        best = distance if blocked or safety else task.get("closest", distance)
+        advancing = distance < best - .2
+        task["closest"] = min(best, distance)
+    reason = reason or safety or ("work in progress" if working else "moving to the task" if advancing else None)
+    if reason:
+        task["compliance"] = reason
+        task["nagged"] = False
+    else:
+        task.pop("compliance", None)
+    pause_deadline(game, task, bool(reason))
+    if reason:
+        # Old saves or a late check can already have an expired deadline. Current compliance
+        # must never produce a reprimand merely because the original allowance was impossible.
+        task["deadline"] = max(task["deadline"], game.turn + 120)
+    return bool(blocked or safety)
 
 
 def recall(game, authority, who, reason):

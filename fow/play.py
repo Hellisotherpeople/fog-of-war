@@ -173,6 +173,7 @@ class PlayState:
         self.layers = None
         self.overlay = None
         if not p.body.conscious and not g.game_over:
+            g.__dict__.pop("_speech_captions", None)
             con.draw_rect(0, 0, VIEW_W, VIEW_H, ord(" "), bg=(0, 0, 0))
             t = ["...", "Voices, far away.", "Someone is shouting your name.", "Cold. So cold."]
             con.print(VIEW_W // 2 - 10, VIEW_H // 2, t[(g.turn // 20) % len(t)], fg=(120, 60, 60))
@@ -3899,9 +3900,7 @@ class PlayState:
                 g.msg("You can't dig here.", "info")
             return
         if not self.__dict__.get("digging"):
-            from .skills import level
-            rate = (.65 + level(p, "construction") * .07) * (.5 if g.map.climate == "winter" else 1)
-            left = max(1, int((7200 - p.dig_progress) / rate / 60))
+            left = max(1, math.ceil(A.digging_seconds(g, p) / 60))
             g.msg(f"You start digging in - about {left} minutes of work, if they let you. (any key stops)", "info")
         self.digging = True
         self.mark_interrupt()

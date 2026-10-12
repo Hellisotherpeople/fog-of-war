@@ -355,6 +355,7 @@ def _setup_sabotage(game, ms, notes):
         ms.update(target="rail", tx=int(x), ty=int(y), stage="plant",
                   text=f"Cut the railway ({_where(game, x, y)}): charges under the rails, time pencils set, and "
                        f"be gone before they go off.")
+        ms['rail_tiles'] = [(int(rx), int(ry)) for rx, ry in rails if abs(rx-x) <= 4 and abs(ry-y) <= 4]
     else:
         for kind in ("depot", "motor_pool", "artillery", "airfield", "aa", "hq"):
             rec = _enemy_installation(game, enemy, kind)
@@ -488,6 +489,7 @@ def _setup_photograph(game, ms, notes):
 def update(game, ms, done, friendly_ground, here):
     """Every few seconds (scenarios.update): has the mission moved on?"""
     p = game.player
+    from . import mission_evidence as evidence
     task = ms["task"]
     if task == "sabotage":
         _update_sabotage(game, ms, done, friendly_ground, here)
@@ -496,34 +498,37 @@ def update(game, ms, done, friendly_ground, here):
     elif task == "wireless":
         if ms["stage"] == "send" and _state(game)["sent"] >= ms["need"]:
             ms["stage"] = "away"
-            ms["text"] = "The traffic's out. Now pack the set and get off this map before the cars come."
+            ms["withdraw_world"] = evidence.world_pos(game, p)
+            ms["text"] = "The traffic's out. Pack the set and relocate at least 120 metres, clear of enemy contact."
             game.update_orders(force=True)
-        elif ms["stage"] == "away" and not here:
+        elif ms["stage"] == "away" and evidence.clear_of_target(game, ms):
             done(f"You're clear. {base_city(p)} has your messages; somewhere a staff officer is moving pins on a map.", 8)
     elif task == "eliminate":
-        mark = next((a for a in game.actors if a.id == ms["mark"]), None)
-        if ms["stage"] == "kill" and (mark is None or not mark.alive):
+        mark = evidence.entity(game, ms["mark"])
+        if ms["stage"] == "kill" and mark is not None and not mark.alive:
             ms["stage"] = "away"
-            ms["text"] = "It's done. Get clear - off this map."
+            ms["withdraw_world"] = evidence.world_pos(game, mark)
+            ms["text"] = "The target is dead. Break contact and get at least 120 metres clear of the site."
             game.msg("The man is dead. The network breathes again, for a while.", "good")
             game.update_orders(force=True)
-        elif ms["stage"] == "away" and not here:
-            done("You get clear. By morning the posters are up: a reward, and a list of hostages.", 9)
+        elif ms["stage"] == "away" and evidence.clear_of_target(game, ms):
+            done("The target is dead and you have broken contact away from the site.", 9)
     elif task == "rescue_airman":
-        a = next((o for o in game.actors if o.id == ms.get("airman")), None)
+        a = evidence.entity(game, ms.get("airman"))
         if ms["stage"] == "find":
             if a is not None and a.alive and max(abs(a.x - p.x), abs(a.y - p.y)) <= 1:
                 _collect_airman(game, a)
                 ms["stage"] = "out"
-                ms["text"] = "Get him out: off the map toward our lines, or onto friendly ground."
+                ms["text"] = "Bring the airman with you to the marked friendly rally post."
                 game.update_orders(force=True)
-            elif a is None or not a.alive:
+            elif a is not None and not a.alive:
                 ms["stage"] = "failed"
                 game.msg("The airman is dead. You couldn't reach him in time.", "death")
         elif ms["stage"] == "out":
-            if a is not None and a.alive and (not here or friendly_ground):
-                done("He shakes your hand at the line and says something you don't understand. He'll fly again.", 9)
-            elif a is None or not a.alive:
+            if a is not None and a.alive and friendly_ground and math.dist(
+                    evidence.world_pos(game, a), evidence.world_pos(game, p)) <= 5:
+                done("You deliver the living airman to the friendly rally post. His recovery is reported.", 9)
+            elif a is not None and not a.alive:
                 ms["stage"] = "failed"
                 game.msg("The airman is dead.", "death")
     elif task == "photograph":
@@ -533,35 +538,41 @@ def update(game, ms, done, friendly_ground, here):
             if not has:
                 p.add_item(Item("film"))
             ms["stage"] = "home"
-            ms["text"] = "The film's in your pocket. Now get it home - off this map toward our lines."
+            ms["text"] = "Carry the film to the staff at the marked friendly rally post."
             game.update_orders(force=True)
-        elif ms["stage"] == "home" and has and (not here or friendly_ground):
-            done("The film goes by Lysander to London. Three days later a photo interpreter circles something on a "
-                 "print and picks up a telephone.", 9)
+        elif ms["stage"] == "home" and has and friendly_ground:
+            p.remove_item(p.find(lambda i: i.tid == "film"))
+            done("You hand the exposed reconnaissance film to the receiving staff at the rally post.", 9)
 
 
 def _update_sabotage(game, ms, done, friendly_ground, here):
     from .scenarios import _explosive_count
+    from . import mission_evidence as evidence
     m = game.map
     if ms["stage"] == "plant":
         if ms["target"] == "rail" and here:
             from . import tiles as T
             x, y = ms["tx"], ms["ty"]
-            cut = sum(1 for dx in range(-4, 5) for dy in range(-4, 5)
-                      if m.in_bounds(x + dx, y + dy) and m.t[x + dx, y + dy] != T.ID["rail"] and
-                      m.tile(x + dx, y + dy).key in ("crater", "rubble", "rubble_light", "dirt"))
-            if cut >= 2 or ms.get("rail_hit"):
+            if 'rail_tiles' not in ms:
+                ms['rail_tiles'] = [(x+dx,y+dy) for dx in range(-4,5) for dy in range(-4,5)
+                                    if m.in_bounds(x+dx,y+dy) and m.t[x+dx,y+dy] == T.ID['rail']]
+            cut = sum(1 for rx, ry in ms['rail_tiles'] if m.in_bounds(rx,ry) and m.t[rx,ry] != T.ID['rail'])
+            if cut >= 2:
                 ms["stage"] = "away"
         elif ms["target"] == "rec" and here and ms.get("rec"):
+            rx, ry, rw, rh = ms["rec"]["rect"]
+            if not (m.in_bounds(rx, ry) and m.in_bounds(rx+rw-1, ry+rh-1)):
+                return
             left = _explosive_count(m, ms["rec"])
             if ms["base"] and left <= ms["base"] * 0.5:
                 ms["stage"] = "away"
         if ms["stage"] == "away":
-            ms["text"] = "It's gone up. Get clear before they cordon the district."
+            ms["withdraw_world"] = evidence.world_pos(game, game.player)
+            ms["text"] = "The target is damaged. Break contact and move at least 120 metres clear."
             game.msg("The explosions roll across the countryside. Somewhere a siren starts.", "good")
             game.update_orders(force=True)
-    elif ms["stage"] == "away" and (not here or friendly_ground):
-        done("You're clear. The line will be closed for days; the reprisals will last longer.", 9)
+    elif ms["stage"] == "away" and evidence.clear_of_target(game, ms):
+        done("The sabotage target is damaged and you have broken contact away from the site.", 9)
 
 
 def rail_blast(game, x, y):
@@ -611,10 +622,12 @@ def _update_drop(game, ms, done, here):
         game.msg("The drop's failed.", "warn")
         game.update_orders(force=True)
     elif ms["stage"] == "collect" and drop is not None:
-        left = _drop_left(game, drop)
-        if left <= max(1, drop["n_items"] * 0.3):
-            done("By dawn the containers are in a barn under the hay: Stens, plastic, grenades. Enough for a "
-                 "company of the Maquis - and for the next month's sabotage.", 9)
+        recovered = sum(1 for items in game.map.items.values() for it in items
+                        if (it.data or {}).get('drop') == drop['id'] and (it.data or {}).get('recovered'))
+        carried = sum(1 for a in game.actors if a.alive and a.side == game.player.side
+                      for it in a.inv if (it.data or {}).get('drop') == drop['id'])
+        if drop['n_items'] > 0 and recovered + carried >= math.ceil(drop['n_items'] * .7):
+            done(f"The reception party has recovered {recovered + carried} of the {drop['n_items']} dropped stores.", 9)
 
 
 def _drop_left(game, drop):

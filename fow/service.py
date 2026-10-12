@@ -78,7 +78,7 @@ def destination_available(game, dest, kinds):
         records, point = game.map.gen_positions, dest['point']
     else:
         records = scene_map(game, sector).gen_positions
-        point = (dest['world'][0]-sector.x*landscape.w, dest['world'][1]-sector.y*landscape.h) if dest.get('world') else dest.get('point')
+        point = (dest['world'][0]-sector.x*game.map_w, dest['world'][1]-sector.y*game.map_h) if dest.get('world') else dest.get('point')
     return any(r.get('kind') in kinds and r.get('side') == game.player.side and not r.get('destroyed')
                and (point is None or (r['x'],r['y']) == tuple(point)) for r in records)
 

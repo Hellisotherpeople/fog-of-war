@@ -495,23 +495,8 @@ def draw_overlays(con, game, cam, ui, sprites=False):
     if pk and p.vehicle is None and cam.on_screen(p.x + pk[0], p.y + pk[1]):
         tx, ty = cam.to_text(p.x + pk[0], p.y + pk[1])
         put(con, tx, ty, "°", (255, 240, 170))
-    # speech bubbles (only from people you can actually see)
-    for a in game.actors:
-        if a.shout is None or a.shout[1] < game.turn or not a.alive or a.vehicle is not None or a is p:
-            continue
-        if not cam.on_screen(a.x, a.y) or not player_can_see_actor(game, a):
-            continue
-        text = a.shout[0]
-        if not text:
-            continue
-        tx, ty = cam.to_text(a.x, a.y)
-        col = (250, 250, 200) if a.side == p.side else (255, 180, 170)
-        bw = len(text) + 2
-        bx = max(0, min(VIEW_W - bw, tx - bw // 2))
-        above = ty >= 3
-        by = ty - 2 if above else ty + 2
-        con.print(bx, by, f" {text} ", fg=(20, 20, 20), bg=col)
-        put(con, tx, ty - 1 if above else ty + 1, "," if above else "'", col)
+    from .speech import draw as draw_speech
+    draw_speech(con, game, cam)
     # auto-travel destination
     if ui is not None and getattr(ui, "travel_dest", None) is not None and cam.on_screen(*ui.travel_dest) and not sprites:
         sx, sy = cam.to_text(*ui.travel_dest)
