@@ -29,10 +29,15 @@ def to_land(g, sector, frac=None, airfield=False, notes=None):
         if recs:
             spot = (recs[0]["x"], recs[0]["y"])
     if spot is None and frac is not None:
-        spot = (int(frac[0] * (m.w - 4)) + 2, int(frac[1] * (m.h - 4)) + 2)
+        landscape = g.__dict__.get('landscape')
+        if landscape is not None and landscape.frame is m:
+            spot = landscape.local(sector.x,sector.y,int(frac[0]*(landscape.w-4))+2,int(frac[1]*(landscape.h-4))+2)
+        else:
+            spot = (int(frac[0] * (m.w - 4)) + 2, int(frac[1] * (m.h - 4)) + 2)
     if spot is None:
         e = g.home_edge(p.side)
-        spot = edge_band_point(g, e, g.rng, depth=(4, 12)) if e else (m.w // 2, m.h // 2)
+        spot = g.landscape.arrival_point(g,sector,e) if g.__dict__.get("landscape") else (
+            edge_band_point(g, e, g.rng, depth=(4, 12)) if e else (m.w // 2, m.h // 2))
     place(g, p, spot[0], spot[1], 10)
     g.add_actor(p)
     sq = Squad(p.side, p.nation, "rifle", "stragglers")

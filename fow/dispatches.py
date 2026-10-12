@@ -72,7 +72,7 @@ def courier(game, a):
                   and b.vehicle is None and b.side == a.side and same_army(b.nation, a.nation)
                   and b.rank < max(a.rank, LT2) and b.suppression < 20 and game.turn - b.fired_turn > 120
                   and b.role in ('rifleman', 'radioman', 'clerk', 'adjutant')
-                  and not any(b.ai.get(k) for k in ('runner', 'situation_dispatch', 'support_job', 'escort', 'escort_prisoner'))
+                  and not any(b.ai.get(k) for k in ('runner', 'situation_dispatch', 'personnel_dispatch', 'support_job', 'escort', 'escort_prisoner'))
                   and b.squad is not None and b.squad.order.src != 'player'
                   and b.squad.order.kind in ('hold', 'reserve', 'regroup', 'follow')
                   and (headquarters(game, b) or has_radio(b))]

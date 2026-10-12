@@ -162,7 +162,7 @@ class Formation:
     def commander_grade(self):
         c = self.commander
         if c is not None and c.alive and c.state == "ok":
-            return c.rank
+            return c.command_grade
         if self.offmap:
             return self.offmap[0]
         return -1
@@ -192,13 +192,13 @@ def leader_of(sq):
     if ld is not None and ld.active and not ld.downed and ld in sq.members:
         return ld
     cands = [m for m in sq.members if m.active and not m.downed]
-    return max(cands, key=lambda m: (m.rank, m.skill)) if cands else None
+    return max(cands, key=lambda m: (m.command_grade, m.skill)) if cands else None
 
 
 def leader_grade(sq):
     ld = leader_of(sq)
     if ld is not None:
-        return ld.rank
+        return ld.command_grade
     if any(v.active for v in sq.vehicles):
         return getattr(sq, "leader_grade", R.SERGEANT)
     return -1
@@ -608,12 +608,12 @@ class CommandState:
             lds = [leader_of(sq) for sq in f.squads if not sq.gone]
             lds = [x for x in lds if x is not None]
             if lds:
-                f.commander = max(lds, key=lambda m: (m.rank, m.skill))
+                f.commander = max(lds, key=lambda m: (m.command_grade, m.skill))
                 f.acting = f.commander.rank < R.LT2
         if f.commander is None and f.special == "weapons":
             lds = [x for x in (leader_of(sq) for sq in f.squads if not sq.gone) if x is not None]
             if lds:
-                f.commander = max(lds, key=lambda m: (m.rank, m.skill))
+                f.commander = max(lds, key=lambda m: (m.command_grade, m.skill))
                 f.acting = True
         return old is not f.commander
 
@@ -834,6 +834,10 @@ class CommandState:
         p = game.player
         if sq.side != p.side:
             return False, "enemy"
+        from .data.rank_profiles import current
+        rank = current(p)
+        if rank and rank.branch == "Viceroy's commission" and sq.nation != 'india':
+            return False, "A Viceroy's commission confers authority within Indian units."
         if self.in_chain(game, sq):
             return True, "chain"
         if sq is p.squad and sq.player_led:
@@ -841,9 +845,9 @@ class CommandState:
         lg = leader_grade(sq)
         if lg < 0:
             return False, "Nobody there is in any state to take orders."
-        if p.rank <= lg:
+        if p.command_grade <= lg:
             who = leader_name(sq)
-            if p.rank == lg:
+            if p.command_grade == lg:
                 return False, f"{cap(who)} is your equal, not your subordinate."
             return False, f"{cap(who)} outranks you."
         if not R.same_army(p.nation, sq.nation) and p.rank < R.BRIGADIER:
@@ -1433,7 +1437,7 @@ class CommandState:
                     cands = [leader_of(sq) for sq in f.live_squads()]
                     cands = [x for x in cands if x is not None]
                     if cands:
-                        f.commander = max(cands, key=lambda m: (m.rank, m.is_player, m.skill))
+                        f.commander = max(cands, key=lambda m: (m.command_grade, m.is_player, m.skill))
                         f.acting = True
                 if not changed and f.commander is prev:
                     continue

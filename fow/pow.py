@@ -314,6 +314,8 @@ def return_to_war(game, how):
     edge = game.home_edge(side)
     from .spawn import edge_band_point
     x, y = edge_band_point(game, edge, game.rng, depth=(3, 10)) if edge else (game.map.w // 2, game.map.h // 2)
+    if game.__dict__.get("landscape"):
+        x,y = game.landscape.arrival_point(game,sector,edge)
     place(game, p, x, y, 8)
     game.add_actor(p) if p not in game.actors else None
     p.squad = None

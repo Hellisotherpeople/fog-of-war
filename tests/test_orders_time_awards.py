@@ -20,7 +20,7 @@ from fow.constants import SCREEN_W, SCREEN_H
 
 def scene(scenario="front", realtime=False):
     g = Game("bocage44", "usa", seed=5, role="rifleman",
-             setup={"battlefield": "standard", "scenario": scenario})
+             setup={"battlefield": "standard", "scenario": scenario, "seamless": False})
     app = FakeApp()
     app.settings.update(autosave=False, fast_quiet=False, realtime=realtime, realtime_pace="normal")
     ps = PlayState(app, g)

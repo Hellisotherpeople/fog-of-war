@@ -69,7 +69,7 @@ class GameMap:
 
     def __getstate__(self):
         d = dict(self.__dict__)
-        if d.get("elev") is not None:
+        if d.get("elev") is not None and not d.get('_stream_exact'):
             d["elev"] = d["elev"].astype(np.float16)
         d.pop("_los", None)                  # the line-of-sight caches: rebuilt as men look about
         d.pop("_los_hi", None)

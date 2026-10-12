@@ -454,13 +454,13 @@ class CreatorState:
                                                               "corporal or sergeant, a platoon officer a lieutenant.")]
             lo, hi = ROLE_GRADES.get(role, (0, 18))
             sv = v.get("service", "army")
-            for gr in range(lo, hi + 1):
-                st = stars(gr)
-                kind = "enlisted" if gr <= 1 else ("petty officer" if sv == "navy" else "NCO") if gr <= 7 else \
-                    "officer" if gr <= 13 else ("flag officer" if sv == "navy" else "air officer" if sv == "air"
-                                                else "general officer")
-                out.append((f"{rank_title(n, gr, False, sv)}" + (f"  {'★' * len(st)}" if st else "") + f"  ({kind})",
-                            gr, R_COMMAND.get(gr, "") if sv == "army" else ""))
+            from .data.rank_profiles import available
+            for rank in available(n, sv, year or 1944):
+                if not lo <= rank.grade <= hi:
+                    continue
+                st = stars(rank.grade)
+                out.append((rank.title + (f"  {'★' * len(st)}" if st else "") + f"  ({rank.category})",
+                            rank.key, rank.appointment or R_COMMAND.get(rank.command_grade, "")))
             return out
         if key == "weapon":
             from .data.items import ITEMS
@@ -1618,14 +1618,18 @@ class CharState(TextState):
             lines.append(("  " + entry, (220, 190, 150) if "report" in entry or "penal" in entry else (190, 210, 160)))
         if cmd.promotions:
             from .data.ranks import rank_title
-            lines.append(("Promotions: " + "; ".join(f"{rank_title(p.nation, gr, False)} ({when})"
-                                                     for when, gr in cmd.promotions), UI_TEXT))
+            history = cmd.__dict__.get('personnel', {}).get('rank_history', [])
+            if history:
+                lines.append(("Promotions: " + "; ".join(f"{r['title']} ({r['at']})" for r in history), UI_TEXT))
+            else:
+                lines.append(("Promotions: " + "; ".join(f"{rank_title(p.nation, gr, False, p.service)} ({when})"
+                                                         for when, gr in cmd.promotions), UI_TEXT))
         from .recognition import status
         lines.append((status(game), UI_DIM))
         from .debrief import requests
         from .recognition import state as personnel_state
         personnel = personnel_state(game)
-        lines.append((f"HQ support allocations: {requests(game)}. Q: debrief, career and requisitions.", UI_TEXT))
+        lines.append((f"Support allocations: {requests(game)}. Q: promotion and support choices.", UI_TEXT))
         if personnel.get("career_post"):
             lines.append(("Appointment: " + personnel["career_post"], UI_DIM))
         duty = getattr(game, "duty", None)
@@ -1768,10 +1772,14 @@ class OptionsState:
             ("Read the ground", "going", "toggle", "Tint the battlefield by the going: red where there's no way "
              "through (for you on foot, or the vehicle you're in), amber where it's slow - the deeper the amber, "
              "the slower. X → Read the ground in play.", None),
-            ("Battlefield size (new games)", "battlefield", "cycle",
-             "standard: 180 x 120 tiles.  large: 270 x 180, about twice the men on each side (the default).  "
-             "huge: 360 x 240, three times the men - slow on most machines. Takes effect when you start a new "
+            ("Force density (new games)", "battlefield", "cycle",
+             "standard: normal force density; large: twice the troops per generation cell (default); "
+             "huge: three times the troops. Terrain cells also grow with these settings. The world is seamless. New "
              "game.", sizes),
+            ("Simulation radius (new games)", "reality_radius", "cycle",
+             "Full tactical simulation follows you in every direction. 240 tiles by default; "
+             "larger values keep more soldiers and terrain active and need more CPU and memory. "
+             "The world continues beyond this circle.", (180, 240, 360, 480, 640)),
             ("Autosave", "autosave", "toggle", "Save every five minutes of real time, as well as when you quit. "
              "There's still only one life - unless succession is on.", None),
             ("WHEN YOU DIE", None, "head", "", None),
@@ -2733,6 +2741,7 @@ class App:
     def start_game(self, theatre, nation, role, setup=None):
         setup = dict(setup or {})
         setup.setdefault("battlefield", self.settings.get("battlefield", "large"))
+        setup.setdefault("reality_radius", self.settings.get("reality_radius", 240))
         self.push(GeneratingState(self, theatre, nation, role, setup))
 
     def current_game(self):

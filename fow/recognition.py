@@ -45,8 +45,9 @@ def channel(game, a=None):
         return "headquarters"
     if radio_link(game, a):
         return "radio"
+    from .senses import los_clear
     if any(b is not game.player and b.active and not b.downed and b.side == a.side and b.rank > a.rank
-           and distance(b.pos, a.pos) <= 6 for b in game.actors):
+           and b.z == a.z and distance(b.pos, a.pos) <= 6 and los_clear(game, *a.pos, *b.pos) for b in game.actors):
         return "your superior"
     return None
 
@@ -69,7 +70,7 @@ def process(game):
                 continue
             c["reported"] = game.turn
             at_hq = headquarters(game, a) if a is not None else headquarters(game, crew)
-            c["due"] = game.turn + (300 if at_hq else 1800)
+            c["due"] = game.turn + (0 if at_hq else 30)
             c["by"] = a.full_name if a is not None else f"the crew of {crew.vt.name}"
         if game.turn < c["due"]:
             continue
@@ -85,12 +86,11 @@ def process(game):
         cmd.__dict__.setdefault("record", []).append(
             f"{game.datetime_str()}: report by {c['by']} - {c['why']}.")
         ledger["claims"].remove(c)
-    if game.turn - ledger["last_review"] >= 3600 and channel(game):
+    if game.turn - ledger["last_review"] >= 60 and channel(game):
         ledger["last_review"] = game.turn
         cmd._battle_awards(game)
     for award in list(ledger["awards"]):
-        from .debrief import settled
-        presentation = settled(game) if game.__dict__.get('domain', 'land') == 'land' else channel(game)
+        presentation = channel(game)
         if game.turn >= award["due"] and presentation:
             current = cmd.battle
             cmd.battle = award["evidence"]
@@ -111,7 +111,7 @@ def recommend_award(game, level, why, posthumous=False):
         return game.command._award(game, level, why, True) if ledger["credited"] > 0 else None
     if any(a["level"] == level for a in ledger["awards"]):
         return None
-    ledger["awards"].append(dict(level=level, why=why, due=game.turn + 86400, evidence=dict(game.command.battle)))
+    ledger["awards"].append(dict(level=level, why=why, due=game.turn + 60, evidence=dict(game.command.battle)))
     return "recommendation submitted"
 
 
@@ -136,50 +136,15 @@ def vacancy(game):
 
 
 def consider(game, why=""):
-    p, cmd = game.player, game.command
-    ledger = state(game)
     process(game)
-    if not p.alive or p.rank >= R.MARSHAL or game.duty.disgraced or game.duty.rep < -20 or game.renegade:
-        return False
-    pending = ledger["pending"]
-    slot = vacancy(game)
-    if pending:
-        if slot is None or pending["from"] != p.rank or slot[0] < pending["to"]:
-            ledger["pending"] = None
-            return False
-        if game.turn < pending["due"] or not channel(game):
-            return False
-        p.rank = pending["to"]
-        # Exceptional service is banked, not thrown away after one stripe.
-        ledger["spent"] += cmd.promotion_need(pending["from"])
-        ledger["last_promotion"] = game.turn
-        ledger["pending"] = None
-        appointment = ledger.pop("appointment", None)
-        if appointment:
-            ledger["career_post"] = appointment["title"]
-        cmd.merit_at_promotion = cmd.merit
-        cmd.promotions.append((game.datetime_str(), p.rank))
-        game.msg(f"Personnel orders reach you by {channel(game)}: {p.rank_full}, assigned to {pending['billet']}.", "good")
-        if cmd.billet is not None and p.rank >= slot[0]:
-            cmd.billet.acting = False
-        cmd._after_promotion(game)
-        return True
-    minimum = 86400 if p.rank < R.LT2 else 7 * 86400
-    if not slot or game.turn - ledger["last_promotion"] < minimum or not channel(game):
-        return False
-    if ledger["credited"] - ledger["spent"] < cmd.promotion_need(p.rank):
-        return False
-    # A commission is an appointment to an officer vacancy, not a random jump past stripes.
-    new = R.LT2 if R.STAFF_SGT <= p.rank < R.LT2 and slot[0] >= R.LT2 else p.rank + 1
-    ledger["pending"] = dict(to=new, **{"from": p.rank}, billet=slot[1],
-                              due=game.turn + (21600 if new >= R.LT2 else 3600))
-    return False
+    from .career import consider as field_consider
+    return field_consider(game)
 
 
 def status(game):
     s = state(game)
     if s["pending"]:
-        return "A personnel recommendation is awaiting review and delivery."
+        return "Personnel orders: Q to choose advancement once delivered."
     if s["claims"]:
         return "Witness statements are awaiting transmission or review."
-    return "Report at HQ for recognition, support allocations and career appointments. Skills improve in the field."
+    return "Q: field promotions and support choices. Witnessed service and skills improve in the field."

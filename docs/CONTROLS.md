@@ -60,6 +60,7 @@ works as direction keys.
 | `<` / `>` | on stairs: up a floor / down one (a church tower, a flat roof, a hayloft at the top); on a cellar trapdoor: `>` down into the cellar, `<` up again |
 | `o` | shut an open door beside you (walk through a door to open it) |
 | Enter | carry out your current order: walk there and do it (the panel says what Enter will do) |
+| F7 / Go to objective | repeat ordinary order actions and world turns until danger, contact, combat instructions or a decision; any key cancels |
 | `T` | the orders book: issuer, authority, priority, deadline and consequences. Enter selects a supporting instruction; a deferred order cannot replace your higher orders |
 | `E` | talk to whoever's beside you (a list if there are several; right-click a man for the same). Comrades: where he's from, how he's holding up, what he's seen (he points, and it's marked on your map), the latest rumour, a smoke, ammunition, water, covering fire, a trade. The wounded: where he's hit, keeping him going, his last wishes. Prisoners: name and unit, and - for a cigarette, or when he's frightened enough - where his guns are. |
 | `A` | autopilot (on land): your soldier acts on his training and his orders, the same AI as every man on the field; `A` or Esc takes him back (looking, the map, the books and help still work meanwhile). Aboard ship or aircraft there's none: Enter gets on with your orders, `Z` lets the watch go by |
@@ -67,7 +68,7 @@ works as direction keys.
 | `!` | safe mode off / on |
 | `'` | ignore the dangers you can see now (safe mode won't stop you for them) |
 | `X` | select the nearest known intelligence officer, quartermaster, medical staff, fitters or HQ to add a visit to `T` with a direction arrow and Enter action; also clear selected service visits or toggle the terrain overlay |
-| `Q` | HQ debrief, decorations, career appointments and support allocations; away from HQ, add a reporting destination to `T` |
+| `Q` | field promotion: choose national rank/branch, duties and support allocations; available immediately after delivered personnel orders |
 
 Moving into things:
 - **An enemy:** you fight hand to hand - the obvious blow for what's in your hands. Right-click an enemy

@@ -1117,6 +1117,19 @@ def _guard_post(game, who):
 def give_order(ps, who, o):
     g = ps.game
     o = dict(o)
+    if o.get('sector'):
+        from .service import scene_map, post_destination
+        sector = g.strategic.at(*o['sector'], create=True)
+        prepared = scene_map(g, sector)
+        kind = {'dispatch':'hq', 'report_port':'port', 'report_airfield':'airfield'}.get(o['kind'])
+        if kind:
+            rec = next((r for r in prepared.gen_positions if r.get('kind') == kind and
+                        r.get('side') == g.player.side and not r.get('destroyed') and
+                        r.get('_world_sector', (sector.x,sector.y)) == (sector.x,sector.y)), None)
+            if rec is None:
+                g.msg('Staff cannot confirm that post is operating. No dispatch is issued; request another assignment.', 'info')
+                return
+            o['destination'] = post_destination(g, sector, rec, framed=prepared is g.map)
     o["issued"] = g.turn
     o["_priority_checked"] = g.turn
     o["deadline"] = g.turn + int(o.get("hours", 4) * HOUR)
@@ -1551,6 +1564,17 @@ def _who_to_see(game, o):
         cands = staff_here(game, "ops_officer")
     else:
         return None
+    target = tuple(o['by']['sector']) if _done(game,o) else tuple(o.get('sector') or (game.sector.x,game.sector.y))
+    cands = [a for a in cands if (game.sector_for(a).x,game.sector_for(a).y) == target]
+    dest = o.get('destination') if not _done(game,o) else None
+    if dest is not None:
+        from .service import resolve, destination_available
+        if not destination_available(game,dest,(dest["kind"],)):
+            o['destination_lost'] = 'The assigned post has been destroyed or lost. Request fresh orders.'
+            return None
+        pt = resolve(game,dest).get('point')
+        if pt is not None:
+            cands = [a for a in cands if math.hypot(a.x-pt[0],a.y-pt[1]) <= 45]
     p = game.player
     return min(cands, key=lambda a: abs(a.x - p.x) + abs(a.y - p.y)) if cands else None
 
@@ -1573,7 +1597,10 @@ def order_plan(ps):
                     lambda: ps._go_to_vehicle(t, lambda: ps._enter_vehicle(t)))
         if t is not None and p.vehicle is t:
             where = f"to {_sector_name(g, tgt)}, {_next_edge(g, tgt)} edge" if tgt != here else "up to the tanks"
-            return (f"drive it {where} yourself: follow the arrow", lambda: None)
+            from .service import drive_step
+            pt = order_point(g)
+            if pt:
+                return (f"drive {where}", lambda: drive_step(ps, pt[:2], arrival=0 if tgt != here else 2))
     if tgt != here:
         e = _next_edge(g, tgt)
         if e is None:

@@ -38,6 +38,7 @@ DEFAULTS = {
     "vol_ui": 0.6,            # clicks and rustles of the interface
     "sound_log": "all",       # which sounds are written in the message log: all / near / off
     "battlefield": "large",   # for new games: standard / large / huge (see game.BATTLEFIELDS)
+    "reality_radius": 240,    # player-centered tactical radius, in tiles (new games)
     "autosave": True,         # save every few minutes of real time as well as on quitting
     "minimap": False,         # the minimap is open when a game starts
     # when you die (succession.py): off - the end; on - carry on as someone else; choose - pick who

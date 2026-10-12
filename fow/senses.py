@@ -411,12 +411,7 @@ def update_actor_vision(game, a):
     if len(ents) == 0:
         a.visible = vis
         return vis
-    row = _distance_row(game, a, pos)
-    idx = np.nonzero(row <= r + 2.0)[0]           # (+2: men move during the turn; exact below)
-    if len(idx) > 40:
-        idx = idx[np.argsort(row[idx])][:40]
-    elif len(idx) > 1:
-        idx = idx[np.argsort(row[idx])]
+    idx = game.enemy_candidates(a, r + 2.0)
     ax, ay = a.x, a.y
     if getattr(a, "z", 0) < 0:
         a.visible = vis                               # (down in the cellar)
@@ -478,24 +473,6 @@ def update_actor_vision(game, a):
         a.known[e.id] = (e.x, e.y, game.turn, e)
     a.visible = vis
     return vis
-
-
-def _distance_row(game, a, pos):
-    """This man's distances to every enemy: one matrix per side per turn, not a numpy sum per man."""
-    key = (game.turn, id(pos), len(pos))
-    slots = game.__dict__.setdefault("_vis_mat", {})
-    c = slots.get(a.side)
-    if c is None or c[0] != key:
-        viewers = [v for v in game.actors if v.side == a.side and v.alive and v.vehicle is None] + \
-            [v for v in game.vehicles if v.side == a.side and not v.dead]
-        vp = np.array([(v.x, v.y) for v in viewers], np.float32).reshape(-1, 2)
-        dm = np.sqrt(((vp[:, None, :] - pos[None, :, :]) ** 2).sum(axis=2)) if len(vp) else None
-        c = (key, dm, {id(v): i for i, v in enumerate(viewers)})
-        slots[a.side] = c
-    i = c[2].get(id(a))
-    if i is None:
-        return np.sqrt(((pos - np.array([a.x, a.y], np.float32)) ** 2).sum(axis=1))
-    return c[1][i]
 
 
 def player_fov(game):

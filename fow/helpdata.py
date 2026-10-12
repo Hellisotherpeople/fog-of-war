@@ -58,6 +58,7 @@ SECTIONS = [
         ("k", "F6", "real time on/off: everyone shares a clock, including while you stand still (Options: pace)"),
         ("t", "Real time: normal 1x, deliberate 0.5x, slow 0.25x. Menus/focus loss pause; aiming keeps time running."),
         ("t", "Actions still cost their usual time. Wait for 'ready'; z/Z still let you pass time quickly."),
+        ("k", "F7", "go to objective: normal actions and world turns; stop for contact or a decision; any key cancels"),
         ("k", "A", "autopilot: your soldier acts on his training and orders while you watch; A again takes over"),
         ("k", "E", "talk to whoever's beside you: his life, how he is, what he's seen, a smoke, a trade - or a prisoner"),
         ("k", "<|>", "on stairs: up a floor or down (towers, roofs, haylofts); on a trapdoor: the cellar and back"),
@@ -75,7 +76,7 @@ SECTIONS = [
         ("t", "What you can't walk through stands up with a dark rim and a shadow; what lies flat, you can push "
               "through - slowly. The look says how slow."),
         ("k", "X", "add intel, supply, medical, fitter or HQ visits to T with a direction arrow; terrain overlay"),
-        ("k", "Q", "HQ debrief, decorations, career appointments and support requests"),
+        ("k", "Q", "field promotion: choose rank, duties and support"),
     ]),
     ("Fighting", [
         ("k", "f|Tab", "aim and fire: the cursor jumps to a target (an empty gun reloads instead)"),

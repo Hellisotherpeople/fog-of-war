@@ -244,7 +244,7 @@ def begin_surgery(game, surgeon, patient) -> int | None:
     if patient.ai.get("surgery") is not None:
         return None
     from .sustain import take
-    if not take(game.sector, surgeon.side, "medical", 4):
+    if not take(game.sector_for(surgeon), surgeon.side, "medical", 4):
         if patient.is_player or surgeon.is_player:
             game.msg("The surgeon needs dressings, plasma and anaesthetic. The medical stores are exhausted.", "warn")
         return None
@@ -323,7 +323,7 @@ def recover(game, a, turns):
     amputated = set(a.ai.get("amputated", []))
     from .sustain import take
     attended = at_aid_post(game, a)
-    supplied = attended and take(game.sector, a.side, "medical", .02 * turns / 30)
+    supplied = attended and take(game.sector_for(a), a.side, "medical", .02 * turns / 30)
     resting = game.turn - a.moved_turn > 30 and a.suppression < 5
     care = (1.0 / 120 if a.ai.get("recovering") is not None else 1.0 / 300) if supplied else \
         1.0 / 2000 if resting else 1.0 / 6000

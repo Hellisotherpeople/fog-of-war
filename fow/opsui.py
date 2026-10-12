@@ -227,10 +227,10 @@ class OperationsState:
                     self.picking = None
                     self.note = g.go_forward((tgt.x, tgt.y))
                     g.msg(self.note, "info")
-                    if (g.sector.x, g.sector.y) == (tgt.x, tgt.y):
+                    if self.play is not None:
                         self.app.pop()
-                        if self.play is not None:
-                            self.play.after_travel() if hasattr(self.play, "after_travel") else None
+                        from .objective_travel import start
+                        start(self.play)
                     return
                 else:
                     self.note = g.ops.order(g, did, kind, (tgt.x, tgt.y))

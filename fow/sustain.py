@@ -114,7 +114,7 @@ def tick(game):
                             not r.get("destroyed") and r.get("kind") in ("depot", "food_depot", "hq") and
                             max(abs(a.x - r["x"]), abs(a.y - r["y"])) <= 6
                             for r in getattr(game.map, "gen_positions", [])) and \
-                            take(game.sector, a.side, "food", .2):
+                            take(game.sector_for(a), a.side, "food", .2):
                         need[key] = max(0, need[key] - 40)
         if max(need["hunger"], need["thirst"]) > 70:
             a.stamina = max(0, a.stamina - 2)
@@ -124,7 +124,7 @@ def tick(game):
         # Open wounds in mud deteriorate over hours. Antiseptic and supplied care matter.
         dirty = any(not w.bandaged and not w.tourniquet for w in a.body.wounds)
         from .medical import at_aid_post
-        clean = at_aid_post(game, a) and stores(game.sector, a.side)["medical"] > 0
+        clean = at_aid_post(game, a) and stores(game.sector_for(a), a.side)["medical"] > 0
         if dirty and a.ai.get("antiseptic_until", 0) < game.turn:
             need["infection"] = min(100, need["infection"] + .06 + .12 * precipitation(game) * exposure(game, a))
         elif clean or a.ai.get("antiseptic_until", 0) >= game.turn:
@@ -142,7 +142,7 @@ def tick(game):
             v.ai["fuel"] = max(0, v.ai.get("fuel", 100.) - .12 * v.vt.get("fuel_use", 1))
         from .maintenance import at_motor_pool, quiet
         if v.ai.get("fuel", 100) < 95 and at_motor_pool(game, v) and quiet(game, v) and \
-                take(game.sector, v.side, "fuel", .5):
+                take(game.sector_for(v), v.side, "fuel", .5):
             v.ai["fuel"] = min(100, v.ai.get("fuel", 100) + 3)
 
 

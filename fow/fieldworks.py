@@ -98,7 +98,9 @@ def assign(game, sq, kind, point, automatic=False):
     depot = source(game, sq.side, point)
     if WORKS[kind][3] and depot is None:
         return False, "No material supply point. Bring a supply truck or establish a route to a depot."
-    project = dict(id=len(projects(game)) + 1, kind=kind, point=tuple(point), squad=sq.id,
+    game._work_serial = max(game.__dict__.get("_work_serial", 0),
+                            max((p["id"] for p in projects(game)), default=0)) + 1
+    project = dict(id=game._work_serial, kind=kind, point=tuple(point), squad=sq.id,
                    side=sq.side, work=0., status="collecting stores" if WORKS[kind][3] else "working",
                    source=depot, materials=0., carried=0., automatic=automatic, created=game.turn,
                    previous=sq.order)
@@ -153,7 +155,7 @@ def act(game, a, visible):
                           and (v.x, v.y) == goal and v.ai.get("material_cargo", 0) >= amount), None)
             if truck:
                 truck.ai["material_cargo"] -= amount
-            elif not take(game.sector, a.side, "materials", amount):
+            elif not take(game.sector_for(a), a.side, "materials", amount):
                 p["status"] = "waiting for material stores"
                 return 100
             a.ai["works_cargo"] = dict(project=p["id"], amount=amount)
@@ -205,9 +207,10 @@ def act(game, a, visible):
             game.map.gen_positions.append(rec)
             record = [install, p["side"], True]
             rec["installation"] = record
-            game.sector.installations.append(record)
+            sec = game.landscape.sector_at(game, x, y) if game.__dict__.get("landscape") else game.sector
+            sec.installations.append(record)
             if install == "fortress":
-                game.sector.fort = min(3, game.sector.fort + 1)
+                sec.fort = min(3, sec.fort + 1)
         if a.side == game.player.side and (game.can_see(*p["point"]) or game.command._can_report(game, sq)):
             game.msg(f"{sq.short or sq.name}: {WORKS[p['kind']][0]} ready.", "good")
     return 1000

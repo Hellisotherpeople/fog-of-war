@@ -236,7 +236,7 @@ class Strategic:
             return list(self.cells.values())
         r = self.sim_radius
         return [c for c in self.cells.values()
-                if (0 <= c.x < self.w and 0 <= c.y < self.h) or max(abs(c.x - f[0]), abs(c.y - f[1])) <= r]
+                if (0 <= c.x < self.w and 0 <= c.y < self.h) or (c.x + .5 - f[0])**2 + (c.y + .5 - f[1])**2 <= r*r]
 
     def at(self, x, y, create=False):
         c = self.cells.get((x, y))
@@ -461,9 +461,22 @@ class Strategic:
                 if u[k] <= 0:
                     del u[k]
 
+    def tactical(self, sector):
+        return sector is not None and (sector is self.__dict__.get("_psec") or
+            (sector.x, sector.y) in self.__dict__.get("materialized", ()))
+
     def _arrive(self, dst, side, units, src=None):
         """Units reaching a sector.  The player's sector is counted from the map every tick, so there
         they must come as a wave marching in (from the neighbour they left, or from their own rear)."""
+        source = (src.x, src.y) if src is not None else getattr(units, 'origin', None)
+        if source is not None and self.__dict__.get('_events') is not None:
+            self._events.append(('world_transfer', source, (dst.x,dst.y), side, units))
+        if dst is not None and (dst.x, dst.y) in self.__dict__.get("materialized", ()):
+            u = Counter({k:v for k,v in units.items() if v > 0})
+            if u and self.__dict__.get("_events") is not None:
+                self._events.append(("tactical_reinforce", (dst.x, dst.y), side, u,
+                    self.neighbor_dir(dst, src) if src is not None else None))
+            return
         if dst is not None and dst is self.__dict__.get("_psec"):
             u = Counter({k: v for k, v in units.items() if v > 0})
             if u and self.__dict__.get("_events") is not None:
@@ -818,11 +831,12 @@ class Strategic:
         at = self.__dict__.setdefault("attacks", {})
         for k in [k for k, v in at.items() if v["last"] < self.ticks - 3]:
             del at[k]
-        if local_units is not None and player_sector is not None:
+        if local_units is not None and player_sector is not None and not self.__dict__.get("materialized"):
             player_sector.units = {s: Counter(local_units.get(s, {})) for s in SIDES}
         # (anything sent into the player's sector this tick must arrive as men on the map: see _arrive)
         self._psec = player_sector
         self._events = events
+        self._unit_owners = {id(u):(sec.x,sec.y) for sec in act for u in sec.units.values()}
         # cut roads are mended, convoys re-routed, the dumps restocked: a cut halves in about two hours
         cut = self.__dict__.setdefault("interdiction", {})
         for k in list(cut):
@@ -836,7 +850,7 @@ class Strategic:
         # pockets wither: no food, no ammunition, no way out
         for s in act:
             for side in SIDES:
-                if s is player_sector or s.control != side or not s.playable:
+                if self.tactical(s) or s.control != side or not s.playable:
                     continue
                 if self.supply_of(side, s) <= 0.0 and power(s.units[side]) > 0:
                     self._attrit(s.units[side], power(s.units[side]) * 0.03, side)
@@ -885,14 +899,16 @@ class Strategic:
             ratio_needed = 1.2 if aggressive else 1.8
             if pa < pb * ratio_needed or rng.random() > (0.6 if aggressive else 0.3):
                 continue
-            if b is player_sector:
+            if self.tactical(a):
+                continue
+            if self.tactical(b):
                 # send an attack into the player's battle
                 sent = self._detach(a.units[side], 0.4)
                 if sum(sent.values()) > 0:
                     self.note_attack(b, side, a)
-                    events.append(("reinforce", side, sent, self.neighbor_dir(b, a)))
+                    self._arrive(b, side, sent, a)
                 continue
-            if a is player_sector:
+            if self.tactical(a):
                 continue       # the player's battle is fought for real
             self._battle(a, b, side, enemy)
         # 1b. amphibious forces offshore push onto the beaches
@@ -907,17 +923,17 @@ class Strategic:
                 continue
             b = rng.choice(beaches)
             wave = self._detach(u, 0.25)
-            if b is player_sector:
-                events.append(("reinforce", self.attacker, wave, self.neighbor_dir(b, s), "landing"))
+            if self.tactical(b):
+                self._arrive(b, self.attacker, wave, s)
             elif b.control == self.attacker:
-                b.units[self.attacker].update(wave)
+                self._arrive(b, self.attacker, wave, s)
             else:
-                b.units[self.attacker].update(wave)
+                self._arrive(b, self.attacker, wave, s)
                 if power(b.units[self.defender]) > 0:
                     self._internal_battle(b)
         # 2. contested sectors (paradrops etc.) fight internally
         for s in act:
-            if s is player_sector or not s.playable:
+            if self.tactical(s) or not s.playable:
                 continue
             pa, pb = power(s.units[ALLIES]), power(s.units[AXIS])
             if pa > 0 and pb > 0:
@@ -946,7 +962,7 @@ class Strategic:
             busy = sorted(((v, k) for k, v in traffic.items() if k[0] == side), reverse=True)[:6]
             for v, k in busy:
                 s = self.at(k[1], k[2])
-                if s is None or s is player_sector or self.is_front(s, side):
+                if s is None or self.tactical(s) or self.is_front(s, side):
                     continue
                 if rng.random() < air * 0.06:
                     what = rng.choice(["Fighter-bombers caught a convoy on the road at", "Aircraft strafed the columns at",
@@ -974,16 +990,13 @@ class Strategic:
                         self.order_news.append(f"{src.name} reports the new positions are dug in "
                                                f"(fortification {src.fort}/3).")
                 elif k == "move" and dst is not None and dst.control == side:
-                    if src is player_sector:
+                    if self.tactical(src):
                         continue          # the troops here are fighting: command them on the ground
                     moved = self._detach(src.units[side], 0.5)
                     if sum(moved.values()) == 0:
                         self.order_news.append(f"{src.name} has nothing left to send.")
                         continue
-                    if dst is player_sector:
-                        events.append(("reinforce", side, moved, self.neighbor_dir(dst, src)))
-                    else:
-                        dst.units[side].update(moved)
+                    self._arrive(dst, side, moved, src)
                     self.order_news.append(f"Movement order: {sum(moved.values())} units march from "
                                            f"{src.name} to {dst.name}.")
                 elif k == "attack" and dst is not None and dst.control == enemy:
@@ -992,13 +1005,13 @@ class Strategic:
                         continue
                     planned.add(id(dst))
                     self.note_attack(dst, side, src, planned=True)
-                    if dst is player_sector:
-                        sent = self._detach(src.units[side], 0.5)
-                        events.append(("reinforce", side, sent, self.neighbor_dir(dst, src)))
-                        continue
-                    if src is player_sector:
+                    if self.tactical(src):
                         # the troops on your battlefield form up and march off the edge into the attack
                         events.append(("sally", side, (dst.x, dst.y), self.neighbor_dir(src, dst)))
+                        continue
+                    if self.tactical(dst):
+                        sent = self._detach(src.units[side], 0.5)
+                        self._arrive(dst, side, sent, src)
                         continue
                     before = dst.control
                     self._battle(src, dst, side, enemy, planned=True)
@@ -1011,6 +1024,7 @@ class Strategic:
 
     def _detach(self, units: Counter, frac: float) -> Counter:
         out = Counter()
+        out.origin = self.__dict__.get('_unit_owners', {}).get(id(units))
         for k, n in list(units.items()):
             take = int(n * frac + self.rng.random())
             take = min(take, n)
@@ -1068,7 +1082,7 @@ class Strategic:
             if retreat and power(survivors) > 0:
                 self._arrive(rng.choice(retreat), enemy, survivors, src=b)
             b.units[enemy] = Counter()
-            b.units[side].update(self._detach(a.units[side], 0.5))
+            self._arrive(b, side, self._detach(a.units[side], 0.5), src=a)
             self._capture(b, side)
 
     def _internal_battle(self, s):
@@ -1117,7 +1131,7 @@ class Strategic:
                     continue
                 if s.control != side or not s.playable and not (s.biome == "sea" and side == self.attacker):
                     continue
-                if s is player_sector:
+                if self.tactical(s):
                     continue
                 if self.is_front(s, side):
                     continue
@@ -1137,10 +1151,10 @@ class Strategic:
                     continue
                 moved = self._detach(u, 0.5)
                 moved_into.add(id(best))
-                if best is player_sector:
-                    events.append(("reinforce", side, moved, self.neighbor_dir(best, s)))
+                if self.tactical(best):
+                    self._arrive(best, side, moved, s)
                 else:
-                    best.units[side].update(moved)
+                    self._arrive(best, side, moved, s)
 
     def _reinforce(self, player_sector, events):
         rng = self.rng

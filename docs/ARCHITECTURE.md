@@ -15,7 +15,8 @@ is built deck by deck.
 |---|---|
 | one tile | 2 metres |
 | one turn | 1 second (a normal soldier gets 100 *moves* a turn; walking a tile costs about 100) |
-| a battlefield (sector) | 270 × 180 tiles by default: about 540 × 360 m (`standard` 180 × 120, `huge` 360 × 240) |
+| a generation cell | 270 × 180 tiles by default (`standard` 180 × 120, `huge` 360 × 240); terrain and strategic accounting only |
+| the tactical scene | a moving buffer around a radial simulation; 240-tile radius by default, configurable up to 640 |
 | the strategic map | a grid of sectors that never ends: the front runs on, the rear goes back, countries change |
 | the strategic tick | every 600 turns (10 minutes): attacks resolve, reserves move, the front shifts |
 | the sky and the sea | a separate world in 100 m units (`fow/skysea.py`), stepped once a second |
@@ -159,16 +160,17 @@ What keeps a big battle quick:
 - A soldier's look round is one compiled call: every line of sight from him to the men he might
   see, drawn in numba (`fastpath.sight_lines`; the same Bresenham line and crest check as
   `senses.los_clear`, which is what runs without numba).
-- One distance matrix per side per turn serves every soldier's vision (`game._vis_mat`).
+- Spatial buckets select nearby enemy candidates, including moving vehicles, before exact distance
+  and line-of-sight checks. There is no all-soldiers-by-all-enemies distance matrix.
 
 ## The war around you
 
-The battlefield you're on is one sector of `Strategic`. The sectors next to it are simulated
-more coarsely but honestly: their forces are counts of real squads and vehicles, and when they
-attack you, those men march in over your map edge. Walk off the edge and the next sector is
-generated at full detail, with the same men in it. At every strategic tick the front
-resolves: sectors attack their neighbours according to the orders of their divisions (yours, if
-you're a general), depots feed them, and cut-off sectors wither.
+`streaming.Landscape` places neighboring generation cells into a shared tactical frame. Actor
+activation is radial, with additional space for engaged soldiers, medical work and in-flight
+shells. Normal footsteps and vehicle actions cross sector boundaries. Terrain damage, people,
+orders and equipment persist when the buffer shifts. The strategic layer does not run a second
+abstract battle over the same materialized forces. Outside it, strategic movement and casualties
+are reconciled with persistent units. See [the moving world](LIVING_WORLD.md) for limits and checks.
 
 `oob.py` hangs a real order of battle over the sectors: a battalion to a sector, three to a
 regiment and so on up to army groups, with historical formations and commanders

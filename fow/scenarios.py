@@ -582,11 +582,11 @@ def update(game):
             done("Word is the enemy won't show his head anywhere on this front. Your spotter carves another notch.",
                  8)
     elif k == "hold":
-        objs = game.map.objectives
+        objs = mission_objectives(game)
         if here and game.turn >= ms["until"] and objs and all(o.owner == side for o in objs):
             done("Relief arrives. You held.", 10)
     elif k == "take":
-        objs = game.map.objectives
+        objs = mission_objectives(game)
         if here and objs and all(o.owner == side for o in objs):
             done("The field is ours.", 8)
 
@@ -631,6 +631,20 @@ def mission_line(game) -> str | None:
     return ms.get("text")
 
 
+def mission_objectives(game):
+    """The objectives actually briefed, independent of the moving map's extent."""
+    ms = game.__dict__.get('mission') or {}
+    landscape = game.__dict__.get('landscape')
+    if landscape is None or landscape.frame is not game.map:
+        return game.map.objectives
+    start = ms.get('_start_sector',game.sector)
+    canonical = landscape.preload(game,(start.x,start.y))
+    targets = ms.setdefault('briefed_objectives', [ob.__dict__.get('_world_pos',
+        (start.x*landscape.w+ob.x,start.y*landscape.h+ob.y)) for ob in canonical.objectives])
+    return [ob for ob in canonical.objectives if ob.__dict__.get('_world_pos',
+        (start.x*landscape.w+ob.x,start.y*landscape.h+ob.y)) in targets]
+
+
 def mission_point(game):
     """A briefed destination for the current stage, never an unrelated squad objective.
 
@@ -658,7 +672,7 @@ def mission_point(game):
             return x, y, "Return to the mission sector"
         return None
     if kind in ("take", "hold", "rearguard"):
-        objs = [o for o in m.objectives if kind != "take" or o.owner != p.side]
+        objs = [o for o in mission_objectives(game) if kind != "take" or o.owner != p.side]
         if not objs:
             return None
         # A leader may choose which of the briefed objectives to tackle; he cannot change the mission.
@@ -666,7 +680,10 @@ def mission_point(game):
         i = sq.order.obj if sq is not None else None
         chosen = m.objectives[i] if i is not None and 0 <= i < len(m.objectives) else None
         ob = chosen if chosen in objs else min(objs, key=lambda o: abs(o.x - p.x) + abs(o.y - p.y))
-        return ob.x, ob.y, f"{'Take' if kind == 'take' else 'Hold'} {ob.name}"
+        landscape = game.__dict__.get('landscape')
+        world = ob.__dict__.get('_world_pos')
+        point = (world[0]-landscape.origin[0],world[1]-landscape.origin[1]) if landscape and world else ob.pos
+        return *point, f"{'Take' if kind == 'take' else 'Hold'} {ob.name}"
     rec = ms.get("rec")
     if rec and kind in ("raid", "agent") and stage in ("destroy", "steal", "plant"):
         x, y, w, h = rec["rect"]

@@ -648,7 +648,7 @@ class Audio:
             if amp < 0.015:
                 continue                  # too far to hear a word
             spk = bank.speaker(info["nation"], info["sid"], info.get("female", False), info.get("role", ""))
-            clip = bank.request(spk, info["text"], style)
+            clip = bank.request(spk, info["text"], style, emotion=info.get("emotion"))
             if clip is None:
                 if now < give_up:
                     keep.append((give_up, ev))

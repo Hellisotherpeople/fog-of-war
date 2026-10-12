@@ -106,10 +106,12 @@ Then:
 - `C` includes acting appointments, command transfers, standing missions and engineer construction.
   `T` automatically lists HQ debriefs, captured-intelligence hand-ins, workshop destinations and
   higher-HQ conferences. Selecting a specialist in `X` adds a saved visit to `T`, with a direction arrow
-  and Enter action. `Q` opens the HQ service desk when you reach staff.
+  and Enter action. `F7`, or **Go to objective**, follows routine orders through real actions and
+  world turns, stopping for danger or decisions. `Q` opens field promotion and support choices.
   Reviewed service, decorations and advancement earn support allocations: requisition authority,
-  finite vehicle supplies, or an available support unit. You can keep your tank job, or pursue
-  successive appointments all the way from private to five-star rank.
+  finite vehicle supplies, or an available support unit. Promotion can arrive by radio, superior
+  or physical runner. Choose senior enlisted command, a national warrant/specialist branch,
+  or an explicit commission through to five-star command; keeping your specialist job is a choice.
   Officers receive dated map reports through radios, nearby vehicle crews or physical runners;
   a broken connection or lost messenger leaves older intelligence in their hands.
   [Command and realism notes](docs/COMMAND_REALISM.md) explain the systems and historical approximations.
@@ -189,9 +191,10 @@ name, traits, weapon and kit. Leave any of it to chance.</td>
 - **Period kit, filtered by nation and date**: 130 small arms that jam, overheat and ping; AT
   weapons, flamethrowers, mortars, mines; 135 vehicles and guns; 56 aircraft; 45 classes of ship from PT boats
   to fleet carriers.
-- **An endless world.** Walk off the edge of the battlefield and you're in the next sector: the front
-  runs on, the rear goes back to depots and airfields, the country changes. The war is simulated in
-  a wide bubble around you, and what you destroy has consequences beyond your map.
+- **A seamless, endless land world.** A circular tactical simulation follows the player across
+  generation cells without sector transfers. Soldiers, vehicles, wounded, destroyed terrain and
+  artillery retain their identity and world positions. Choose a simulation radius up to 640 tiles;
+  the wider war continues strategically. [World, travel and performance notes](docs/LIVING_WORLD.md).
 - **Everything breaks**: craters, rubble, collapsing bridges, spreading fire, smoke, cooking-off
   ammunition.
 - **The lie of the land**: every sector has real relief (balkas on the steppe, the hills the maps

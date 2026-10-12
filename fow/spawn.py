@@ -435,7 +435,7 @@ def make_squad(game, side, nation, kind, x, y, order=None, para=False, spread=3,
                 man.skills["construction"] = max(6., man.skills.get("construction", 0))
         sq.name = "Naval construction detachment"
     leaders = [m for m in sq.members if m.role in ("squad_leader", "officer")]
-    sq.leader = leaders[0] if leaders else (max(sq.members, key=lambda m: m.rank) if sq.members else None)
+    sq.leader = leaders[0] if leaders else (max(sq.members, key=lambda m: m.command_grade) if sq.members else None)
     sq.initial = len(sq.members)
     unit = unit_designation(rng, nation, game.theatre.get("divisions", {}).get(nation))
     for m in sq.members:

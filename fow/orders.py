@@ -218,6 +218,15 @@ def book(game) -> list:
                             penalty="relieved of your command if it goes badly enough", urgent=False,
                             point=(ob.x, ob.y), authority=12 if cmd.billet is not None else 10))
     field = game.__dict__.get("field_order")
+    if field and field.get('journey'):
+        if tuple(field['journey']) == (game.sector.x,game.sector.y):
+            game.__dict__.pop('field_order',None)
+            game.msg('You have reached the sector selected for your staff visit.', 'good')
+            field = None
+        else:
+            from .base import _next_edge
+            field['edge'] = _next_edge(game,field['journey'])
+            field['sector'] = (game.sector.x,game.sector.y)
     if field and field.get("sector") == (game.sector.x, game.sector.y):
         edge = field.get("edge")
         pt = exit_point(game, edge) if edge else field.get("point")
@@ -376,10 +385,10 @@ def execution_signature(game):
                   point[2] if point is not None and len(point) > 2 else None)
     elif key == "service":
         dest = game.player.ai.get("service_order", {}).get("destination") or {}
-        detail = (detail, dest.get("sector"), dest.get("point"))
+        detail = (detail, dest.get("sector"), dest.get('world', dest.get("point")))
     elif key.startswith('contact:'):
         dest = game.player.ai.get('contact_orders', {}).get(key.split(':')[1], {}).get('destination') or {}
-        detail = (detail, dest.get('sector'), dest.get('person') or dest.get('point'))
+        detail = (detail, dest.get('sector'), dest.get('person') or dest.get('world', dest.get('point')))
     return key, o["issued"], detail
 
 
@@ -387,6 +396,18 @@ def exit_point(game, edge):
     """Keep a sector's chosen exit fixed while approaching it, including in a vehicle."""
     import random
     p, m = game.player, game.map
+    landscape = game.__dict__.get('landscape')
+    if landscape is not None and landscape.frame is m:
+        key = (game.sector.x, game.sector.y, edge)
+        exits = landscape.__dict__.setdefault('exits', {})
+        if key in exits:
+            x, y = exits[key]
+            lx, ly = x-landscape.origin[0], y-landscape.origin[1]
+            if m.in_bounds(lx, ly) and m.walk[lx, ly]:
+                return lx, ly
+        result = landscape.exit_point(game, edge)
+        exits[key] = landscape.world_pos(*result)
+        return result
     key = (game.sector.x, game.sector.y, edge, p.vehicle.vid if p.vehicle is not None else None)
     exits = m.__dict__.setdefault('order_exits', {})
     saved = exits.get(key)

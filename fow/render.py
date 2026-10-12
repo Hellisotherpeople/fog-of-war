@@ -478,15 +478,17 @@ def draw_overlays(con, game, cam, ui, sprites=False):
     # objective markers: only if you carry a map (grease pencil marks)
     if p.has_tool("map") is not None:
         for i, o in enumerate(m.objectives):
-            letter = "ABCDEFGH"[i]
+            letter = str(i + 1)
             col = (140, 200, 255) if o.owner == p.side else (255, 140, 120) if o.owner else (230, 220, 120)
             if cam.on_screen(o.x, o.y):
                 tx, ty = cam.to_text(o.x, o.y)
                 if sprites or (game.turn // 2) % 3 != 0 or not m.visible[o.x, o.y]:
-                    put(con, tx, ty, letter, col, (30, 30, 30))
+                    for offset, char in enumerate(letter):
+                        put(con, tx + offset, ty, char, col, (30, 30, 30))
             else:
                 (tx, ty), _ = edge_text(o.x, o.y)
-                put(con, tx, ty, letter, col, (20, 20, 20))
+                for offset, char in enumerate(letter):
+                    put(con, tx + offset, ty, char, col, (20, 20, 20))
     draw_order_pointer(con, game, cam)
     # where your head is when you lean out of cover
     pk = getattr(p, "peek", None)
@@ -1033,6 +1035,10 @@ def draw_panel(con, game):
         con.print(x, y, f"{o['status']}: {who}: {o['text']}"[:wdt],
                   fg=(160, 150, 120) if o["deferred"] else (190, 200, 150), bg=UI_BG)
         y += 1
+    label = "[F7 Go to objective]"
+    con.print(x, y, label[:wdt], fg=(190, 235, 170), bg=(35, 52, 32))
+    game._objective_button = (x, y, min(wdt, len(label)))
+    y += 1
     hint = game.__dict__.get("_order_hint")
     if hint:
         for line in textwrap.wrap(hint, wdt)[:2]:
