@@ -1,13 +1,13 @@
 """Exact, demand-driven Dijkstra fields for large tactical scenes.
 
-The search frontier persists between queries. A requested distance is returned
+The Rust or Numba search frontier persists between queries. A requested distance is returned
 only after it is settled, including detours beyond the requested neighborhood.
 This reduces unused work without cropping routes or approximating costs. The
-existing eager tcod/Dial implementation remains the optional-numba fallback.
+existing eager tcod/Dial implementation remains the fallback without either package.
 """
 import numpy as np
 from .constants import BIG
-from . import fastpath
+from . import fastpath, native
 
 _kernel = None
 
@@ -16,7 +16,7 @@ def _compile():
     global _kernel
     if _kernel is not None:
         return _kernel
-    if not fastpath.accelerated():
+    if not fastpath.numba_accelerated():
         _kernel = False
         return False
     import numba
@@ -150,7 +150,33 @@ class DistanceField:
         return np.where(self.distances>0,self.distances-1,BIG).astype(np.int32)
 
 
+class RustDistanceField:
+    """Native frontier with portable saves; queries do not copy battlefield arrays."""
+    def __init__(self, goals, cost):
+        self.shape = cost.shape
+        self._field = native.core.DistanceField(goals, cost.astype(np.uint16, copy=False))
+        self.item = self._field.item
+        self.prepare = self._field.prepare
+        self.materialize = self._field.materialize
+
+    @property
+    def settled(self):
+        return self._field.settled
+
+    def __getitem__(self, key):
+        if isinstance(key,tuple) and len(key)==2 and all(isinstance(v,(int,np.integer)) for v in key):
+            return self.item(*key)
+        return self.materialize()[key]
+
+    def __reduce__(self):
+        # Store exact inputs, not extension objects/device buffers. A Python-only
+        # install rebuilds the same routes; the lazy frontier is just a cache.
+        return field, self._field.inputs()
+
+
 def field(goals,cost):
+    if cost.size >= 100000 and native.core is not None and cost.min(initial=0) >= 0 and cost.max(initial=0) <= 65535:
+        return RustDistanceField(goals,cost)
     if cost.size >= 100000 and _compile():
         return DistanceField(goals,cost)
     from .brain import dijkstra

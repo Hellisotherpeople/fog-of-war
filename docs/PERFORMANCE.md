@@ -1,11 +1,71 @@
-# Simulation performance and a native-core estimate
+# Simulation performance and the native core
 
-The game remains Python/tcod. Rust is the recommended language for a future native simulation
-core, introduced in measured stages while retaining the Python interface and content. A complete
-rewrite has **not** been performed or benchmarked. The estimates below concern full world turns,
-not display FPS, and include no reduction in simulation fidelity.
+The game remains Python/tcod, with an optional **implemented Rust/PyO3 core** for route finding,
+line-of-sight batches and smoke. Portable GPU route computation uses wgpu/Metal/Vulkan/DX12.
+[Installation and backend controls](NATIVE.md). A complete Rust rewrite has **not** been performed;
+most actor decisions still execute in Python. The older full-port estimates below remain estimates,
+not measured gains from this first stage.
 
-## Measured on 12 October 2026
+## Hybrid build measured on 12 October 2026
+
+Apple M4 Pro, 10 performance and 4 efficiency CPU cores, 20 GPU cores, 48 GiB RAM; CPython 3.12.11.
+Release Rust build, Numba installed for remaining kernels. Each configuration used a fresh process,
+five warm-up turns and 180 timed real turns in Bocage 1944, large forces, USA, seed 42. Runs were
+sequential with no concurrent tests or compiler. The player remained stationary while NPCs fought.
+
+| Configuration | Initial people | Mean turn | p95 turn | Slowest turn | Peak RSS |
+|---|---:|---:|---:|---:|---:|
+| Original Python/Numba, radius 240 | 539 | 47.24 ms | 107.38 ms | 134.52 ms | 440.5 MiB |
+| Hybrid auto, radius 240 | 539 | **41.74 ms** | **77.48 ms** | **93.64 ms** | 448.2 MiB |
+| Original Python/Numba, radius 640 | 2,965 | 323.88 ms | 885.03 ms | 1,710.83 ms | 2,364.3 MiB |
+| Hybrid auto, radius 640 | 2,965 | **276.98 ms** | **740.04 ms** | **1,053.88 ms** | 2,479.0 MiB |
+| Hybrid forced Metal, radius 240 | 539 | 44.92 ms | 86.08 ms | 107.97 ms | 461.8 MiB |
+
+Mean turn cost fell **11.6% at default radius and 14.5% at maximum** (13.2% and 16.9% more
+throughput). p95 fell **27.8% and 16.4%**. Peak memory increased by 7.7 MiB and 114.7 MiB
+(1.7% and 4.9%). Native eager queues reuse workspace: an earlier allocating version accumulated
+roughly 300 MiB of additional allocator-retained memory in the default battle; that version is
+not shipped. Maximum-radius turns still sometimes exceed one second. Matching the original
+default's average with this maximum population still needs roughly another **5.9×** speedup.
+
+Both backends produced identical core-state digests at both radii. The forced-Metal battle also
+matched and exercised 88 GPU route calls; 86 required exact CPU completion after the bounded GPU
+passes. Auto mode correctly leaves these long wavefronts on CPU without allocating a GPU.
+No actor turns, path detours, wounds, random draws or simulation-radius rules were removed.
+
+### Where the GPU helps
+
+Five warmed calls per case, 1,985,281 tiles. Timings include array transfer, dispatch, synchronization,
+readback and any CPU completion. These are synthetic kernel workloads, **not battle speedups**.
+
+| Kernel | Existing backend | Native CPU | Metal GPU |
+|---|---:|---:|---:|
+| Sparse-goal routes | 65.13 ms (Numba) | 48.47 ms | 57.68 ms, plus CPU completion included |
+| Routes with 10% randomly distributed seeds | 61.59 ms (Numba) | 44.22 ms | 52.66 ms, plus CPU completion included |
+| Routes with 90% randomly distributed seeds | 60.16 ms (Numba) | 29.35 ms | **6.04 ms**, converged on GPU |
+| Smoke diffusion and wind | 3.13 ms (NumPy) | **1.65 ms**, bounded Rayon pool | Runs on CPU |
+
+The suitable dense route field is **4.86× faster on Metal than native CPU**; smoke is 1.90× faster
+than NumPy. Auto mode measures eligible workload classes and requires a 20% advantage before
+selecting GPU. Sparse/long routes remain on CPU. The shader uses exact integers and CPU completion
+for unresolved paths, rather than assuming a fixed number of passes is a complete solution.
+
+Physical **Apple M4 Pro/Metal** validation passed. Nvidia support is implemented through
+**Vulkan and DirectX 12**, without a CUDA dependency. No physical Nvidia machine was available
+for local testing or timing; portable backend support is not a claim of Nvidia performance validation.
+The installed release wheel passed **330 tests**, including 42 native tests with physical GPU
+availability required. Rust formatting, Clippy with warnings denied, and CPU-only compilation passed.
+The original backend also passed 19 focused tests with both Rust and Numba disabled (two optional
+Numba cases skipped).
+
+Raw results: [native benchmark data](benchmarks/2026-10-12-native.json).
+Parity checks cover tcod/reference routes, negative flee seeds, walls, disconnected terrain,
+lazy queries, threaded workspace reuse, portable saves, strided arrays, sight lines, bit-exact
+smoke, GPU completion, invalid adapter selection and device/parity failures. These single-seed
+world samples exclude rendering, voice synthesis, moving-buffer transitions and long campaigns.
+They establish a measured first native stage; they do not establish the older projected full-port gains.
+
+## Earlier Python optimization baseline, 12 October 2026
 
 Apple M4 Pro: 10 performance CPU cores, 4 efficiency cores, 20 GPU cores, 48 GiB RAM.
 Python 3.12.11, Numba enabled, Bocage 1944, USA, large force density, seed 42. Each run used a

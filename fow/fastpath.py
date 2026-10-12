@@ -1,12 +1,13 @@
-"""Dijkstra maps, fast.
+"""Exact native/Numba/tcod Dijkstra maps and batched lines of sight.
 
 Every side's AI leans on whole-battlefield Dijkstra maps (brain.py): the way to each objective, to
 cover, away from the enemy.  tcod's dijkstra2d does the job in C, but the costs here are small
 integers, which is exactly the case for Dial's algorithm - a bucket queue instead of a heap, every
 cell touched a handful of times - and compiled with numba it is several times faster.
 
-numba is optional (it's a large install).  With it:   pip install numba
-Without it, or with FOW_NO_NUMBA=1 in the environment, tcod does the work - with identical results.
+The optional PyO3 package takes precedence. Without Rust, Numba accelerates these
+kernels; without either, tcod and the Python sight checks provide the same rules.
+FOW_NATIVE=off disables Rust; FOW_NO_NUMBA=1 independently disables Numba.
 """
 from __future__ import annotations
 
@@ -14,6 +15,7 @@ import os
 
 import numpy as np
 import tcod
+from . import native
 
 BIG = 10 ** 7
 _fast = None
@@ -118,6 +120,8 @@ def _compile():
 def dijkstra2d(dist: np.ndarray, cost: np.ndarray, cardinal: int = 2, diagonal: int = 3) -> np.ndarray:
     """In place, like tcod.path.dijkstra2d(dist, cost, cardinal, diagonal, out=dist): each cell ends up at
     the cheapest (its start value, or a neighbour's value plus the cost of stepping onto it)."""
+    if native.dijkstra(dist, cost, cardinal, diagonal):
+        return dist
     if _fast is None:
         _compile()
     if _fast and dist.dtype == np.int32 and cost.dtype == np.int32 and dist.ndim == 2:
@@ -129,6 +133,10 @@ def dijkstra2d(dist: np.ndarray, cost: np.ndarray, cardinal: int = 2, diagonal: 
 
 
 def accelerated() -> bool:
+    return native.core is not None or numba_accelerated()
+
+
+def numba_accelerated() -> bool:
     if _fast is None:
         _compile()
     return bool(_fast)
@@ -216,6 +224,8 @@ def _compile_lines():
 
 
 def lines_ready() -> bool:
+    if native.core is not None:
+        return True
     if _lines is None:
         _compile_lines()
     return bool(_lines)
@@ -224,6 +234,8 @@ def lines_ready() -> bool:
 def sight_lines(see, high, elev, rel, ax, ay, h0, vhigh, tx, ty, h1, thigh):
     """[clear?] for the lines from (ax, ay) at eye height h0 to each (tx, ty) at height h1 (lines_ready()
     first: without numba, senses.py checks them one at a time)."""
+    if native.core is not None:
+        return native.core.sight_lines(see, high, elev, rel, ax, ay, h0, vhigh, tx, ty, h1, thigh)
     out = np.zeros(len(tx), np.bool_)
     _lines(see, high, elev, rel, ax, ay, h0, vhigh, tx, ty, h1, thigh, out)
     return out

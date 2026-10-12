@@ -17,3 +17,8 @@ error.log
 
 # Local projects unrelated to the game
 /integrations/
+
+# Optional game-native extension and build output
+/native/target/
+*.so
+*.pyd

@@ -1,0 +1,39 @@
+name: Native simulation
+permissions:
+  contents: read
+on:
+  push:
+    paths: ['fow/**', 'native/**', 'tests/**', 'requirements*.txt', '.github/workflows/native.yml']
+  pull_request:
+    paths: ['fow/**', 'native/**', 'tests/**', 'requirements*.txt', '.github/workflows/native.yml']
+  workflow_dispatch:
+
+jobs:
+  parity:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-14, windows-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      SDL_VIDEODRIVER: dummy
+      SDL_AUDIODRIVER: dummy
+      FOW_GPU: 'off'
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - run: python -m pip install -r requirements-fast.txt -r requirements-dev.txt maturin
+      - run: cargo fmt --manifest-path native/Cargo.toml --check
+      - run: cargo clippy --manifest-path native/Cargo.toml --all-targets -- -D warnings
+      - run: cargo check --manifest-path native/Cargo.toml --no-default-features
+      - run: python -m pip install ./native
+      - run: python -m pytest -q tests
+      - name: Original backend and portable saves
+        env:
+          FOW_NATIVE: 'off'
+        run: python -m pytest -q tests/test_distancefield.py tests/test_streaming.py

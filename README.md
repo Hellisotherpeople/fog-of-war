@@ -73,7 +73,14 @@ quicker with [numba](https://numba.pydata.org/) installed; big battles feel it m
 .venv/bin/pip install -r requirements-fast.txt        # Windows: .venv\Scripts\pip ...
 ```
 
-The game is the same either way, turn for turn; set `FOW_NO_NUMBA=1` to switch it off.
+The game is the same either way, turn for turn; set `FOW_NO_NUMBA=1` to switch Numba off.
+
+**Rust and GPU acceleration (optional).** Keep the Python/tcod game and install its native
+compute package with `.venv/bin/python -m pip install ./native` after installing
+[Rust](https://rustup.rs/). This accelerates navigation, sight checks and smoke, with a
+bounded CPU worker pool and optional Metal (Apple Silicon), Vulkan or DirectX 12 (Nvidia)
+compute. GPU auto mode measures whether offloading helps; all routes retain exact CPU
+fallbacks. [Build instructions, controls and validation](docs/NATIVE.md).
 
 Saves, settings and the memorial to the fallen live in `~/.fogofwar/`.
 
