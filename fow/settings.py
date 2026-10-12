@@ -13,6 +13,7 @@ DEFAULTS = {
     "volume": 0.8,
     "ambience": True,
     "voices": True,           # soldiers' shouts and radio traffic, spoken
+    "speech_captions": False, # extra UI captions; visible soldiers still have speech bubbles
     "voice_engine": "neural", # "neural" (Piper: natural, local; needs piper-tts) or "system" (say / espeak: instant)
     "font": "ttf",            # "ttf" (DejaVu Sans Mono, crisp at any size) or "bitmap"
     "font_scale": 1.0,        # >1 bigger text (fewer columns fit, window grows)

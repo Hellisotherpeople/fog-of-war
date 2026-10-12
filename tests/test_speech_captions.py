@@ -87,6 +87,9 @@ def test_hidden_and_distant_speakers_do_not_reveal_identity_or_position():
     g._collect_speech()
     con = tcod.console.Console(SCREEN_W, SCREEN_H, order="F")
     speech.draw(con, g, Camera())
+    assert not console_text(con).strip()  # unseen speech has no UI caption by default
+    g.__dict__["_prefs"] = {"speech_captions": True}
+    speech.draw(con, g, Camera())
     text = console_text(con)
     assert 'Nearby voice: "Halt!"' in text
     assert hidden.name not in text and "Faraway secret" not in text
@@ -96,6 +99,8 @@ def test_hidden_and_distant_speakers_do_not_reveal_identity_or_position():
 
 def test_vehicle_crew_and_radio_have_visible_captions():
     g = scene()
+    app = FakeApp()
+    PlayState(app, g)
     crew = soldier(g, 10, 10)
     v = Vehicle("m4", g.player.side, "usa", 10, 10)
     g.player.vehicle = crew.vehicle = v
@@ -104,8 +109,15 @@ def test_vehicle_crew_and_radio_have_visible_captions():
     g.msg("HQ: 'Hold your position.'", "radio")
     con = tcod.console.Console(SCREEN_W, SCREEN_H, order="F")
     speech.draw(con, g, Camera())
+    assert not console_text(con).strip()
+    app.settings["speech_captions"] = True
+    speech.draw(con, g, Camera())
     text = console_text(con)
     assert "Driver, stop!" in text and 'Radio: "Hold your position."' in text
+    app.settings["speech_captions"] = False
+    con.clear()
+    speech.draw(con, g, Camera())
+    assert not console_text(con).strip()
 
 
 def test_effects_queue_cannot_silence_audible_speech_in_a_busy_battle():
@@ -132,6 +144,12 @@ def test_long_bubbles_wrap_at_zoomed_map_edges_without_overwriting_panels():
     cam.configure(48, 22, 2, 2)
     cam.x0, cam.y0 = 12, 10
     con = tcod.console.Console(SCREEN_W, SCREEN_H, order="F")
+    speech.draw(con, g, cam)
+    text = console_text(con)
+    assert "I will cover you!" in text  # the bubble that fits stays attached to its speaker
+    assert "Stay under cover." not in text  # overflow must not become a UI caption by default
+    con.clear()
+    g.__dict__["_prefs"] = {"speech_captions": True}
     speech.draw(con, g, cam)
     text = console_text(con)
     assert "Stay under cover." in text and "broken wall." in text and "I will cover you!" in text

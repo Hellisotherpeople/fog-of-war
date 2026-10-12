@@ -110,7 +110,7 @@ def _paint(con, rect, lines, color):
 
 
 def draw(con, game, cam):
-    """Anchored bubbles for visible speakers; a short caption strip for crew/radio/unseen voices."""
+    """Anchored bubbles for visible speakers, with optional UI captions for other speech."""
     now = time.monotonic()
     captions = game.__dict__.get("_speech_captions", [])
     captions[:] = [c for c in captions if c.expires is None or c.expires > now]
@@ -148,6 +148,8 @@ def draw(con, game, cam):
                 strips.append(caption)
         else:
             strips.append(caption)
+    if not (game.__dict__.get("_prefs") or {}).get("speech_captions", False):
+        return
     # The strip stays inside the map and does not disclose identities or locations of unseen men.
     bottom = h - 2
     for caption in strips[:3]:
