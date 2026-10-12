@@ -16,6 +16,9 @@ the game checkout, with the existing Python environment:
 .venv/bin/python -m pip install ./native
 ```
 
+If `cargo` is not on your current shell's path after installing Rust, run
+`. "$HOME/.cargo/env"` on macOS/Linux, or open a new terminal on Windows.
+
 On Windows use `.venv\Scripts\python -m pip install ./native`. This builds an optimized
 extension, including GPU support. Normal Python dependencies still come from
 `requirements.txt`; optional Numba remains useful for the relief viewshed kernel.

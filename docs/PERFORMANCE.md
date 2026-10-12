@@ -57,6 +57,10 @@ The installed release wheel passed **330 tests**, including 42 native tests with
 availability required. Rust formatting, Clippy with warnings denied, and CPU-only compilation passed.
 The original backend also passed 19 focused tests with both Rust and Numba disabled (two optional
 Numba cases skipped).
+The subsequent [cross-platform CI run](https://github.com/Hellisotherpeople/fog-of-war/actions/runs/38293643975)
+passed on macOS, Linux and Windows: 331 tests on macOS, 318 plus 13 hardware-GPU skips on Linux
+and Windows, and another 22 original-backend/save checks on each platform. That run includes a
+regression for keeping a real radio detector squad tracked outside the detailed simulation circle.
 
 Raw results: [native benchmark data](benchmarks/2026-10-12-native.json).
 Parity checks cover tcod/reference routes, negative flee seeds, walls, disconnected terrain,

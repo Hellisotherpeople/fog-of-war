@@ -235,6 +235,23 @@
     "full_suite": "330 passed, 3 existing tcod UI deprecation warnings; installed release wheel; FOW_REQUIRE_GPU=1",
     "native_tests": 42,
     "python_only_fallback": "19 passed, 2 optional-Numba tests skipped with FOW_NATIVE=off FOW_NO_NUMBA=1",
-    "rust_checks": "cargo fmt --check; cargo clippy --all-targets -- -D warnings; cargo check --no-default-features"
+    "rust_checks": "cargo fmt --check; cargo clippy --all-targets -- -D warnings; cargo check --no-default-features",
+    "cross_platform_ci": {
+      "url": "https://github.com/Hellisotherpeople/fog-of-war/actions/runs/38293643975",
+      "source_revision": "0f2130ce0265f5b579ec3d67c333a17b27ae2cda",
+      "result": "success",
+      "macos": "331 passed, including physical GPU cases",
+      "linux": "318 passed, 13 hardware GPU cases skipped",
+      "windows": "318 passed, 13 hardware GPU cases skipped",
+      "original_backend_and_saves": "22 passed on each platform"
+    }
+  },
+  "source_revision": "49d13956816170a3185e6c02d7787932f4bd17b2",
+  "software": {
+    "rustc": "1.99.0 (b940084d7 2026-09-28)",
+    "numpy": "2.5.3",
+    "numba": "0.67.0",
+    "tcod": "21.2.1",
+    "native": "0.1.0"
   }
 }
