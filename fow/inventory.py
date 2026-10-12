@@ -54,6 +54,8 @@ def stack_max(t) -> int:
     s = t.get("stack_max")
     if s:
         return s
+    if t.tool == "money":
+        return max(1, t.stack)
     if t.kind == "ammo":
         w = t.weight
         if t.cal in ("rkt_bazooka", "rkt_schreck", "piat", "m81", "m60", "m50", "knee", "m45", "m46", "fuel"):
@@ -218,11 +220,11 @@ class Inventory:
     def _merge(self, item):
         t = item.t
         mx = stack_max(t)
-        if mx <= 1 or item.data:
+        if mx <= 1 or item.data or item.uses != t.uses:
             return False
         for g, _ in self.grids():
             for o in g.items:
-                if o.tid == item.tid and not o.data and o.count < mx:
+                if o is not item and o.tid == item.tid and not o.data and o.uses == t.uses and o.count < mx:
                     room = mx - o.count
                     take = min(room, item.count)
                     o.count += take
@@ -257,9 +259,34 @@ class Inventory:
         return None
 
     def add(self, item, prefer: str | None = None) -> str | None:
-        """Put an item somewhere sensible.  Returns the location, or None if there's no room."""
+        """Stow as much as fits; on failure, item.count is the unstowed remainder."""
+        if self.contains(item):
+            return self.location(item)
         if self._merge(item):
             return "merged"
+        mx = stack_max(item.t)
+        while item.count > mx:
+            from copy import deepcopy
+            from .entities import Item
+            part = Item(item.tid, mx)
+            for key in ("loaded", "jammed", "heat", "uses", "mode", "known_rounds"):
+                setattr(part, key, getattr(item, key))
+            part.data = deepcopy(item.data)
+            loc = self._place(part, prefer)
+            if loc is None:
+                return None
+            part.where = loc
+            item.count -= mx
+            item.uses = item.t.uses
+        return self._place(item, prefer)
+
+    def can_add(self, item) -> bool:
+        """Check a complete transfer without partially merging it into this kit."""
+        from copy import deepcopy
+        preview, incoming = deepcopy((self, item))
+        return preview.add(incoming) is not None
+
+    def _place(self, item, prefer):
         if prefer in SLOTS and self.slots[prefer] is None and self._slot_ok(item, prefer):
             self.slots[prefer] = item
             item.grid = None
@@ -324,7 +351,7 @@ class Inventory:
             self.hands = None
             return True
         g = getattr(item, "grid", None)
-        if g is not None:
+        if g is not None and any(g is own for own, _ in self.grids()):
             g.remove(item)
             return True
         for gg, _ in self.grids():

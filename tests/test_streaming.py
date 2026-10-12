@@ -103,6 +103,37 @@ def test_live_area_is_radial_and_negative_world_coordinates_are_unbounded():
     assert any(isinstance(m,bytes) for m in st.maps.values())
 
 
+def test_reframe_does_not_resurrect_replaced_objective_orders_or_move_impact_history():
+    from fow.ai import Order, order_target
+    g, ps, st = world()
+    sq = g.player.squad
+    ob = min(g.map.objectives, key=lambda ob: abs(ob.x-g.player.x)+abs(ob.y-g.player.y))
+    sq.order = Order('attack', obj=g.map.objectives.index(ob))
+    g.impacts = [(*g.player.pos, g.turn)]
+    impact_world = st.world_pos(*g.player.pos)
+    reframe(g, st, dx=1)
+    assert sq.order.obj is not None and g.map.objectives[sq.order.obj] is ob
+    target = (g.player.x+4, g.player.y+5)
+    target_world = st.world_pos(*target)
+    sq.order = Order('move', target=target, src='player')
+    reframe(g, st, dx=1)
+    assert sq.order.obj is None and sq.order.world_objective is None
+    assert st.world_pos(*order_target(g, sq)) == target_world
+    assert st.world_pos(*g.impacts[0][:2]) == impact_world
+    assert g.impacts[0][2] == g.turn
+    # The association is stored with the order and survives normal save/load.
+    sq.order = Order('defend', obj=g.map.objectives.index(ob))
+    reframe(g, st, dx=1)
+    from copy import deepcopy
+    # A dormant order can retain the pre-compression instance of this objective.
+    sq.order.world_objective = deepcopy(ob)
+    sq.order.obj = None
+    reframe(g, st, dx=1)
+    assert sq.order.world_objective is g.map.objectives[sq.order.obj]
+    loaded = pickle.loads(pickle.dumps(g))
+    assert loaded.player.squad.order.world_objective is loaded.map.objectives[loaded.player.squad.order.obj]
+
+
 def test_crossing_is_ordinary_movement_with_time_and_same_player_squad():
     from fow import actions
     g,ps,st = world()

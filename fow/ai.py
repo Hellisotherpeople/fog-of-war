@@ -40,7 +40,7 @@ ROE_NAME = {"free": "fire at will", "return": "return fire only", "hold": "hold 
 
 
 class Order:
-    __slots__ = ("kind", "target", "obj", "radius", "issued", "src", "roe", "until")
+    __slots__ = ("kind", "target", "obj", "radius", "issued", "src", "roe", "until", "world_objective")
 
     def __init__(self, kind: str, target=None, obj=None, radius=6, issued=0, src="ai", roe="free"):
         # attack, assault, defend, move, hold, retreat, follow, suppress, flank, ambush, dig,
@@ -48,6 +48,7 @@ class Order:
         self.kind = kind
         self.target = target
         self.obj = obj
+        self.world_objective = None
         self.radius = radius
         self.issued = issued
         self.src = src            # "ai" (the side's plan) or "player" (your orders stand until changed)
@@ -62,6 +63,8 @@ class Order:
         self.until = None
         for k, v in (slots or {}).items():
             setattr(self, k, v)
+        if not hasattr(self, "world_objective"):
+            self.world_objective = None
 
     def describe(self, game) -> str:
         m = game.map
@@ -964,6 +967,11 @@ def assign_positions(game, sq):
     if tgt is None:
         return
     m = game.map
+    if not m.in_bounds(*tgt):
+        # Continue the movement order until its destination enters the frame.
+        # Off-map targets cannot provide real defensive positions or sight lines.
+        sq.positions = {}
+        return
     brain = game.brains[sq.side]
     ec = brain.enemy_center
     if ec is None:
@@ -1055,7 +1063,6 @@ def assign_positions(game, sq):
     members.sort(key=lambda mm: 0 if (mm.weapon and mm.weapon.t.cat in ("lmg", "hmg")) else 1)
     for mm, p in zip(members, taken[n_claimed:]):
         sq.positions[mm.id] = p
-    del W
 
 
 # ====================================================================== soldier AI
@@ -2811,10 +2818,14 @@ def assistant_act(game, a, sq) -> int | None:
             continue
         if dist(a, g) <= 1.5:
             it = mine[0]
+            before = it.count
             a.invent.remove(it)
             if g.add_item(it) is None:
-                a.add_item(it)
-                continue
+                received = before - it.count
+                if a.add_item(it) is None:
+                    game.map.add_item(a.x, a.y, it)
+                if not received:
+                    continue
             a.say(phrase(game.rng, a.nation, "ammo"), game.turn)
             return 150
         return path_step(game, a, g.x, g.y)

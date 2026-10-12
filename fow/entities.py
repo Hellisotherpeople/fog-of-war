@@ -423,6 +423,9 @@ class Actor:
             item.count -= count
             new = Item(item.tid, count)
             new.loaded = item.loaded
+            new.known_rounds = item.known_rounds
+            new.uses = item.uses
+            item.uses = item.t.uses  # the remaining unopened packets are full
             from copy import deepcopy
             new.data = deepcopy(item.data)
             return new
@@ -431,6 +434,19 @@ class Actor:
             self.weapon = None
         item.where = "ground"
         return item
+
+    def consume_use(self, item: Item) -> bool:
+        """Use one dose, opening the next packet only when this one is exhausted."""
+        if item.uses <= 0 or not self.invent.contains(item):
+            return False
+        item.uses -= 1
+        if item.uses <= 0:
+            if item.count > 1:
+                item.count -= 1
+                item.uses = item.t.uses
+            else:
+                self.remove_item(item)
+        return True
 
     def find(self, pred) -> Item | None:
         for i in self.inv:

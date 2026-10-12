@@ -244,16 +244,21 @@ def _scavenge(game, a, sq, t):
                 inv.remove(i)
                 if k == "papers":
                     i.data = dict(i.data or {}, scavenged=True, owner=(it.data or {}).get("name", "a dead man"))
-                if a.add_item(i) is None:
-                    inv.add(i)
+                complete = a.add_item(i) is not None
+                received = n if complete else n - i.count
+                if not complete and inv.add(i) is None:
+                    game.map.add_item(x, y, i)
+                if received:
+                    t["found"][name] += received
+                    took += 1
+                if not complete:
                     break
-                t["found"][name] += n
-                took += 1
         elif _wanted(k, it, a):
             n = it.count if it.t.kind != "mag" else 1
             if A.pickup(game, a, it, x, y) is None:
                 break
-            t["found"][it.t.name] += n
+            remaining = it.count if it in game.map.items_at(x, y) else 0
+            t["found"][it.t.name] += n - remaining
             took += 1
     a.ai.pop("task_pile", None)
     if not took:

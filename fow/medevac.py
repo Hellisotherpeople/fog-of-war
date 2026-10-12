@@ -60,7 +60,7 @@ def _safe(game, p) -> tuple[bool, str]:
     vis = [e for e in game.seen_enemies(40) if math.hypot(e.x - p.x, e.y - p.y) < 40]
     if vis:
         return False, "the enemy can see you"
-    if p.suppression > 15 or game.turn - p.ai.get("hit_turn", -999) < 30:
+    if p.suppression > 15 or game.turn - p.hit_turn < 30:
         return False, "you're under fire"
     brain = game.brains[p.side]
     if brain.safety is not None and game.map.in_bounds(p.x, p.y) and int(brain.safety[p.x, p.y]) > 0:
@@ -329,12 +329,14 @@ def _pass_days(game, days):
 
 def _heal(p):
     b = p.body
+    gone = set(getattr(b, "amputated", ())) | set(p.ai.get("amputated", ()))
     for k in b.hp:
-        b.hp[k] = b.max[k]
+        b.hp[k] = 0 if k in gone else b.max[k]
     b.wounds = []
     from .body import BLOOD_MAX
     b.blood = BLOOD_MAX
-    for attr, v in (("pain", 0.0), ("shock", 0.0), ("unconscious", 0), ("temp", 37.0), ("wet", 0.0)):
+    for attr, v in (("pain", 0.0), ("shock", 0.0), ("unconscious", 0), ("temp", 37.0), ("wet", 0.0),
+                    ("morphine", 0.0), ("alcohol", 0.0)):
         if hasattr(b, attr):
             setattr(b, attr, v)
     p.fatigue = 0.0

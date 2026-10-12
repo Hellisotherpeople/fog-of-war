@@ -245,9 +245,7 @@ def _comrade_choice(ps, who, v):
     elif v == "smoke":
         cig = who.find(lambda i: i.t.tool == "cigarettes" and i.uses > 0)
         if cig is not None and (op > -10 or not lf["smoker"]):
-            cig.uses -= 1
-            if cig.uses <= 0:
-                who.remove_item(cig)
+            who.consume_use(cig)
             p.morale = min(100.0, p.morale + 6)
             say = rng.choice(["Here.", "Keep it.", "Last but one. Here."])
             PP.like(g, who, -1)
@@ -276,9 +274,7 @@ def _comrade_choice(ps, who, v):
     elif v == "give_smoke":
         cig = p.find(lambda i: i.t.tool == "cigarettes" and i.uses > 0)
         if cig is not None:
-            cig.uses -= 1
-            if cig.uses <= 0:
-                p.remove_item(cig)
+            p.consume_use(cig)
             who.morale = min(100.0, who.morale + 8)
             PP.like(g, who, 8 if lf["smoker"] else 3, "gave me a smoke")
             g.duty.rep += 0.3
@@ -559,9 +555,7 @@ def _enemy_choice(ps, who, v, und):
     elif v == "cig":
         cig = p.find(lambda i: i.t.tool == "cigarettes" and i.uses > 0)
         if cig is not None:
-            cig.uses -= 1
-            if cig.uses <= 0:
-                p.remove_item(cig)
+            p.consume_use(cig)
             PP.like(g, who, 15, "gave me a cigarette")
             who.morale = min(100.0, who.morale + 8)
             g.duty.rep += 0.2

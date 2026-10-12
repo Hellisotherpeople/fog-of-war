@@ -172,6 +172,11 @@ def test_enter_walk_stops_when_the_mission_changes():
 
 def test_scout_return_arrow_and_enter_both_point_to_the_issuer():
     g, ps, _ = scene()
+    # This regression exercises walking to the issuer; some starting rosters
+    # place the rifleman in a troop transport, whose first order is to dismount.
+    if g.player.vehicle is not None:
+        from fow.actions import exit_vehicle
+        assert exit_vehicle(g, g.player)
     sup = superior(g)
     sup.x += 8
     g.duty.give(g, "scout", sup, (g.player.x + 15, g.player.y), leg="back")

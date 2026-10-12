@@ -107,7 +107,8 @@ if a.digest:
                [(i.tid,i.count,i.loaded,i.condition,i.where) for i in p.inv]) for p in g.actors]
     vehicles = [(v.id,v.pos,v.facing,v.side,v.hp,v.parts,v.dead,v.he,v.ap,v.mg_ammo) for v in g.vehicles]
     squads = [(s.id,[p.id for p in s.members],ref(s.leader),s.state,s.morale,
-               [getattr(s.order,k) for k in s.order.__slots__]) for s in g.squads]
+               [getattr(s.order.world_objective, '_world_pos', None) if k == 'world_objective' else
+                getattr(s.order,k) for k in s.order.__slots__]) for s in g.squads]
     objectives = [(o.pos,o.owner,o.contested,o.hold_time) for o in g.map.objectives]
     payload = json.dumps((g.turn,g.clock,g.rng.getstate(),actors,vehicles,squads,objectives),
                          sort_keys=True,default=scalar).encode()

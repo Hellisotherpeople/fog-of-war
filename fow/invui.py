@@ -758,6 +758,9 @@ class InventoryScreen:
             dst = self.loot
             if dst is None:
                 return self.drop(it, cell)
+            if dst.inv is not None and not dst.inv.can_add(it):
+                self.say("No room on the other side.")
+                return
             cost = self._remove_from_origin(it, src)
             if dst.ground is not None:
                 game.map.add_item(dst.ground[0], dst.ground[1], it)
@@ -779,6 +782,9 @@ class InventoryScreen:
                     return
                 self.say(f"You take the {it.name}.")
                 return self.spend(c)
+            if not p.invent.can_add(it):
+                self.say("No room for that.")
+                return
             src.inv.remove(it)
             if p.add_item(it) is None:
                 if src.inv.add(it) is None:
@@ -882,13 +888,14 @@ class InventoryScreen:
             self.say(f"You unload the {t.name}.")
             return self.spend(120)
         if t.kind == "mag" and it.loaded > 0:
-            from .data.items import ammo_id
-            rounds = Item(ammo_id(t.cal), it.loaded)
+            from .ammo import _loose
+            count = it.loaded
+            rounds = _loose(it, count)
             it.loaded = 0
             if p.add_item(rounds) is None:
                 game.map.add_item(p.x, p.y, rounds)
             self.say("You strip the rounds out of the magazine.")
-            return self.spend(40 * max(1, rounds.count // 3))
+            return self.spend(40 * max(1, count // 3))
         self.say("Nothing to unload.")
 
     def count(self, it):

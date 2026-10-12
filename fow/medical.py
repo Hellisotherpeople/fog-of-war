@@ -81,11 +81,17 @@ def needs_surgery(b) -> bool:
 
 def first_aid(game, medic, patient, item=None) -> int | None:
     """The best thing this man can do for that one, right now.  Returns time taken, or None."""
-    from . import actions as A
     from .skills import use
+    cost = _first_aid(game, medic, patient, item)
+    if cost:
+        use(game, medic, "first_aid", 2.0)
+    return cost
+
+
+def _first_aid(game, medic, patient, item=None):
+    from . import actions as A
     s = skill(medic)
     b = patient.body
-    use(game, medic, "first_aid", 2.0)             # every wound you close teaches you the next
     if s < MEDIC:
         return A.treat(game, medic, patient, item)
     rng = game.rng
@@ -94,13 +100,12 @@ def first_aid(game, medic, patient, item=None) -> int | None:
     kit = medic.medical("kit")
     # 1. bleeding: pack it properly
     w = b.worst_wound()
+    dressing = medic.medical("bandage")
     if w is not None:
         limb = w.part not in ("head", "torso")
         if limb and w.bleed > 5 and medic.medical("tourniquet"):
             return A.treat(game, medic, patient, medic.medical("tourniquet"))
-        dressing = medic.medical("bandage")
-        if dressing is None:
-            return None
+    if w is not None and dressing is not None:
         n = 0
         while b.worst_wound() is not None and n < (4 if kit else 2):
             ww = b.worst_wound()
@@ -169,9 +174,15 @@ def first_aid(game, medic, patient, item=None) -> int | None:
 
 def can_help(game, medic, patient) -> bool:
     b = patient.body
-    if b.worst_wound() is not None and (medic.medical("bandage") or medic.medical("tourniquet")):
-        return True
     s = skill(medic)
+    w = b.worst_wound()
+    if w is not None:
+        if medic.medical("bandage") or (s < MEDIC and medic.medical("sulfa")):
+            return True
+        candidates = [w] if s >= MEDIC else b.wounds
+        if medic.medical("tourniquet") and any(w.part not in ("head", "torso") and
+                not w.bandaged and not w.tourniquet and w.bleed > 5 for w in candidates):
+            return True
     if s >= MEDIC:
         if b.blood < 3800 and medic.medical("plasma"):
             return True
@@ -181,8 +192,11 @@ def can_help(game, medic, patient) -> bool:
             return True
         if any(0 < b.hp[p] < b.max[p] * 0.7 for p in PARTS) and (medic.medical("kit") or medic.medical("bandage")):
             return True
-    elif b.effective_pain() > 90 and medic.medical("morphine"):
-        return True
+    else:
+        if b.effective_pain() > 70 and medic.medical("morphine"):
+            return True
+        if b.blood < 3800 and medic.medical("plasma"):
+            return True
     return False
 
 
@@ -235,7 +249,7 @@ def cot_near(game, x, y, radius=10):
 
 def surgery_time(b) -> int:
     """Ten minutes to an hour on the table."""
-    ruined = sum(1 for p in PARTS if b.hp[p] <= 0)
+    ruined = sum(1 for p in _parts(b) if b.hp[p] <= 0)
     return int(600 + missing_hp(b) * 22 + ruined * 900 + sum(w.bleed for w in b.wounds) * 40)
 
 
@@ -264,6 +278,7 @@ def finish_surgery(game, surgeon, patient):
     """What the knife could do."""
     rng = game.rng
     b = patient.body
+    b.amputated = set(getattr(b, "amputated", ())) | set(patient.ai.get("amputated", ()))
     job = patient.ai.pop("surgery", None)
     if surgeon is not None:
         surgeon.ai.pop("operating", None)
@@ -284,7 +299,7 @@ def finish_surgery(game, surgeon, patient):
         w.bandaged = True
     b.wounds = [w for w in b.wounds if w.tourniquet]            # a tourniqueted limb comes off or is saved below
     lost = []
-    for p in PARTS:
+    for p in _parts(b):
         if b.hp[p] <= 0 and p not in ("head", "torso"):
             if rng.random() < (0.45 if s >= SURGEON else 0.2):
                 b.hp[p] = int(b.max[p] * 0.3)                   # saved
@@ -296,7 +311,7 @@ def finish_surgery(game, surgeon, patient):
     b.wounds = [w for w in b.wounds if w.part in lost]
     for w in b.wounds:
         w.bleed = 0.0
-    patient.ai["amputated"] = sorted(set(patient.ai.get("amputated", [])) | set(lost))
+    patient.ai["amputated"] = sorted(b.amputated | set(lost))
     b.amputated = set(patient.ai["amputated"])                   # (a stump is healed, not a wound to operate on)
     if b.blood < 4200:
         b.heal_blood(4200 - b.blood)                            # transfusion
