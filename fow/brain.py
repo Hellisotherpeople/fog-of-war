@@ -209,6 +209,9 @@ class SideBrain:
         self.version = wv
         self.urgent = False
         self.forget()
+        old_cost, old_exp = self.cost, self.exposure
+        old_safety, old_threat, old_flee = self._safety, self._threat, self._flee
+        old_goals = self._threat_goals
         self.cost = self.base_cost()
         contacts = self.live_contacts()
         self._compute_exposure(contacts)
@@ -229,6 +232,14 @@ class SideBrain:
         else:
             self._threat_goals = None
             self.enemy_center = None
+        # Pure fields may survive a scheduled refresh only when every input is equal.
+        # All observations and age/terrain updates above still run on their original clock.
+        same_cost = old_cost is self.cost or (old_cost is not None and np.array_equal(old_cost, self.cost))
+        if same_cost:
+            if old_exp is not None and np.array_equal(old_exp, self.exposure):
+                self._safety = old_safety
+            if set(old_goals or ()) == set(self._threat_goals or ()):
+                self._threat, self._flee = old_threat, old_flee
         # home edge
         edge = g.home_edge(self.side)
         if edge != self.home_edge or moved or g.turn - self.__dict__.get("_home_turn", -999) > self.MAP_TTL:
@@ -313,6 +324,18 @@ class SideBrain:
         """Home and flee blended, then rescanned so there are no dead spots."""
         if self._rout is not None:
             return self._rout
+        # These two exact fields are both needed below and do not depend on one another.
+        from . import native
+        if (native.core is not None and hasattr(native.core, 'dijkstra_many') and not self._home_ready
+                and self._threat is None and self._threat_goals and self.home_edge and self.cost is not None):
+            m = self.game.map
+            goals = np.zeros(m.t.shape, bool)
+            for x, y in self._threat_goals:
+                goals[x, y] = True
+            seeds = [np.where(m.edge_mask(self.home_edge, 1) & (self.cost > 0), 0, BIG).astype(np.int32),
+                     np.where(goals, 0, BIG).astype(np.int32)]
+            self._home, self._threat = native.core.dijkstra_many(seeds, [self.exp_cost, self.cost], 2, 3)
+            self._home_ready, self._home_turn = True, self.game.turn
         h = self.home
         f = self.flee
         if h is None:

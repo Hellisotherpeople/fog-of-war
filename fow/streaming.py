@@ -94,6 +94,11 @@ def squad(sq, dx, dy, seen):
 class Landscape:
     WORLD_STATE = ('shells','explosives','pending_explosions','smoke_sources','medevac',
                    'field_order','base_order','mission','intel_pending','_counter_battery','agent')
+    def __getstate__(self):
+        state = dict(self.__dict__)
+        state.pop('_terrain_window', None)  # transient padded storage is never duplicated in saves
+        return state
+
     def __init__(self, game):
         self.w, self.h = game.map_w, game.map_h
         self.radius = max(96, min(640, int(game.setup.get('reality_radius', 240))))
@@ -189,6 +194,7 @@ class Landscape:
         self.actors.pop(game.player.id,None)
         self.active_actors,self.active_vehicles,self.active_squads = set(),set(),set()
         self.frame = None
+        self.__dict__.pop('_terrain_window', None)
         self.center = None
         game.strategic.materialized = set()
 
@@ -470,21 +476,26 @@ class Landscape:
                 self.maps[key] = pickle.loads(zlib.decompress(self.maps[key]))
         self.tactical_keys = set(keys)
         game.strategic.materialized = self.tactical_keys
-        m = GameMap(size, size, game.seed)
+        from .terrain_window import TerrainWindow
+        window = self.__dict__.setdefault('_terrain_window', TerrainWindow())
+        layers, incoming = window.prepare(game.map, old_origin, self.origin, size, LAYERS)
+        m = GameMap(size, size, game.seed, layers=layers, defer_refresh=True)
         m._stream_exact = True
-        m.elev = np.zeros((size, size), np.float32)
         m.gen_positions, m.parked, m.storeys = [], [], {}
         m.weather_ground = dict(wet=0., snow=0., changed={})
         for key in keys:
             cm = self.maps[key]
             x, y = key[0] * self.w - ox, key[1] * self.h - oy
             x0, y0, x1, y1 = max(0, x), max(0, y), min(size, x + self.w), min(size, y + self.h)
-            src = (slice(x0 - x, x1 - x), slice(y0 - y, y1 - y))
-            dst = (slice(x0, x1), slice(y0, y1))
-            for name in LAYERS:
-                arr = cm.__dict__.get(name)
-                if arr is not None:
-                    m.__dict__[name][dst] = arr[src]
+            for bx0,by0,bx1,by1 in incoming:
+                ix0,iy0,ix1,iy1 = max(x0,bx0),max(y0,by0),min(x1,bx1),min(y1,by1)
+                if ix0 >= ix1 or iy0 >= iy1:
+                    continue
+                src = (slice(ix0-x,ix1-x), slice(iy0-y,iy1-y))
+                dst = (slice(ix0,ix1), slice(iy0,iy1))
+                for name in LAYERS:
+                    arr = cm.__dict__.get(name)
+                    m.__dict__[name][dst] = arr[src] if arr is not None else 0
             for name in ('items', 'mines'):
                 m.__dict__[name].update({(px + x, py + y): v for (px, py), v in cm.__dict__[name].items()
                                         if m.in_bounds(px + x, py + y)})

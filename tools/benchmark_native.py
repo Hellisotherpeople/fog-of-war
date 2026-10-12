@@ -77,6 +77,15 @@ def main():
     result, rust_ms = measure(lambda: core.diffuse(smoke, 1, -1, True, False), args.repeats)
     np.testing.assert_array_equal(result, expected)
     records.append({'kernel': 'smoke', 'tiles': cost.size, 'numpy_ms': numpy_ms, 'rust_ms': rust_ms})
+    if hasattr(core, 'light_mask'):
+        for count, radius in ((200,16),(4000,16),(2000,80)):
+            lights = [(int(x),int(y),radius,0) for x,y in rng.integers(0,args.size,(count,2))]
+            expected, cpu_ms = measure(lambda: core.light_mask(args.size,args.size,lights),args.repeats)
+            row = {'kernel':'lighting','tiles':cost.size,'sources':count,'radius':radius,'rust_cpu_ms':cpu_ms}
+            if device and hasattr(device,'light_mask'):
+                result, row['gpu_ms'] = measure(lambda: device.light_mask(args.size,args.size,lights),args.repeats)
+                np.testing.assert_array_equal(result,expected)
+            records.append(row)
     print(json.dumps({'adapter': device.name if device else None, 'backend': device.backend if device else None,
                       'size': args.size, 'repeats': args.repeats, 'results': records}, sort_keys=True))
 

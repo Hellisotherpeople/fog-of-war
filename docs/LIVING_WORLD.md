@@ -12,6 +12,11 @@ incoming artillery retain additional simulation space. Reframing happens between
 Orders, sights, map damage, construction, corpses, items, shells and interface routes retain
 their world positions. Artillery missions store canonical world addresses.
 
+Terrain storage reuses padded arrays as the frame moves: the overlapping terrain stays in
+place, with newly exposed strips filled from persistent generation cells. Occasional
+compaction at a storage edge and full rebuilds after large jumps preserve the same cells.
+This storage organization creates no gameplay boundary and does not reduce simulation detail.
+
 Options → Simulation radius sets the radius for new games: 180, 240, 360, 480 or 640 two-metre
 tiles. The default is 240. Larger values increase both CPU and memory requirements. Force
 density controls the older troop-density/generation-cell presets separately. Python/tcod and

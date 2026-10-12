@@ -23,12 +23,24 @@ struct Buffers {
     groups: [wgpu::BindGroup; 2],
 }
 
+struct LightBuffers {
+    n: usize,
+    capacity: usize,
+    lights: wgpu::Buffer,
+    mask: wgpu::Buffer,
+    params: wgpu::Buffer,
+    readback: wgpu::Buffer,
+    group: wgpu::BindGroup,
+}
+
 #[pyclass]
 pub struct GpuRoutes {
     device: wgpu::Device,
     queue: wgpu::Queue,
     pipeline: wgpu::ComputePipeline,
     buffers: Option<Buffers>,
+    light_pipeline: Option<wgpu::ComputePipeline>,
+    light_buffers: Option<LightBuffers>,
     error: Arc<Mutex<Option<String>>>,
     #[pyo3(get)]
     name: String,
@@ -100,6 +112,8 @@ impl GpuRoutes {
             queue,
             pipeline,
             buffers: None,
+            light_pipeline: None,
+            light_buffers: None,
             error,
             name: info.name,
             backend: format!("{:?}", info.backend),
@@ -285,8 +299,22 @@ impl GpuRoutes {
     fn new(py: Python<'_>) -> PyResult<Self> {
         py.detach(Self::open).map_err(PyRuntimeError::new_err)
     }
+    fn light_mask<'py>(
+        &mut self,
+        py: Python<'py>,
+        w: usize,
+        h: usize,
+        lights: Vec<[i32; 4]>,
+    ) -> PyResult<Bound<'py, PyArray2<bool>>> {
+        crate::lighting::validate(w, h, &lights)?;
+        let out = py
+            .detach(|| self.lights_run(w, h, lights))
+            .map_err(PyRuntimeError::new_err)?;
+        Ok(array2(py, w, h, out))
+    }
     fn release_buffers(&mut self) {
         self.buffers = None;
+        self.light_buffers = None;
     }
     #[pyo3(signature=(dist,cost,card=2,diag=3,iterations=16))]
     fn solve<'py>(
@@ -320,5 +348,167 @@ impl GpuRoutes {
             .detach(|| self.run(values, costs, w, h, card, diag, iterations))
             .map_err(PyRuntimeError::new_err)?;
         Ok(array2(py, w, h, out))
+    }
+}
+
+impl GpuRoutes {
+    fn lights_run(
+        &mut self,
+        w: usize,
+        h: usize,
+        lights: Vec<[i32; 4]>,
+    ) -> Result<Vec<bool>, String> {
+        if let Some(e) = self.error.lock().unwrap().as_ref() {
+            return Err(e.clone());
+        }
+        let n = w * h;
+        if n == 0 || lights.is_empty() {
+            return Ok(vec![false; n]);
+        }
+        let limits = self.device.limits();
+        if n as u64 * 4 > limits.max_storage_buffer_binding_size
+            || lights.len() > limits.max_compute_workgroups_per_dimension as usize
+        {
+            return Err("lighting exceeds GPU limits".into());
+        }
+        if self.light_pipeline.is_none() {
+            let scope = self.device.push_error_scope(wgpu::ErrorFilter::Validation);
+            let shader = self
+                .device
+                .create_shader_module(wgpu::ShaderModuleDescriptor {
+                    label: Some("exact light masks"),
+                    source: wgpu::ShaderSource::Wgsl(include_str!("lighting.wgsl").into()),
+                });
+            self.light_pipeline = Some(self.device.create_compute_pipeline(
+                &wgpu::ComputePipelineDescriptor {
+                    label: Some("light masks"),
+                    layout: None,
+                    module: &shader,
+                    entry_point: Some("illuminate"),
+                    compilation_options: Default::default(),
+                    cache: None,
+                },
+            ));
+            if let Some(e) = pollster::block_on(scope.pop()) {
+                return Err(e.to_string());
+            }
+        }
+        let pipeline = self.light_pipeline.as_ref().unwrap();
+        if self
+            .light_buffers
+            .as_ref()
+            .is_none_or(|b| b.n != n || b.capacity < lights.len())
+        {
+            let make = |label, size, usage| {
+                self.device.create_buffer(&wgpu::BufferDescriptor {
+                    label: Some(label),
+                    size,
+                    usage,
+                    mapped_at_creation: false,
+                })
+            };
+            let capacity = lights.len().next_power_of_two();
+            let sources = make(
+                "light sources",
+                (capacity * 16) as u64,
+                wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            );
+            let mask = make(
+                "resident light mask",
+                (n * 4) as u64,
+                wgpu::BufferUsages::STORAGE
+                    | wgpu::BufferUsages::COPY_SRC
+                    | wgpu::BufferUsages::COPY_DST,
+            );
+            let params = make(
+                "light extent",
+                16,
+                wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            );
+            let readback = make(
+                "light readback",
+                (n * 4) as u64,
+                wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+            );
+            let group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("lights"),
+                layout: &pipeline.get_bind_group_layout(0),
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: sources.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: mask.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: params.as_entire_binding(),
+                    },
+                ],
+            });
+            self.light_buffers = Some(LightBuffers {
+                n,
+                capacity,
+                lights: sources,
+                mask,
+                params,
+                readback,
+                group,
+            });
+        }
+        let b = self.light_buffers.as_ref().unwrap();
+        self.queue
+            .write_buffer(&b.lights, 0, bytemuck::cast_slice(&lights));
+        self.queue.write_buffer(
+            &b.params,
+            0,
+            bytemuck::cast_slice(&[w as u32, h as u32, lights.len() as u32, 0]),
+        );
+        let mut encoder = self.device.create_command_encoder(&Default::default());
+        encoder.clear_buffer(&b.mask, 0, None);
+        {
+            let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("lighting"),
+                timestamp_writes: None,
+            });
+            pass.set_pipeline(pipeline);
+            pass.set_bind_group(0, &b.group, &[]);
+            pass.dispatch_workgroups(lights.len() as u32, 1, 1);
+        }
+        encoder.copy_buffer_to_buffer(&b.mask, 0, &b.readback, 0, (n * 4) as u64);
+        let submission = self.queue.submit([encoder.finish()]);
+        let (tx, rx) = mpsc::channel();
+        b.readback
+            .slice(..)
+            .map_async(wgpu::MapMode::Read, move |r| {
+                let _ = tx.send(r);
+            });
+        self.device
+            .poll(wgpu::PollType::Wait {
+                submission_index: Some(submission),
+                timeout: Some(Duration::from_secs(10)),
+            })
+            .map_err(|e| e.to_string())?;
+        rx.recv_timeout(Duration::from_secs(1))
+            .map_err(|e| e.to_string())?
+            .map_err(|e| e.to_string())?;
+        let out = {
+            let bytes = b
+                .readback
+                .slice(..)
+                .get_mapped_range()
+                .map_err(|e| e.to_string())?;
+            bytemuck::cast_slice::<u8, u32>(&bytes)
+                .iter()
+                .map(|&v| v != 0)
+                .collect()
+        };
+        b.readback.unmap();
+        if let Some(e) = self.error.lock().unwrap().as_ref() {
+            return Err(e.clone());
+        }
+        Ok(out)
     }
 }

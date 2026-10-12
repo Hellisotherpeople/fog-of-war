@@ -44,7 +44,8 @@ def commander_update(game, side: str):
     if not objs:
         return
     from .intelligence import objective_owner
-    owners = {i: objective_owner(game, side, i) for i in range(len(objs))}
+    observers = game.near_people_many([(o.x, o.y, o.radius + 6) for o in objs])
+    owners = {i: objective_owner(game, side, i, observers[i]) for i in range(len(objs))}
     enemy = other_side(side)
     attacker = game.attacker
     my_str = sum(sq.strength() for sq in squads)
