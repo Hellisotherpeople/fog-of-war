@@ -457,7 +457,12 @@ class Landscape:
             return (0, 0)
         wx, wy = self.world_pos(p.x, p.y)
         center = (wx, wy)
-        if not force and self.center is not None and max(abs(wx-self.center[0]), abs(wy-self.center[1])) < 24:
+        blasts = self._blast_regions(game)
+        previous = self.__dict__.get('_blast_interest', ())
+        blast_changed = blasts != previous and any(
+            math.hypot(x-wx, y-wy)+r > self.radius for x, y, r in blasts+previous)
+        self._blast_interest = blasts
+        if not force and not blast_changed and self.center is not None and max(abs(wx-self.center[0]), abs(wy-self.center[1])) < 24:
             self.locate_player(game,self.sector_at(game, p.x, p.y))
             return (0, 0)
         self._export(game)
@@ -496,11 +501,10 @@ class Landscape:
             for ob in game.map.objectives:
                 ob._world_pos = ob.pos
         extent = self.radius + self.margin
-        # In-flight ordnance keeps its destination simulated until impact.
-        # Walking away must never erase the shell which is already in the air.
-        for shell in game.shells:
-            tx, ty = shell['x']+old_origin[0], shell['y']+old_origin[1]
-            extent = max(extent, int(max(abs(tx-wx),abs(ty-wy))+shell['radius']+32))
+        # In-flight ordnance and imminent fuses keep the impact neighborhood
+        # simulated. Once it resolves, the next refresh releases the extra area.
+        for tx, ty, radius in blasts:
+            extent = max(extent, int(max(abs(tx-wx),abs(ty-wy))+radius))
         self.center, self.origin = center, (center[0] - extent, center[1] - extent)
         ox, oy = self.origin
         size = extent * 2 + 1
@@ -573,8 +577,7 @@ class Landscape:
             if not (0 <= e.x - ox < size and 0 <= e.y - oy < size):
                 return False
             d2 = (e.x - wx) ** 2 + (e.y - wy) ** 2
-            incoming = any(abs(e.x-(s['x']+old_origin[0])) <= s['radius']+32 and
-                           abs(e.y-(s['y']+old_origin[1])) <= s['radius']+32 for s in game.shells)
+            incoming = any(abs(e.x-x) <= radius and abs(e.y-y) <= radius for x, y, radius in blasts)
             return incoming or d2 <= self.radius ** 2 or (e.id in self.active_actors and
                 (getattr(e, 'suppression', 0) > 5 or getattr(e, 'carrying', None) is not None or
                  (hasattr(e, 'body') and e.body.bleed_rate() > 0) or
@@ -666,6 +669,27 @@ class Landscape:
                 self.maps[key] = zlib.compress(pickle.dumps(cm, protocol=5), 1)
         self._initial = False
         return dx, dy
+
+    def _blast_regions(self, game):
+        """Reactivate imminent blast sites, including their people and vehicles.
+
+        A long timer keeps counting outside the moving terrain window. Only its
+        final seconds require that site's terrain and full blast simulation.
+        """
+        ox, oy = self.origin
+        regions = [(s['x']+ox, s['y']+oy, s['radius']+32) for s in game.shells]
+        regions.extend((e[0]+ox, e[1]+oy, e[3]+32) for e in game.pending_explosions if e[5] <= 2)
+        for e in game.explosives:
+            if e['fuse'] > 2:
+                continue
+            x, y = e['x']+ox, e['y']+oy
+            carrier = e.get('holder')
+            if carrier is None:
+                carrier = self.vehicles.get((e['item'].data or {}).get('on_vehicle'))
+            if carrier is not None:
+                x, y = carrier.pos if carrier.__dict__.get('_stream_dormant') else self.world_pos(*carrier.pos)
+            regions.append((x, y, e['item'].t.blast_r+32))
+        return tuple(regions)
 
     def _shift_game(self, g, dx, dy):
         for key in ('shells', 'explosives', 'effects', 'medevac',

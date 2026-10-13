@@ -280,6 +280,14 @@ The kit is the kit they had, none of it issued to ordinary soldiers:
 
 A silenced shot doesn't blow your cover unless someone sees you fire.
 
+Sabotage orders mark the actual equipment to destroy: communications equipment at a headquarters,
+stores at a depot, or the assigned rails or guns. The briefing names the required damage. Destroying
+an unrelated wall does not put a working headquarters out of action. A deliberately placed charge
+does concentrated damage to the structure it touches; reinforced concrete can take repeated charges.
+Nearby blast and fragmentation still follow their usual damage rules. Time pencils keep burning as
+you withdraw, and the blast site, its soldiers and its vehicles are simulated when they detonate.
+The required withdrawal distance is measured from the target.
+
 **The wireless** (R, or `a` on the set) talks to London, Moscow or Berlin in Morse:
 
 - a report, which counts the enemy you've really seen;

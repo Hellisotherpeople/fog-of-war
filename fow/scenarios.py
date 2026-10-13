@@ -303,6 +303,11 @@ def setup_player(game, sid, notes):
         game.mission = dict(kind="raid", rec=rec, base=base, stage="destroy", home=home,
                             text=f"Destroy the enemy {rec['kind'] if rec else 'depot'} "
                                  f"({_where(game, rec)}), then get out.")
+        from . import demolition
+        plan = demolition.assign(game, game.mission)
+        game.mission['text'] = demolition.instruction(plan) + ' Then return to the rally post.'
+        if not plan or not plan['need']:
+            game.mission.update(stage='failed', text='The briefed installations are already out of action; no demolition target remains.')
         notes.append("Charges primed, fuses in your breast pocket. No prisoners - they'd slow you down, and they'd "
                      "do the same to you.")
     elif sid == "agent":
@@ -472,6 +477,7 @@ def _edge_word(e):
 
 def _enemy_installation(game, enemy, kind=None):
     recs = [r for r in (getattr(game.map, "gen_positions", None) or []) if r.get("side") == enemy and r.get("rect")
+            and not r.get('destroyed')
             and (kind is None or r.get("kind") == kind) and r.get("kind") in ("depot", "artillery", "hq", "aa",
                                                                               "motor_pool", "airfield")]
     return game.rng.choice(recs) if recs else None
@@ -554,14 +560,10 @@ def update(game):
             ms["reported_positions"] = dict(ms["observations"])
             done(f"At the rally post, you report {len(ms['observations'])} enemy positions your patrol observed.", 8)
     elif k == "raid":
-        if ms["stage"] == "destroy" and here:
-            rec = ms.get("rec")
-            left = _explosive_count(game.map, rec)
-            guns = [evidence.entity(game, vid, vehicles=True) for vid in ms.get("gun_targets", [])]
-            in_frame = rec and game.map.in_bounds(rec["rect"][0], rec["rect"][1]) and game.map.in_bounds(
-                rec["rect"][0] + rec["rect"][2] - 1, rec["rect"][1] + rec["rect"][3] - 1)
-            if (in_frame and ms["base"] and left <= ms["base"] * 0.4) or (
-                    guns and all(v is not None and (v.dead or v.side == side) for v in guns)):
+        if ms["stage"] == "destroy":
+            from . import demolition
+            if demolition.achieved(game, ms):
+                demolition.disable_hq(game, ms)
                 ms["stage"] = "exfil"
                 ms["text"] = f"It's done. Get out - {_edge_word(ms['home'])}, back toward our lines."
                 game.msg("The briefed target has been put out of action. Return to the rally post.", "good")
@@ -727,6 +729,11 @@ def mission_point(game):
                 return delivery["point"]
         from .mission_evidence import rally_point
         return rally_point(game, ms)
+    if stage in ('plant', 'destroy') and (kind == 'raid' or ms.get('task') == 'sabotage'):
+        from .demolition import point
+        target = point(game, ms)
+        if target is not None:
+            return target
     start = ms.get("_start_sector", game.sector)
     if game.sector is not start:
         from .base import _next_edge

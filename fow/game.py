@@ -2279,14 +2279,19 @@ class Game:
 
     def pick_live(self, item, a):
         for e in self.explosives:
-            if e["item"] is item:
+            if e["item"].iid == item.iid:
+                e['item'] = item
                 e["holder"] = a
+                e['placed'] = e['hidden'] = False
+                if item.data:
+                    item.data.pop('on_vehicle', None)
                 if a.is_player:
                     self.msg(f"You snatch up the live {item.t.name}! THROW IT!", "death")
 
     def drop_live(self, item, x, y):
         for e in self.explosives:
-            if e["item"] is item:
+            if e["item"].iid == item.iid:
+                e['item'] = item
                 # A returned grenade is a new throw. Do not blame the thrower
                 # for a different person's later aim, or reuse the original intent.
                 from .conduct import current
@@ -2296,6 +2301,9 @@ class Game:
                 e['evidence'] = evidence
                 e["holder"] = None
                 e["x"], e["y"] = x, y
+                e['placed'] = e['hidden'] = False
+                if item.data:
+                    item.data.pop('on_vehicle', None)
 
     def explosive_danger(self, x, y, r):
         best = None
@@ -2311,6 +2319,24 @@ class Game:
     def _tick_explosives(self):
         keep = []
         for e in self.explosives:
+            ground, gx, gy = self.map, e['x'], e['y']
+            if e['holder'] is None:
+                # A vehicle can carry its charge beyond the original ground
+                # cell. Remove that stored item on detonation as well.
+                land = self.__dict__.get('landscape')
+                if e['fuse'] <= 1 and not ground.in_bounds(gx, gy) and land is not None and land.frame is ground:
+                    wx, wy = land.world_pos(gx, gy)
+                    key = wx//land.w, wy//land.h
+                    if key in land.maps:
+                        ground = land.preload(self, key)
+                        gx, gy = wx % land.w, wy % land.h
+                # A compressed cell restores a new Python item object. Rebind
+                # by its persistent ID so detonation removes the actual charge
+                # from the ground, preserving its current damage/condition.
+                physical = next((it for it in ground.items.get((gx, gy), ())
+                                 if it.iid == e['item'].iid), None)
+                if physical is not None:
+                    e['item'] = physical
             e["fuse"] -= 1
             it = e["item"]
             if e["fuse"] > 0:
@@ -2327,16 +2353,23 @@ class Game:
                     x, y = h.vehicle.x, h.vehicle.y
             else:
                 x, y = e["x"], e["y"]
-                self.map.remove_item(x, y, it)
+                ground.remove_item(gx, gy, it)
                 # thrown back by the player, or picked up and thrown by anyone: find it
             from .conduct import attack
             with attack(self, e['thrower'], (x, y), evidence=e.get('evidence'), collateral=True):
-                self._detonate_item(it, x, y, e["thrower"])
+                self._detonate_item(it, x, y, e["thrower"], placed=e.get('placed', False) and h is None)
         self.explosives = keep
 
-    def _detonate_item(self, item, x, y, thrower):
+    def _detonate_item(self, item, x, y, thrower, *, placed=False):
         t = item.t
         m = self.map
+        attached = (item.data or {}).get('on_vehicle')
+        if attached is not None:
+            # The charge stays with a vehicle, including one wrecked before
+            # its fuse burns down. Duds, smoke and fire use that location too.
+            v = next((v for v in self.vehicles if v.id == attached), None)
+            if v is not None:
+                x, y = v.pos
         if (item.data or {}).get("dud") or self.rng.random() < max(t.dud or 0, 1 - item.condition):
             item.data = dict(item.data or {}, dud=True)
             item.data.pop("live", None)
@@ -2371,13 +2404,9 @@ class Game:
                         ignite(self, x + dx, y + dy, t.fire)
         if t.blast > 0:
             pen = t.pen
-            v = self.vehicle_at.get((x, y))
-            if item.data and item.data.get("on_vehicle"):
-                for vv in self.vehicles:
-                    if vv.id == item.data["on_vehicle"] and not vv.dead:
-                        x, y = vv.x, vv.y
             explode(self, x, y, t.blast, t.blast_r, frags=t.frags, frag_dmg=t.frag_dmg, pen=pen,
-                    attacker=thrower, source=f"a {t.name}", crater=t.kind == "explosive")
+                    attacker=thrower, source=f"a {t.name}", crater=t.kind == "explosive",
+                    contact=placed and t.kind == 'explosive' and attached is None)
             if t.kind == "explosive":
                 self._cut_rails(x, y)
 
@@ -3731,6 +3760,14 @@ class Game:
         landscape = g.__dict__.get('landscape')
         if landscape is not None:
             landscape.repair_records(g)
+        mission = g.__dict__.get('mission')
+        if mission and mission.get('stage') in ('plant', 'destroy'):
+            from . import demolition
+            plan = demolition.prepare(g, mission)
+            if plan and plan['need']:
+                mission['text'] = demolition.instruction(plan) + (
+                    ' Then return to the rally post.' if mission['kind'] == 'raid' else
+                    ' Then break contact and get 120 metres clear of the target.')
         return g
 
     def _reset_counters(self):

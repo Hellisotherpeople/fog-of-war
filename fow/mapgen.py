@@ -1563,6 +1563,11 @@ class Gen:
             b = self.building(x0 + sw // 2 - 4, y0 + sh // 2 - 3, 9, 7, "bunker")
         self.protected[x0:x0 + sw, y0:y0 + sh] = False
         if b:
+            floor = [(x, y) for x in range(b[0]+1, b[0]+b[2]-1) for y in range(b[1]+1, b[1]+b[3]-1)
+                     if T.FLOOR[self.m.t[x, y]] and T.WALK[self.m.t[x, y]]]
+            if floor:
+                rx, ry = min(floor, key=lambda p: abs(p[0]-rec['x'])+abs(p[1]-rec['y']))
+                self.m.t[rx, ry] = T.ID['radio_set']
             ax, ay = b[0] + b[2], b[1] - 1
             if 0 < ax < self.w - 1 and 0 < ay < self.h - 1:
                 self.m.t[ax, ay] = T.ID["antenna"]
