@@ -26,6 +26,32 @@ simulation state. Reloads, medicine, action frequency, strategic abstraction and
 boundaries keep their existing rules. Scheduling fewer soldier turns is not part of the change.
 Regional invalidation and reusable terrain also work without the optional extension.
 
+### Saved agent campaign slowdown, 12 October 2026
+
+An agent/raid briefing shared its target dictionary with a persistent map cell.
+Reframing moved that canonical record; later exports repeatedly duplicated the
+displaced site. The affected save had 262,154 site records in the active frame,
+making repeated medical-AI queries dominate simulation time. Briefings now own
+their coordinates, exports reject sites outside their owning cell, and loading
+repairs displaced records. Compressed cells receive the same repair on preload.
+Real buildings, their damage, mission targets and the simulation radius remain intact.
+
+A sequential comparison on an Apple M4 Pro (10 performance + 4 efficiency cores,
+48 GiB RAM), using the same copied save, native
+0.2.0, five warm-up turns and 60 measured turns, reduced mean turn time from
+**771.29 ms to 8.70 ms**, p95 from **646.06 ms to 12.36 ms**, and maximum from
+**6,853.16 ms to 18.08 ms**. Both runs retained 244 active people at radius 240 and
+produced the same recorded core-state digest. The repaired frame contains 18
+legitimate sites. This is a fix for a pathological save, not a general 89× speedup;
+rendering and speech are excluded. [Raw comparison](benchmarks/2026-10-12-agent-records.json).
+
+Reproduce safely with `tools/benchmark_world.py --save PATH --turns 60 --digest`.
+The tool copies the save and directs all writes into a temporary home.
+The saved-campaign audit also completed 360 ordinary movement actions, 1,175
+simulation turns, 19 frames and two save/load cycles with 39 state checks passing.
+The full local suite passed 390 tests with GPU availability required; all 24
+streaming and record-repair tests also passed with Rust and Numba disabled.
+
 ### Measured second-stage results, 12 October 2026
 
 Apple M4 Pro (10 performance + 4 efficiency cores, 20 GPU cores, 48 GiB), CPython 3.12.11,

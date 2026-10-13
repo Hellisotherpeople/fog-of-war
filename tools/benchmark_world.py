@@ -5,6 +5,7 @@ Run each radius in a fresh process, without concurrent tests:
   .venv/bin/python tools/benchmark_world.py --radius 240 --turns 180
 Radius 0 selects the old bounded scene for comparison. FOW_CODE_ROOT can point
 at an archived revision, allowing the same harness to measure the baseline.
+Use --save PATH to profile a copy of a campaign. All writes use a scratch home.
 """
 import argparse
 import json
@@ -12,11 +13,12 @@ import os
 from pathlib import Path
 import platform
 import resource
+import shutil
 import sys
 import tempfile
 import time
 
-os.environ.setdefault('FOW_HOME', tempfile.mkdtemp(prefix='fow_benchmark_'))
+os.environ['FOW_HOME'] = tempfile.mkdtemp(prefix='fow_benchmark_')
 os.environ.setdefault('SDL_VIDEODRIVER', 'dummy')
 os.environ.setdefault('SDL_AUDIODRIVER', 'dummy')
 os.environ['FOW_DEBUG'] = '1'
@@ -33,9 +35,21 @@ parser.add_argument('--battlefield',default='large')
 parser.add_argument('--profile',help='Write cProfile data for measured turns (timings then include profiler overhead)')
 parser.add_argument('--digest',action='store_true',help='Hash core simulation results after timing for optimization comparisons')
 parser.add_argument('--walk',action='store_true',help='Measure normal eastward movement actions and their real world turns, including terrain streaming')
+parser.add_argument('--save',type=Path,help='Benchmark a copy of an existing save in the scratch directory')
 a = parser.parse_args()
+if a.turns < 1:
+    parser.error('--turns must be positive')
 t0 = time.perf_counter()
-g = Game(a.theatre,'usa',seed=a.seed,setup={'battlefield':a.battlefield,'reality_radius':a.radius})
+if a.save:
+    source = Path(os.environ['FOW_HOME']) / 'source.pkl'
+    shutil.copy2(a.save.expanduser(), source)
+    g = Game.load(str(source))
+    landscape = g.__dict__.get('landscape')
+    a.radius = landscape.radius if landscape is not None and landscape.frame is g.map else 0
+    a.theatre, a.seed = g.theatre_id, g.seed
+    a.battlefield = g.setup.get('battlefield', 'standard')
+else:
+    g = Game(a.theatre,'usa',seed=a.seed,setup={'battlefield':a.battlefield,'reality_radius':a.radius})
 if a.radius:
     from fow.streaming import ensure
     ensure(g)
@@ -84,6 +98,7 @@ result = dict(acceleration=native_status(),python=platform.python_version(),mach
     p95_ms=round(float(np.percentile(samples,95)),3),max_ms=round(max(samples),3),
     peak_rss_mb=round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss/(1024**2 if sys.platform=='darwin' else 1024),1))
 result.update(walking=a.walk, actions=len(samples), simulated_turns=g.turn-first_turn,
+    source='save copy' if a.save else 'new game', facility_records=len(getattr(g.map, 'gen_positions', ())),
     start_world_pos=first_world_pos,
     end_world_pos=g.landscape.world_pos(*g.player.pos) if a.radius else g.player.pos)
 result['los_cache_entries'] = sum(len(g.map.__dict__.get(k,(None,{}))[1]) for k in ('_los','_los_hi'))

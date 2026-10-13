@@ -133,12 +133,38 @@ class Landscape:
         self.works = []
         self.reserves[(game.sector.x, game.sector.y)] = game.waves
         game.waves = []
+        self.repair_records(game)
         self.refresh(game, force=True)
         game.player_fov()
         self.checkpoint(game)
 
     def world_pos(self, x, y):
         return self.origin[0] + x, self.origin[1] + y
+
+    @staticmethod
+    def _repair_map_records(m):
+        # An installation's anchor belongs to its generation cell. Old mission
+        # aliases could move it into frame coordinates inside this canonical map;
+        # exporting it then retained and appended the same displaced site forever.
+        m.gen_positions = [r for r in getattr(m, 'gen_positions', ())
+                           if m.in_bounds(r['x'], r['y'])]
+
+    def repair_records(self, game):
+        """Detach briefing coordinates and repair legacy displaced site copies."""
+        for state in (game.__dict__, self.__dict__.get('world_state', {})):
+            mission = state.get('mission')
+            if mission and mission.get('rec') is not None:
+                # The briefing moves with the player's frame. The canonical site
+                # must remain cell-local, including the very first reframe.
+                mission['rec'] = deepcopy(mission['rec'])
+        for m in self.maps.values():
+            if not isinstance(m, bytes):
+                self._repair_map_records(m)
+        if not self._initial and self.frame is not None:
+            ox, oy = self.origin
+            self.frame.gen_positions = [r for r in self.frame.gen_positions
+                if r.get('_world_sector', ((r['x']+ox)//self.w, (r['y']+oy)//self.h)) ==
+                   ((r['x']+ox)//self.w, (r['y']+oy)//self.h)]
 
     def locate_player(self, game, sector):
         if sector is not game.sector:
@@ -290,6 +316,7 @@ class Landscape:
             self._generate(game, key)
         elif isinstance(self.maps[key], bytes):
             self.maps[key] = pickle.loads(zlib.decompress(self.maps[key]))
+            self._repair_map_records(self.maps[key])
         return self.maps[key]
 
     def _generate(self, game, key):
@@ -397,11 +424,13 @@ class Landscape:
             # Records carry world ownership, so partially visible buildings remain whole.
             recs = [r for r in m.__dict__.get('gen_positions', []) if r.get('_world_sector') == key]
             old = [r for r in cm.__dict__.get('gen_positions', [])
-                   if not (x0 <= r['x'] + x < x1 and y0 <= r['y'] + y < y1)]
+                   if cm.in_bounds(r['x'], r['y']) and
+                   not (x0 <= r['x'] + x < x1 and y0 <= r['y'] + y < y1)]
             for r in recs:
                 cp = deepcopy(r)
                 records(cp, -x, -y)
-                old.append(cp)
+                if cm.in_bounds(cp['x'], cp['y']):
+                    old.append(cp)
             cm.gen_positions = old
             cm.lights = [point(v, -x, -y) for v in m.lights if x0 <= v[0] < x1 and y0 <= v[1] < y1]
             parked = []
@@ -479,10 +508,7 @@ class Landscape:
                 for sy in range(oy // self.h, (oy + size - 1) // self.h + 1)]
         import pickle, zlib
         for key in keys:
-            if key not in self.maps:
-                self._generate(game, key)
-            elif isinstance(self.maps[key], bytes):
-                self.maps[key] = pickle.loads(zlib.decompress(self.maps[key]))
+            self.preload(game, key)
         self.tactical_keys = set(keys)
         game.strategic.materialized = self.tactical_keys
         from .terrain_window import TerrainWindow

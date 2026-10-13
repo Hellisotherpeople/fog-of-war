@@ -1,0 +1,110 @@
+{
+  "scenario": "Saved Tunisia agent campaign, stationary, five warm-up turns then 60 measured turns",
+  "baseline_revision": "338b7ba233261eef0ddef8411a9e79407719cd9a",
+  "hardware": "Apple M4 Pro, 10 performance + 4 efficiency CPU cores, 20 GPU cores, 48 GiB RAM",
+  "notes": [
+    "Sequential fresh processes with the same copied save and native 0.2.0.",
+    "Simulation timing only; rendering, speech, and save/load excluded from turn timings.",
+    "No simulation-radius, update-frequency, or actor-count reductions.",
+    "Digests cover the selected core state listed in tools/benchmark_world.py, not every subsystem.",
+    "Single 60-turn pair, not a general whole-game speed multiplier."
+  ],
+  "baseline": {
+    "acceleration": {
+      "adapter": null,
+      "backend": null,
+      "calibration": {},
+      "cpu_lights": 20,
+      "cpu_routes": 0,
+      "fallback_reason": null,
+      "gpu_completed": 0,
+      "gpu_lights": 0,
+      "gpu_mode": "auto",
+      "gpu_routes": 0,
+      "native": "0.2.0"
+    },
+    "actions": 60,
+    "battlefield": "large",
+    "end_world_pos": [
+      3231,
+      403
+    ],
+    "facility_records": 262154,
+    "final_actors": 244,
+    "initial_actors": 244,
+    "initialization_s": 0.904,
+    "los_cache_entries": 215,
+    "machine": "arm64",
+    "max_ms": 6853.161,
+    "mean_ms": 771.292,
+    "p95_ms": 646.061,
+    "peak_rss_mb": 870.2,
+    "profiled": false,
+    "python": "3.12.11",
+    "radius": 240,
+    "seed": 257934077,
+    "simulated_turns": 60,
+    "source": "save copy",
+    "start_world_pos": [
+      3231,
+      403
+    ],
+    "state_digest": "e0642e705591817fe0f12e2b5c784c961b997a7f603e0ecc90f321b3ffc3adeb",
+    "terrain_reused_cells": 0,
+    "terrain_slab_mb": 0,
+    "terrain_tiles": 370881,
+    "theatre": "tunisia43",
+    "turns": 60,
+    "vehicles": 3,
+    "walking": false
+  },
+  "repaired": {
+    "acceleration": {
+      "adapter": null,
+      "backend": null,
+      "calibration": {},
+      "cpu_lights": 20,
+      "cpu_routes": 0,
+      "fallback_reason": null,
+      "gpu_completed": 0,
+      "gpu_lights": 0,
+      "gpu_mode": "auto",
+      "gpu_routes": 0,
+      "native": "0.2.0"
+    },
+    "actions": 60,
+    "battlefield": "large",
+    "end_world_pos": [
+      3231,
+      403
+    ],
+    "facility_records": 18,
+    "final_actors": 244,
+    "initial_actors": 244,
+    "initialization_s": 0.986,
+    "los_cache_entries": 215,
+    "machine": "arm64",
+    "max_ms": 18.084,
+    "mean_ms": 8.695,
+    "p95_ms": 12.359,
+    "peak_rss_mb": 842.9,
+    "profiled": false,
+    "python": "3.12.11",
+    "radius": 240,
+    "seed": 257934077,
+    "simulated_turns": 60,
+    "source": "save copy",
+    "start_world_pos": [
+      3231,
+      403
+    ],
+    "state_digest": "e0642e705591817fe0f12e2b5c784c961b997a7f603e0ecc90f321b3ffc3adeb",
+    "terrain_reused_cells": 0,
+    "terrain_slab_mb": 0,
+    "terrain_tiles": 370881,
+    "theatre": "tunisia43",
+    "turns": 60,
+    "vehicles": 3,
+    "walking": false
+  }
+}
