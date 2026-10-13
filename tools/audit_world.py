@@ -35,6 +35,16 @@ def check(game):
             assert 0 <= order.obj < len(game.map.objectives), ('objective index', squad.id)
             if order.world_objective is not None:
                 assert order.world_objective is game.map.objectives[order.obj], ('objective identity', squad.id)
+    landscape = game.__dict__.get('landscape')
+    if landscape is not None:
+        for key, m in landscape.maps.items():
+            if not isinstance(m, bytes):
+                assert all(m.in_bounds(r['x'], r['y']) for r in m.gen_positions), ('displaced site', key)
+        if landscape.frame is game.map:
+            for rec in game.map.gen_positions:
+                wx, wy = landscape.world_pos(rec['x'], rec['y'])
+                owner = wx//landscape.w, wy//landscape.h
+                assert rec.get('_world_sector', owner) == owner, ('site ownership', rec)
 
 
 def main():

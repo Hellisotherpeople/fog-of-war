@@ -3728,6 +3728,9 @@ class Game:
             g.hierarchy = Hierarchy()
         from .conduct import migrate
         migrate(g)
+        landscape = g.__dict__.get('landscape')
+        if landscape is not None:
+            landscape.repair_records(g)
         return g
 
     def _reset_counters(self):
