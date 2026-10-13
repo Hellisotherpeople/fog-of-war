@@ -47,9 +47,13 @@ def test_briefing_governs_arrow_enter_and_stale_focus():
     assert b[0]["key"] == "mission" and b[0]["governing"]
     assert orders.active(g)["key"] == "mission"
     assert not orders.focus(g, f"duty:{t['uid']}")
-    rec = g.mission["rec"]["rect"]
-    target = (rec[0] + rec[2] // 2, rec[1] + rec[3] // 2)
-    assert g.order_pointer()[:2] == target
+    # The destination is a real briefed asset, not the compound's empty center.
+    from fow.demolition import origin
+    ox, oy = origin(g)
+    plan = g.mission['demolition']
+    assets = plan['tiles'] + plan['vehicles']
+    target = g.order_pointer()[:2]
+    assert target in {(a['world'][0]-ox, a['world'][1]-oy) for a in assets}
     with patch.object(ps, "start_travel") as travel:
         ps.cmd_do_order()
         assert travel.call_args.args[:2] == target

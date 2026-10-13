@@ -80,3 +80,52 @@ the same checked result. No original save was overwritten.
 
 This is a targeted audit with reproducible regressions and live simulation
 checks, not an exhaustive proof that every game system is free of defects.
+
+## Agent demolition follow-up
+
+The preserved Tunisia agent save had a plastic charge seated on a reinforced
+concrete wall. Placement was recorded but discarded at detonation: the charge
+removed only 396 of that section's 5,000 durability. Placed demolition charges
+now apply five times the ordinary structural damage at the contact tile only.
+This is game balance in the existing abstract damage model: masonry is
+breachable, reinforced concrete still takes repeated work, and surrounding
+blast and fragment damage retain their usual rules. Picking up or throwing a
+charge removes its placement benefit; duds cause no damage.
+
+The same mission had an impossible completion condition. It counted destroyed
+ammunition/fuel tiles, but its headquarters target contained none. Demolition
+orders now bind to persistent physical targets. HQ orders identify the radio
+or mast; stores and rail orders track their assigned tiles; gun-only orders
+track vehicle IDs. New HQs contain real radio equipment, while legacy saves
+use the equipment already present. Unavailable terrain cannot count as a
+destroyed target. New orders skip empty sites, and disabling HQ communications
+also removes that post's services. The route arrow leads to briefed equipment
+rather than an arbitrary compound center.
+
+Timed charges previously disappeared when their fuses expired outside the
+loaded terrain. Imminent fuses and secondary explosions now activate their
+impact neighborhoods, including soldiers and vehicles, for the ordinary blast
+simulation. That extra terrain is released after impact. Compression and
+save/load preserve the charge's identity, avoiding live-looking duplicate items
+after detonation. Attached charges follow a moved or wrecked vehicle, including
+where a dud is left. Sabotage progress no longer depends on remaining in the
+target's strategic cell, and escape distance is measured from the target.
+
+`tests/test_demolition.py` covers physical damage, accumulated concrete damage,
+duds, returned charges, vehicle attachments, real mission results, legacy saves,
+and distant detonation across compression and save/load. The order-routing
+regression now requires a briefed asset as its destination instead of the old
+compound-center coordinate.
+
+Verification: 405 full-suite tests passed with GPU checks required, plus 69
+focused tests with native and Numba acceleration disabled. A copy of the agent
+save completed 360 movement actions, 1,175 world turns, 19 frame origins, 39
+invariant checks and two save/load cycles. The original planted charge reduced
+its concrete section from 5,000 to 3,012 durability in the replay; the untouched HQ mast still
+needed sabotage. The old save's charge received the placement benefit normally,
+without replacing its equipment or awarding an unearned mission completion.
+
+A sequential 60-turn timing pair averaged 10.864 ms before this change and
+9.897 ms after, with identical core-state digests. This short sample precedes
+detonation and is a regression check, not a general speedup estimate. Raw results
+are in `docs/benchmarks/2026-10-12-demolition.json`.

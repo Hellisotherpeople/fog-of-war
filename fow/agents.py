@@ -365,6 +365,11 @@ def _setup_sabotage(game, ms, notes):
         ms.update(target="rec", rec=rec, base=base, stage="plant",
                   text=f"Blow up the enemy {rec['kind'].replace('_', ' ') if rec else 'depot'} "
                        f"({_rec_where(game, rec)}) with timed charges - and be well away when they go.")
+    from . import demolition
+    plan = demolition.assign(game, ms)
+    ms['text'] = demolition.instruction(plan) + ' Use the marked target, then break contact and get 120 metres clear.'
+    if not plan or not plan['need']:
+        ms.update(stage='failed', text='The briefed installations are already out of action; no demolition target remains.')
     notes.append("Squeeze the time pencil, pull the strip, walk away. Ten minutes, give or take - they run fast in "
                  "the heat and slow in the cold.")
 
@@ -546,30 +551,16 @@ def update(game, ms, done, friendly_ground, here):
 
 
 def _update_sabotage(game, ms, done, friendly_ground, here):
-    from .scenarios import _explosive_count
+    from . import demolition
     from . import mission_evidence as evidence
-    m = game.map
     if ms["stage"] == "plant":
-        if ms["target"] == "rail" and here:
-            from . import tiles as T
-            x, y = ms["tx"], ms["ty"]
-            if 'rail_tiles' not in ms:
-                ms['rail_tiles'] = [(x+dx,y+dy) for dx in range(-4,5) for dy in range(-4,5)
-                                    if m.in_bounds(x+dx,y+dy) and m.t[x+dx,y+dy] == T.ID['rail']]
-            cut = sum(1 for rx, ry in ms['rail_tiles'] if m.in_bounds(rx,ry) and m.t[rx,ry] != T.ID['rail'])
-            if cut >= 2:
-                ms["stage"] = "away"
-        elif ms["target"] == "rec" and here and ms.get("rec"):
-            rx, ry, rw, rh = ms["rec"]["rect"]
-            if not (m.in_bounds(rx, ry) and m.in_bounds(rx+rw-1, ry+rh-1)):
-                return
-            left = _explosive_count(m, ms["rec"])
-            if ms["base"] and left <= ms["base"] * 0.5:
-                ms["stage"] = "away"
-        if ms["stage"] == "away":
-            ms["withdraw_world"] = evidence.world_pos(game, game.player)
+        if demolition.achieved(game, ms):
+            plan = ms['demolition']
+            demolition.disable_hq(game, ms)
+            ms['stage'] = 'away'
+            ms["withdraw_world"] = plan.get('site_world') or plan['tiles'][0]['world']
             ms["text"] = "The target is damaged. Break contact and move at least 120 metres clear."
-            game.msg("The explosions roll across the countryside. Somewhere a siren starts.", "good")
+            game.msg(f"The marked {plan['label']} are out of action. Break contact.", "good")
             game.update_orders(force=True)
     elif ms["stage"] == "away" and evidence.clear_of_target(game, ms):
         done("The sabotage target is damaged and you have broken contact away from the site.", 9)

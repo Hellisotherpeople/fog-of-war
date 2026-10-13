@@ -828,16 +828,18 @@ def damage_tile(game, x: int, y: int, dmg: float) -> bool:
 
 def explode(game, x: int, y: int, power: float, radius: int, *, frags: int = 0,
             frag_dmg: float = 20, pen: float = 0, attacker=None, source="an explosion",
-            crater=True, fire: int = 0, smoke: float = 0, self_vehicle=None, air_burst=False):
+            crater=True, fire: int = 0, smoke: float = 0, self_vehicle=None, air_burst=False,
+            contact=False):
     from .conduct import attack
     with attack(game, attacker, (x, y), collateral=True):
         return _explode(game, x, y, power, radius, frags=frags, frag_dmg=frag_dmg, pen=pen,
                         attacker=attacker, source=source, crater=crater, fire=fire, smoke=smoke,
-                        self_vehicle=self_vehicle, air_burst=air_burst)
+                        self_vehicle=self_vehicle, air_burst=air_burst, contact=contact)
 
 
 def _explode(game, x, y, power, radius, *, frags=0, frag_dmg=20, pen=0, attacker=None,
-             source="an explosion", crater=True, fire=0, smoke=0, self_vehicle=None, air_burst=False):
+             source="an explosion", crater=True, fire=0, smoke=0, self_vehicle=None, air_burst=False,
+             contact=False):
     m = game.map
     rng = game.rng
     if not m.in_bounds(x, y):
@@ -936,6 +938,12 @@ def _explode(game, x, y, power, radius, *, frags=0, frag_dmg=20, pen=0, attacker
             if not m.in_bounds(xx, yy):
                 continue
             tdmg = power * 2.2 * (1 - dist / (rt + 1.2))
+            if contact and dist == 0:
+                # A deliberately seated demolition charge couples into the
+                # contacted structure. This game-scale factor makes masonry
+                # breachable while reinforced concrete still takes repeat work.
+                # Nearby terrain and soldiers receive the ordinary blast.
+                tdmg *= 5
             damage_tile(game, xx, yy, tdmg)
             m.scorch[xx, yy] = 1
             if fire and rng.random() < 0.5:
