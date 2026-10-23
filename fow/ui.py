@@ -444,7 +444,7 @@ class CreatorState:
                     out.append((d["name"], sid, d["desc"] + ("\n\nRare." if d.get("ai", 0) < 0.01 else "")))
             return out
         if key == "rank":
-            from .data.ranks import rank_title, stars
+            from .data.ranks import stars
             from .data.roles import ROLE_GRADES
             n = self._nation() or "usa"
             out = [("As the role implies", None, "The usual rank for the job.")]
@@ -1689,6 +1689,19 @@ def _voice_engine_desc() -> str:
     return base
 
 
+def _assets_note(kind) -> str:
+    """Why the recorded sounds or the music can't be heard, if they can't."""
+    try:
+        import soundfile  # noqa: F401
+    except Exception:
+        return "  (soundfile isn't installed: pip install -r requirements.txt.)"
+    if kind == "sounds":
+        from .soundpack import packs
+        return "" if packs() else "  (No recorded pack in assets/sounds: everything is synthesised.)"
+    from .music import library
+    return "" if library() else "  (No recordings in assets/music: there's no music to play.)"
+
+
 _STARTED = __import__("time").time()
 
 
@@ -1725,6 +1738,17 @@ class OptionsState:
             ("SOUND", None, "head", "", None),
             ("Sound", "sound", "toggle", "All sound on or off (F3).", None),
             ("Master volume", "volume", "slider", "Everything together.", None),
+            ("Sound pack", "sound_pack", "cycle",
+             "cinema: recorded weapons and war sounds - the MG 42's tear, the Garand's ping, real artillery - "
+             "where there are recordings, synthesised for the rest. synth: everything synthesised, as before. "
+             "The recordings and their licences are in assets/sounds/CREDITS.md." + _assets_note("sounds"),
+             ("cinema", "synth")),
+            ("Music", "music", "cycle",
+             "all: the menus, your army's music at the briefing, and now and then in a quiet hour (never in a "
+             "fight - it fades the moment the shooting starts). menus: only off the battlefield. off: none. "
+             "Period recordings, all public domain (assets/music/CREDITS.md)." + _assets_note("music"),
+             ("all", "title", "off")),
+            ("Music volume", "vol_music", "slider", "The music, on top of the master volume.", None),
             ("Weapons and explosions", "vol_weapons", "slider",
              "Rifles, machine guns, shells, grenades, ricochets - near and far.", None),
             ("Battle ambience, wind and rain", "vol_ambience", "slider",
@@ -1732,6 +1756,10 @@ class OptionsState:
              "out the fighting you're actually in.", None),
             ("Voices", "vol_voices", "slider", "Shouts, orders and the radio, in each army's language.", None),
             ("Spoken voices", "voices", "toggle", "Voices at all: off saves the time it takes to render them.", None),
+            ("Your side speaks English", "translate_own", "toggle",
+             "Your own army's shouts, orders, talk and radio shown and spoken in English - still in their own "
+             "voices, so a German platoon sounds like the Germans of an old war film. The enemy keeps his "
+             "language. Off: everyone speaks his own.", None),
             ("Voice engine", "voice_engine", "cycle", _voice_engine_desc(), ("neural", "system")),
             ("Footsteps, engines and the rest", "vol_effects", "slider",
              "Footsteps, engines and tracks, doors, digging, the ringing in your ears after a blast.", None),
@@ -1827,7 +1855,10 @@ class OptionsState:
             return f"{lab:34} {'█' * int(round(f * 10)) + '░' * (10 - int(round(f * 10)))} {float(v or 1.0):.1f}x"
         if kind == "cycle":
             shown = {"ttf": "DejaVu Sans Mono", "bitmap": "classic bitmap", "neural": "natural (Piper)",
-                     "system": "system (instant, robotic)"}.get(v, v)
+                     "system": "system (instant, robotic)", "cinema": "cinema (recorded)",
+                     "synth": "synthesised"}.get(v, v)
+            if key == "music":
+                shown = {"all": "menus and quiet hours", "title": "menus only", "off": "off"}.get(v, v)
             return f"{lab}: {shown}"
         return lab
 
@@ -1950,6 +1981,8 @@ class OptionsState:
             st[key] = opts[(i + (d if not enter else 1)) % len(opts)]
             if key == "font" and app.gfx is not None:
                 app.gfx.check_resize(force=True)
+            if key == "sound_pack" and app.audio is not None:
+                app.audio.set_pack(st[key])
         try:
             st.save()
         except Exception:
@@ -2827,10 +2860,14 @@ class App:
                     layers = overlay = None
                     self._log_error(tb)
                 self.gfx.present(self.console, layers, overlay, getattr(st, "map_offset", None))
+                g = self.current_game()
+                from . import translate
+                translate.ACTIVE_SIDE = g.player.side if g is not None and g.player is not None and \
+                    self.settings.get("translate_own") else None
                 if self.audio is not None:
-                    g = self.current_game()
                     try:
                         self.audio.update(g)
+                        self.audio.music_update(*self._music_context())
                     except Exception:
                         self._log_error(traceback.format_exc())
                 ticking = hasattr(st, "wants_tick") and st.wants_tick()
@@ -2862,6 +2899,24 @@ class App:
                 g.save()
             except Exception:
                 pass
+
+    def _music_context(self):
+        """What the music should be doing: the screen that's up, and whose army it's about."""
+        for st in reversed(self.states):
+            name = type(st).__name__
+            g = getattr(st, "game", None)
+            nation = getattr(g, "player_nation", None) or getattr(getattr(g, "player", None), "nation", None)
+            if name == "GameOverState":
+                return "death", nation
+            if name == "MemorialState":
+                return "memorial", None
+            if isinstance(st, PlayState):
+                return "play", nation
+            if name == "BriefingState":
+                return "briefing", nation
+            if name == "GeneratingState":
+                return "briefing", st.args[1]
+        return "title", None
 
     def _log_error(self, tb):
         """error.log in the save folder: when, which build, and the traceback - the same error over and over (a

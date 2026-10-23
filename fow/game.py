@@ -28,6 +28,7 @@ from .data.items import ITEMS
 from .data.nations import NATIONS, random_name
 from .data.theatres import THEATRES, theatre_year
 from .entities import Actor, Item, Vehicle, make_corpse
+from . import translate
 from .mapgen import generate
 from .senses import (HEAR_THRESHOLD, ONOMATOPOEIA, base_view_range, compute_light, daylight,
                      direction_word, distance_word, player_can_see_actor, player_fov, sound_at)
@@ -1659,10 +1660,15 @@ class Game:
         mine = text.startswith("You")
         who = text.split(":")[0]
         nation = p.nation
-        if lang(nation) != "en" and not is_native(nation, line):
+        english = lang(nation) != "en" and translate.ACTIVE_SIDE == p.side
+        if english and is_native(nation, line):
+            en = translate.english(nation, line)
+            line, english = (en, True) if en else (line, False)     # (no English for it: said as it is)
+        elif lang(nation) != "en" and not english and not is_native(nation, line):
             return            # the report is in the game's language, not his: the set just crackles
         info = dict(text=line, nation=nation, sid=("radio", who) if not mine else p.id,
-                    female=p.female if mine else False, role="", style="talk" if mine else "radio", own=mine)
+                    female=p.female if mine else False, role="", style="talk" if mine else "radio", own=mine,
+                    english=english)
         from .speech import remember
         remember(self, p.x, p.y, 62, info, p if mine else None)
         self.audio("voice", p.x, p.y, 62, extra=info)
@@ -1674,7 +1680,8 @@ class Game:
             if sp is None:
                 continue
             a.spoken = None
-            line, turn, tone = sp
+            line, turn, tone = sp[:3]
+            english = len(sp) > 3 and sp[3]
             if not a.alive or (a.vehicle is not None and a is not self.player and
                                            (self.player is None or self.player.vehicle is not a.vehicle)):
                 continue
@@ -1682,7 +1689,8 @@ class Game:
             emotion = style_for(a, tone)
             loud = 40 if emotion == "whisper" else 50 if tone == "talk" else 66
             info = dict(text=line, caption=a.shout[0] if a.shout else line, nation=a.nation,
-                        sid=a.id, female=a.female, role=a.role, style=tone, emotion=emotion, own=a.is_player)
+                        sid=a.id, female=a.female, role=a.role, style=tone, emotion=emotion, own=a.is_player,
+                        english=english)
             from .speech import remember
             remember(self, a.x, a.y, loud, info, a)
             if line:
@@ -2203,8 +2211,8 @@ class Game:
             self.soldier_at[spot] = o
             self.note_move(o)
             if self.rng.random() < 0.05:
-                o.say(self.rng.choice(["Watch it!", "Christ!", "Hey!"]) if o.nation in (
-                    "usa", "uk", "canada", "australia", "newzealand") else "!", self.turn)
+                o.say(self.rng.choice(["Watch it!", "Christ!", "Hey!"]) if translate.in_english(o) else "!",
+                      self.turn)
         cost = v.move_cost(int(np.mean([T.VCOST[int(m.t[cx, cy])] for cx, cy in cells])))
         # smash through what's in the way
         for cx, cy in crush:
@@ -3657,8 +3665,8 @@ class Game:
                 if sq is None or self.turn - sq.last_contact > 40:
                     a.ai["to_aid"] = self.turn
                     if self.rng.random() < 0.3 and sq is not None and sq.leader is not None and sq.leader.active:
-                        sq.leader.say("Get yourself back to the aid station." if sq.leader.nation in
-                                      ("usa", "uk", "canada", "australia", "newzealand") else "", self.turn, tone="talk")
+                        sq.leader.say("Get yourself back to the aid station." if translate.in_english(sq.leader)
+                                      else "", self.turn, tone="talk")
 
     def _leadership(self, a, officers) -> float:
         """Men steady faster with their leader beside them - and an officer in sight."""

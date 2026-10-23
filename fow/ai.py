@@ -22,6 +22,7 @@ import tcod
 
 from . import actions as A
 from . import tiles as T
+from . import translate
 from .brain import contact_kind
 from .combat import aim_level, aim_time, estimate_hit, hit_vehicle, max_aim, vehicle_fire_main, vehicle_fire_mg
 from .constants import BIG, other_side
@@ -2558,8 +2559,8 @@ def wounded_act(game, a, vis) -> int | None:
             a.ai.pop("at_aid", None)
             a.ai.pop("aid_since", None)
             if game.rng.random() < 0.5:
-                a.say(game.rng.choice(["Back to it.", "Right. Where's my squad?"]) if a.nation in
-                      ("usa", "uk", "canada", "australia", "newzealand") else "", game.turn, tone="talk")
+                a.say(game.rng.choice(["Back to it.", "Right. Where's my squad?"]) if translate.in_english(a)
+                      else "", game.turn, tone="talk")
             return None
         since = a.ai.setdefault("aid_since", game.turn)
         if game.turn - since > 1800 and not a.is_player:

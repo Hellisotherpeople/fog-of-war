@@ -199,7 +199,7 @@ class Support:
         friendly = side == g.player.side
         g.audio("aircraft", int(ac.x) if False else g.player.x, g.player.y, 58)
         if at.siren and not friendly:
-            g.audio("siren", tx, ty, 90)
+            g.audio("stuka", tx, ty, 90)
         if not quiet:
             g.msg(f"You hear {at.sound} - {'friendly' if friendly else 'enemy'} aircraft!"
                   if g.player.body.deaf <= 0 else "Something roars overhead.", "warn" if not friendly else "radio")

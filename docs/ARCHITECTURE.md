@@ -358,14 +358,24 @@ Pictures in the interface off.
 ## Sound
 
 `audio.py` synthesises every sound at start-up (gunfire by calibre, explosions, engines, the
-ambient battle) with NumPy and plays it positionally through SDL, mixed in channels (weapons,
-ambience, voices, effects, interface) under the Options menu's mixer. `voice.py` speaks orders,
+ambient battle) with NumPy and plays it positionally, mixed in channels (weapons, ambience,
+voices, effects, interface) under the Options menu's mixer. `mixer.Mixer` sums every sound, loop
+and piece of music into one SDL stream from its own thread, keeping a small margin queued
+(widened if the speakers ever catch up) and passing it through a look-ahead limiter. A recorded
+pack in `assets/sounds/<pack>` (`soundpack.PackBank`, built by `tools/build_sounds.py`) is laid
+over the synthesised bank; automatic weapons are rebuilt from each recorded shot at the gun's own
+rate. `music.MusicDirector` picks period recordings from `assets/music/music.json` for the
+screen that's up and the player's army, and fades them out when shooting starts. Neither folder
+ships with the game: without them it's all synthesised and silent of music. `voice.py` speaks orders,
 shouts and radio traffic in each nation's language through the operating system's speech
 engine (`say` on macOS, `espeak-ng` on Linux) if there is one, and caches the results. With
 `piper-tts` installed and the "neural" engine chosen, `neural_voice.Piper` renders them instead:
 per-locale model lists (`MODELS`), fetched in the background by `Downloader`; many-speaker models
 are split into men and women by measuring each speaker's pitch once (`speakers.json`). Any locale
-without a model ready falls back to the system engine line by line.
+without a model ready falls back to the system engine line by line. With Options > Your side
+speaks English, `translate.py` swaps every line your own army says (in `Actor.say` and the radio)
+for its English (`data/translations.py`), and Piper reads it in the speaker's own voice, with
+the English sounds his language lacks swapped for its nearest ones (`neural_voice.accented`).
 
 ## Module map
 
@@ -378,6 +388,8 @@ without a model ready falls back to the system engine line by line.
 | `render.py`, `render_sprites.py`, `gfx.py` | drawing: text console, sprite layers, compositing |
 | `sprites.py`, `figures.py`, `fonts.py` | procedural sprites, soldier figures, font tilesets |
 | `audio.py`, `voice.py`, `neural_voice.py` | synthesised positional sound, spoken lines (system speech, or Piper neural voices) |
+| `mixer.py`, `soundpack.py`, `music.py` | the one-stream mixer and limiter, recorded sound packs, period music |
+| `translate.py`, `data/translations.py` | your own side's lines in English (Options) |
 | `mapgen.py`, `gamemap.py`, `tiles.py` | battlefield generation, map arrays, tile definitions |
 | `spawn.py`, `entities.py` | creating soldiers, squads, vehicles; the classes |
 | `ai.py`, `brain.py`, `commander.py` | squad/soldier/vehicle AI, Dijkstra maps, side commanders |

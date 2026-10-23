@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import math
 
+from . import translate
 from .data.phrases import lang, phrase
 
 # how seriously each army took the killing of prisoners (and whether an officer would act on it)
@@ -48,7 +49,6 @@ DEADLINE = {"help": 45, "ammo": 60, "gun": 60, "down": 12, "come": 50, "fire": 3
             "fetch": 700, "scout": 300, "escort": 900, "track": 2400, "shells": 1500}
 REWARD = {"help": 5, "ammo": 4, "gun": 4, "down": 1, "come": 1, "fire": 2, "dig": 2, "runner": 4, "fetch": 4,
           "scout": 4, "escort": 5, "track": 4, "shells": 5}
-EN = ("usa", "uk", "canada", "australia", "newzealand", "india")
 
 
 def standing_word(rep: float) -> str:
@@ -389,7 +389,7 @@ class Duty:
                 return
             done = max(abs(a.x - p.x), abs(a.y - p.y)) <= 1
             if done:
-                a.say("Got it. Tell him we'll hold." if a.nation in EN else "", game.turn, tone="talk")
+                a.say("Got it. Tell him we'll hold." if translate.in_english(a) else "", game.turn, tone="talk")
         elif k == "fetch":
             sup = self._actor(game, t["by"])
             got = p.ai.get("resupplied_turn", -1) >= t["issued"]
@@ -596,7 +596,7 @@ class Duty:
                     self.rep -= 2
                     self.give(game, "help", sup, a.id)
                 elif a.active:
-                    a.say("Help me... please..." if a.nation in EN else "", game.turn, tone="scream")
+                    a.say("Help me... please..." if translate.in_english(a) else "", game.turn, tone="scream")
                     self.rep -= 0.5
         self.neglect = seen
 
@@ -701,7 +701,7 @@ class Duty:
                         max(abs(a.x - p.x), abs(a.y - p.y)) < 10), None)
             if wit is not None:
                 self.rep -= 5
-                if wit.nation in EN:
+                if translate.in_english(wit):
                     wit.say("What the hell did you do that for?", game.turn, 3)
 
     def on_surrender_near(self, game, prisoner):

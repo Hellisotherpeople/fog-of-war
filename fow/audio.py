@@ -1,12 +1,13 @@
-"""Synthesised, positional sound.
+"""Positional sound: synthesised, or recorded where a sound pack has the recording.
 
-Every sound is generated with numpy at startup (no audio assets).  Game events
-are queued by Game.emit_sound() into game.audio_events; each frame Audio.update()
-turns them into voices with distance attenuation, stereo panning, muffling for
-distant sounds / deafness / being inside a tank, and small time offsets so a
-batch of turns plays out as a firefight rather than one bang.
+Every sound is generated with numpy at startup; a recorded pack (soundpack.py,
+assets/sounds) is laid over it and anything it lacks is still synthesised.  Game
+events are queued by Game.emit_sound() into game.audio_events; each frame
+Audio.update() turns them into voices with distance attenuation, stereo panning,
+muffling for distant sounds / deafness / being inside a tank, and small time
+offsets so a batch of turns plays out as a firefight rather than one bang.
 
-SDL3 mixes every bound audio stream, so a pool of streams is the mixer.
+Everything is summed by mixer.Mixer into one SDL stream from its own thread.
 """
 from __future__ import annotations
 
@@ -29,19 +30,24 @@ def _noise(n, rng):
     return rng.standard_normal(n).astype(np.float32)
 
 
-def _filter(x, lo=None, hi=None):
-    """Band-limit with an FFT mask (smooth roll-off)."""
+def _filter(x, lo=None, hi=None, circular=False):
+    """Band-limit with an FFT mask (smooth roll-off).
+
+    An FFT filter is circular: the ringing before a sharp onset wraps round to the end of the clip, and
+    every gunshot would tick once more as it finished.  So a one-shot is padded first and the wrap dropped;
+    only a loop, whose end really does run into its start, is filtered round."""
     n = len(x)
     if n == 0:
         return x
-    X = np.fft.rfft(x)
-    f = np.fft.rfftfreq(n, 1 / SR)
+    m = n if circular else n + min(int(SR * .1), max(256, n))
+    X = np.fft.rfft(x, m)
+    f = np.fft.rfftfreq(m, 1 / SR)
     mask = np.ones_like(f)
     if hi is not None:
         mask *= 1 / (1 + (f / hi) ** 4)
     if lo is not None:
         mask *= 1 / (1 + (lo / np.maximum(f, 1)) ** 4)
-    return np.fft.irfft(X * mask, n).astype(np.float32)
+    return np.fft.irfft(X * mask, m)[:n].astype(np.float32)
 
 
 def _env(n, attack=0.001, decay=0.1):
@@ -69,6 +75,17 @@ def _reverb(x, taps=((0.07, 0.35), (0.16, 0.22), (0.31, 0.14), (0.55, 0.08)), rn
 def _norm(x, peak=0.9):
     m = np.max(np.abs(x)) if len(x) else 0
     return (x / m * peak).astype(np.float32) if m > 0 else x
+
+
+def _wrap_add(loop, x, at):
+    """Lay a sound into a loop at `at`, the part that runs past the end carried round to the start."""
+    n = len(loop)
+    at %= n
+    x = x[:n]
+    k = min(len(x), n - at)
+    loop[at:at + k] += x[:k]
+    if k < len(x):
+        loop[:len(x) - k] += x[k:]
 
 
 def _shot(rng, crack=1.0, body_hi=2200, body_decay=0.06, boom_hz=90, boom=0.6, dur=0.5):
@@ -129,10 +146,19 @@ class Bank:
         add("rustle", self._rustle(rng))
         add("thunder", _reverb(_filter(_noise(SR * 4, rng), hi=240) *
                                _env(SR * 4, attack=.18, decay=1.1)))
+        add("sonar", self._sonar())
+        add("depth_charge", self._depth_charge(rng))
+        add("klaxon", self._klaxon())
+        add("flak", _reverb(self._explosion(rng, 0.45, crack=True)))
+        add("stuka", self._stuka(rng))
+        add("torpedo", self._torpedo(rng))
+        add("naval_gun", _reverb(self._explosion(rng, 1.7, crack=True), taps=((0.15, 0.45), (0.4, 0.3), (0.9, 0.18))))
+        add("telephone", self._telephone())
         # far / muffled versions for anything loud
         for k in list(self.s):
             if k in ("rifle", "pistol", "shotgun", "atrifle", "cannon", "expl_small", "expl_med", "expl_big",
-                     "mortar", "engine", "truck", "aircraft", "flamer", "rocket"):
+                     "mortar", "engine", "truck", "aircraft", "flamer", "rocket", "depth_charge", "flak", "stuka",
+                     "naval_gun"):
                 self.s[k + "_far"] = [_norm(_reverb(_filter(x, hi=650), taps=((0.2, 0.4), (0.45, 0.25), (0.8, 0.15))), 0.6)
                                       for x in self.s[k]]
         # loops
@@ -221,7 +247,7 @@ class Bank:
         f = 420 + 520 * (t / dur) ** 0.8
         ph = 2 * np.pi * np.cumsum(f) / SR
         x = (np.sin(ph) + 0.4 * np.sin(2 * ph) + 0.2 * np.sin(3 * ph)) * np.minimum(1, t * 2)
-        return x
+        return x * np.minimum(1, (dur - t) * 2.5)         # (and winds down, rather than stopping dead)
 
     def _ricochet(self, rng, f0=3400):
         dur = 0.45
@@ -360,32 +386,86 @@ class Bank:
         n = int(SR * dur)
         brown = np.cumsum(_noise(n, rng))
         brown -= np.linspace(0, brown[-1], n)
-        x = _filter(brown / (np.max(np.abs(brown)) + 1e-6), hi=120) * 0.5
+        x = _filter(brown / (np.max(np.abs(brown)) + 1e-6), hi=120, circular=True) * 0.5
         for _ in range(7):
             b = _filter(self._explosion(rng, rng.uniform(0.8, 2.0)), hi=250) * rng.uniform(0.2, 0.5)
-            p = int(rng.uniform(0, dur - 2.5) * SR)
-            x[p:p + len(b)] += b[: n - p]
+            _wrap_add(x, b, int(rng.uniform(0, dur) * SR))
         for _ in range(5):
             b = _filter(self.s["rifle"][0], hi=500) * rng.uniform(0.05, 0.12)
             for k in range(rng.integers(3, 10)):
-                p = int((rng.uniform(0, dur - 1) + k * 0.1) * SR)
-                x[p:p + len(b)] += b[: n - p]
+                _wrap_add(x, b, int((rng.uniform(0, dur) + k * 0.1) * SR))
         return _norm(x, 0.5)
 
     def _wind_loop(self, rng):
         dur = 6.0
         t = _t(dur)
-        x = _filter(_noise(len(t), rng), lo=150, hi=900) * (0.6 + 0.4 * np.sin(2 * np.pi * t / dur * 2))
+        x = _filter(_noise(len(t), rng), lo=150, hi=900, circular=True) * (0.6 + 0.4 * np.sin(2 * np.pi * t / dur * 2))
         return _norm(x, 0.4)
 
     def _rain_loop(self, rng):
         dur = 4.0
         n = int(SR * dur)
-        x = _filter(_noise(n, rng), lo=1500, hi=9000) * 0.3
+        x = _filter(_noise(n, rng), lo=1500, hi=9000, circular=True) * 0.3
         for _ in range(400):
             p = rng.integers(0, n - 200)
             x[p:p + 200] += _filter(_noise(200, rng), lo=2000) * np.exp(-np.arange(200) / 30) * 0.3
         return _norm(x, 0.35)
+
+    def _sonar(self):
+        """The ASDIC ping, and its ring dying away through the hull."""
+        dur = 2.6
+        t = _t(dur)
+        x = np.sin(2 * np.pi * 1520 * t) * np.minimum(1, t / .004) * np.exp(-t * 2.2)
+        x *= np.where(t < .32, 1.0, .55)
+        return x + np.sin(2 * np.pi * 1520 * 1.003 * t) * np.exp(-t * 1.5) * .25 * (t > .05)
+
+    def _depth_charge(self, rng):
+        """Deep, felt more than heard: the sea itself thumps, then rumbles back."""
+        dur = 3.2
+        n = int(SR * dur)
+        brown = np.cumsum(_noise(n, rng))
+        brown -= np.linspace(0, brown[-1], n)
+        x = _filter(brown / (np.max(np.abs(brown)) + 1e-6), hi=140) * _env(n, .01, .9) * 2
+        t = _t(dur)
+        x += np.sin(2 * np.pi * 38 * t * (1 - t * .1)) * _env(n, .005, .6) * .8
+        x += _filter(_noise(n, rng), lo=200, hi=900) * _env(n, .002, .05) * .3
+        return x
+
+    def _klaxon(self):
+        """The diving alarm: three harsh blasts."""
+        dur = 2.4
+        t = _t(dur)
+        f = 330 + 90 * np.minimum(1, (t % .8) / .25)
+        ph = 2 * np.pi * np.cumsum(f) / SR
+        saw = (ph / (2 * np.pi)) % 1.0 * 2 - 1
+        gate = ((t % .8) < .62).astype(np.float32)
+        gate = np.convolve(gate, np.ones(220) / 220, mode="same")          # (each blast starts and stops cleanly)
+        return _filter(np.tanh(saw * 3) * gate, hi=3500)
+
+    def _stuka(self, rng):
+        """The Jericho trumpet: the siren winding up as the dive steepens, the engine screaming under it."""
+        dur = 4.5
+        t = _t(dur)
+        f = 260 + 900 * (t / dur) ** 1.6
+        ph = 2 * np.pi * np.cumsum(f) / SR
+        x = (np.sin(ph) + .45 * np.sin(2 * ph) + .2 * np.sin(3 * ph)) * np.minimum(1, t / .6)
+        x += _filter(_noise(len(t), rng), lo=200, hi=2400) * .35 * (t / dur)
+        return x * np.minimum(1, (dur - t) * 3)
+
+    def _torpedo(self, rng):
+        """A torpedo's screws, heard through the water: a thin high whine coming and going."""
+        dur = 3.5
+        t = _t(dur)
+        env = np.exp(-((t - dur * .5) ** 2) / (2 * (dur * .22) ** 2))
+        f = 2300 * (1.04 - .08 * t / dur)
+        ph = 2 * np.pi * np.cumsum(f) / SR
+        return (np.sin(ph) * .5 + _filter(_noise(len(t), rng), lo=1500, hi=5000) * .6) * env
+
+    def _telephone(self):
+        """A field telephone's magneto bell."""
+        t = _t(1.1)
+        bell = np.sin(2 * np.pi * 1180 * t) + .6 * np.sin(2 * np.pi * 1630 * t)
+        return bell * (np.sin(2 * np.pi * 18 * t) > 0) * np.minimum(1, (1.1 - t) * 8)
 
     def _tinnitus(self):
         t = _t(2.0)
@@ -408,49 +488,70 @@ ROF = {"mg42": 20, "mg42_tripod": 20, "mg34": 14, "mg34_tripod": 14, "bar": 9, "
 
 
 class Audio:
-    VOICES = 26
+    LOOPS = ("battle", "wind", "rain", "tinnitus")
 
     def __init__(self, settings):
         import tcod.sdl.audio as A
+        from .mixer import Mixer
         self.settings = settings
         self.enabled = bool(settings.get("sound", True))
         self.device = A.get_default_playback().open(format=np.float32, channels=2, frequency=SR)
-        self.voices = [self.device.new_stream(format=np.float32, channels=2, frequency=SR) for _ in range(self.VOICES)]
-        self.loop_streams = {k: self.device.new_stream(format=np.float32, channels=2, frequency=SR)
-                             for k in ("battle", "wind", "rain", "tinnitus")}
-        self.bank = Bank()
+        self.stream = self.device.new_stream(format=np.float32, channels=2, frequency=SR)
+        self.mixer = Mixer(self.stream)
+        self.synth_bank = Bank()
+        self.bank = self._pack_bank(settings.get("sound_pack", "cinema"))
         self.recent = []            # timestamps of recent gunfire (intensity)
         self.last_engine = 0.0
         self.last_update = time.time()
-        self.scheduled = []         # (play_at, stereo array) not yet queued
         self.voice_bank = None
         self.voice_wait = []        # voice lines still being rendered: (give_up_at, event)
         self.voice_until = []       # when the voices now playing finish
         self._warmed = set()
+        from .music import MusicDirector
+        self.music = MusicDirector(self)
         self.apply_volume()
 
     # ---------------------------------------------------------------- control
     def apply_volume(self):
         v = float(self.settings.get("volume", 0.8)) if self.enabled else 0.0
-        for s in self.voices:
-            s.gain = v
-        for s in self.loop_streams.values():
-            s.gain = v
+        self.mixer.set_master(v)
 
     def set_enabled(self, on):
         self.enabled = on
         if not on:
-            for s in self.voices + list(self.loop_streams.values()):
-                try:
-                    s.flush()
-                    s.clear() if hasattr(s, "clear") else None
-                except Exception:
-                    pass
-            self.scheduled = []
+            self.mixer.stop_all()
+            self._loop_sent.clear()            # (stop_all silenced the loops: send their levels again on return)
         self.apply_volume()
 
     def busy(self):
-        return bool(self.scheduled or self.voice_wait)
+        return bool(self.voice_wait)
+
+    def _pack_bank(self, name):
+        """The sounds to play: a recorded pack over the synthesised bank, or the synthesised bank alone."""
+        if name and name != "synth":
+            try:
+                from .soundpack import PackBank, packs
+                if name in packs():
+                    return PackBank(name, self.synth_bank)
+            except Exception:
+                pass                   # (no soundfile, or a pack that won't read: synthesised it is)
+        return self.synth_bank
+
+    def set_pack(self, name):
+        """Switch packs; the recordings load on a thread and take over when they're ready."""
+        import threading
+
+        def load():
+            bank = self._pack_bank(name)
+            self.bank = bank
+            self._loop_levels = {}             # (the loops come from the new bank; a fresh dict, not one being read)
+        threading.Thread(target=load, daemon=True).start()
+
+    def music_update(self, ctx, nation=None):
+        try:
+            self.music.update(ctx, nation, self._intensity())
+        except Exception:
+            pass                       # (a track that won't decode is silence, not a crash)
 
     def voices_on(self):
         return self.enabled and bool(self.settings.get("voices", True))
@@ -465,25 +566,16 @@ class Audio:
 
     def close(self):
         try:
-            for s in self.voices + list(self.loop_streams.values()):
-                s.close()
+            self.mixer.close()
+            self.stream.close()
             self.device.close()
         except Exception:
             pass
 
     # ---------------------------------------------------------------- playback
-    def _free_voice(self):
-        best = None
-        for s in self.voices:
-            q = s.queued_samples
-            if q == 0:
-                return s
-            if best is None or q < best[0]:
-                best = (q, s)
-        return None
-
     WEAPONS = {"gunfire", "cannon", "explosion", "mortar", "rocket", "shell", "whizz", "ricochet", "penetration",
-               "flamer", "thud", "splash", "aircraft"}
+               "flamer", "thud", "splash", "aircraft", "flak", "stuka", "depth_charge", "torpedo", "naval_gun",
+               "bazooka"}
 
     def mix(self, cat):
         """A channel of the mixer (see the Options screen)."""
@@ -500,26 +592,7 @@ class Audio:
         m = self.mix(cat)
         if m <= 0.001:
             return
-        gain_l *= m
-        gain_r *= m
-        at = time.time() + delay
-        stereo = np.empty((len(mono), 2), np.float32)
-        stereo[:, 0] = mono * gain_l
-        stereo[:, 1] = mono * gain_r
-        self.scheduled.append((at, stereo))
-
-    def _pump(self):
-        now = time.time()
-        keep = []
-        for at, st in sorted(self.scheduled, key=lambda e: e[0]):
-            if at <= now + 0.01:
-                v = self._free_voice()
-                if v is None:
-                    continue       # drop: too much going on
-                v.queue_audio(st)
-            else:
-                keep.append((at, st))
-        self.scheduled = keep
+        self.mixer.play(mono, gain_l * m, gain_r * m, delay, cat)
 
     def ui(self, name="ui"):
         s = self.bank.get(name)
@@ -530,7 +603,6 @@ class Audio:
     def update(self, game):
         if not self.enabled:
             return
-        self._pump()
         if game is None:
             self._loops(None, 0.0)
             return
@@ -547,7 +619,6 @@ class Audio:
         if p is not None and self.voices_on():
             self._warm(game)
             self._retry_voices(game, p)
-        self._pump()
         self._loops(game, self._intensity())
 
     def _intensity(self):
@@ -589,7 +660,7 @@ class Audio:
                     continue
                 engine_played = True
                 self.last_engine = time.time()
-            if kind in ("gunfire", "explosion", "cannon"):
+            if kind in ("gunfire", "explosion", "cannon", "naval_gun", "depth_charge"):
                 self.recent.append(time.time())
             self.play(snd, gl * amp, gr * amp, delay, cat="weapons" if kind in self.WEAPONS else "effects")
 
@@ -602,12 +673,15 @@ class Audio:
             return                               # (no speech engine: nothing to warm - and no babble to render)
         from .data import ranks as R
         from .data.nations import NATIONS
-        from .data.phrases import all_lines
+        from .data.phrases import all_lines, lang as R_lang
         nations = {game.player_nation} | {a.nation for a in game.actors[:200]}
         order = ("contact", "attack", "grenade", "medic", "pain", "reload", "mg", "tank", "sniper", "retreat",
                  "surrender")
+        from . import translate
         for nat in sorted(nations, key=lambda n: n != game.player_nation):
-            key = (id(game), nat, self.settings.get("voice_engine", "neural"))
+            ours = translate.ACTIVE_SIDE is not None and NATIONS[nat].get("side") == translate.ACTIVE_SIDE and \
+                R_lang(nat) != "en"
+            key = (id(game), nat, self.settings.get("voice_engine", "neural"), ours)
             if key in self._warmed:
                 continue
             self._warmed.add(key)
@@ -615,9 +689,12 @@ class Audio:
             lines = [x for k in order for x in sh.get(k, [])]
             lines += [x.replace("{rank}", "") for x in R.ACK.get(nat, [])] + all_lines(nat)
             pain = set(sh.get("pain", []))
+            if ours:              # (your side speaks English: warm the English, in their voices)
+                pain = {translate.english(nat, x) or x for x in pain}
+                lines = [translate.english(nat, x) or x for x in lines]
             for spk in bank.voice_set(nat):
                 for ln in lines:
-                    bank.request(spk, ln, "scream" if ln in pain else "shout", warm=True)
+                    bank.request(spk, ln, "scream" if ln in pain else "shout", warm=True, english=ours)
 
     def _voice_events(self, game, p, events):
         from .speech import voice_level, event_position
@@ -649,7 +726,7 @@ class Audio:
             if amp < 0.015:
                 continue                  # too far to hear a word
             spk = bank.speaker(info["nation"], info["sid"], info.get("female", False), info.get("role", ""))
-            clip = bank.request(spk, info["text"], style, emotion=info.get("emotion"))
+            clip = bank.request(spk, info["text"], style, emotion=info.get("emotion"), english=info.get("english", False))
             if clip is None:
                 if now < give_up:
                     keep.append((give_up, ev))
@@ -676,6 +753,14 @@ class Audio:
         if kind == "gunfire":
             from .data.items import ITEMS
             t = ITEMS.get(weapon) if weapon else None
+            gun = getattr(b, "gun", None)
+            if gun is not None:
+                # a recorded pack: the weapon's own recording (or its family's), burst at its own rate
+                n = int(extra or (t.burst if t is not None else 1)) if t is not None and \
+                    GUN_SOUND.get(t.cat) in ("mg", "smg") else 1
+                snd = gun(weapon, t, far, n)
+                if snd is not None:
+                    return snd
             cat = GUN_SOUND.get(t.cat, "rifle") if t is not None else "rifle"
             if cat in ("mg", "smg"):
                 n = int(extra or (t.burst if t is not None else 5))
@@ -688,6 +773,8 @@ class Audio:
         if kind in ("explosion", "crash"):
             if kind == "crash":
                 return b.get("expl_small" + suffix)
+            if extra == "flak":
+                return b.get("flak" + suffix)
             if power >= 400:
                 return b.get("expl_big" + suffix)
             if power >= 130:
@@ -701,7 +788,10 @@ class Audio:
                   "footsteps": "step", "engine": ("engine" if extra != "wheels" else "truck") + suffix,
                   "flare": "pop", "smoke": "hiss", "whizz": "whizz", "shell": "whistle", "siren": "siren",
                   "aircraft": "aircraft" + suffix, "thud": "thud", "splash": "splash", "radio": "radio",
-                  "ramp": "clang", "wire": "click", "door": "click", "thunder": "thunder"}
+                  "ramp": "clang", "wire": "click", "door": "click", "thunder": "thunder",
+                  "sonar": "sonar", "depth_charge": "depth_charge" + suffix, "klaxon": "klaxon",
+                  "flak": "flak" + suffix, "stuka": "stuka" + suffix, "torpedo": "torpedo",
+                  "naval_gun": "naval_gun" + suffix, "telephone": "telephone", "bazooka": "rocket" + suffix}
         name = simple.get(kind)
         return b.get(name) if name else None
 
@@ -732,22 +822,13 @@ class Audio:
                 want["battle"] *= 0.3
                 want["wind"] *= 0.3
                 want["rain"] *= 0.3
-        # the loops go out a quarter of a second at a time, so a change (the mixer, the weather, a blast
-        # that leaves your ears ringing) is heard at once rather than when the whole loop has played
-        pos = self.__dict__.setdefault("loop_pos", {})
-        chunk = SR // 4
-        for k, stream in self.loop_streams.items():
-            g = want[k]
-            if g <= 0.001:
-                continue
-            while stream.queued_samples < chunk:
-                loop = self.bank.loops[k]
-                i = pos.get(k, 0) % len(loop)
-                piece = loop[i:i + chunk]
-                if len(piece) < chunk:
-                    piece = np.concatenate([piece, loop[:chunk - len(piece)]])
-                pos[k] = (i + chunk) % len(loop)
-                st = np.empty((len(piece), 2), np.float32)
-                st[:, 0] = piece * g
-                st[:, 1] = piece * g * (0.9 if k == "wind" else 1.0)
-                stream.queue_audio(st)
+        # the mixer glides each loop to its new level (the weather, a blast that leaves your ears ringing)
+        for k in self.LOOPS:
+            g = want[k] if want[k] > 0.001 else 0.0
+            if self._loop_sent.get(k) != round(g, 4):
+                self._loop_sent[k] = round(g, 4)
+                self.mixer.loop(k, self.bank.loops[k], g, 0.9 if k == "wind" else 1.0)
+
+    @property
+    def _loop_sent(self):
+        return self.__dict__.setdefault("_loop_levels", {})

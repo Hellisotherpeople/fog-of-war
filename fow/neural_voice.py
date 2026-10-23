@@ -246,15 +246,49 @@ class Piper:
         x = np.concatenate([c.audio_float_array for c in chunks]).astype(np.float32)
         return x, sr
 
-    def render(self, voice, text, rate, pbas, path) -> bool:
+    def _synth_english(self, key, text, speaker, length, noise, noise_w, lg):
+        """English words in a German (Russian, French...) voice: read with English rules, then each sound the
+        model never learned swapped for the nearest one it did - the way its speakers really sound in English."""
+        from piper import voice as PV
+        from piper.config import SynthesisConfig
+        with self.lock:
+            voice = self._voice(key)
+            with PV._ESPEAK_PHONEMIZER_LOCK:
+                if PV._ESPEAK_PHONEMIZER is None:
+                    PV._ESPEAK_PHONEMIZER = PV.EspeakPhonemizer(voice.espeak_data_dir)
+                sentences = PV._ESPEAK_PHONEMIZER.phonemize("en-us", text)
+            cfg = SynthesisConfig(speaker_id=speaker, length_scale=length, noise_scale=noise, noise_w_scale=noise_w)
+            known = voice.config.phoneme_id_map
+            out = []
+            for ph in sentences:
+                if not ph:
+                    continue
+                ids = voice.phonemes_to_ids([c for c in accented("".join(ph), lg) if c in known])
+                a = voice.phoneme_ids_to_audio(ids, cfg)
+                a = a[0] if isinstance(a, tuple) else a
+                m = float(np.max(np.abs(a))) if len(a) else 0.0
+                out.append((a / m if m > 1e-8 else a).astype(np.float32))
+        if not out:
+            return None, 0
+        return np.concatenate(out), voice.config.sample_rate
+
+    def render(self, voice, text, rate, pbas, path, accent=None) -> bool:
         parts = voice.split(":")
         key = parts[1]
         speaker = int(parts[2]) if len(parts) > 2 else None
         # the system synth's words-a-minute, as Piper's pace; shouting and screaming come out livelier
         length = max(0.7, min(1.25, 185.0 / max(120, rate)))
         lively = rate >= 225
+        x = None
+        if accent:
+            try:
+                x, sr = self._synth_english(key, text, speaker, length, 0.8 if lively else 0.667,
+                                            0.95 if lively else 0.8, accent)
+            except Exception:
+                x = None           # (a piper without the espeak phonemizer: he reads it by his own rules below)
         try:
-            x, sr = self._synth(key, text, speaker, length, 0.8 if lively else 0.667, 0.95 if lively else 0.8)
+            if x is None:
+                x, sr = self._synth(key, text, speaker, length, 0.8 if lively else 0.667, 0.95 if lively else 0.8)
         except Exception:
             return False
         if x is None or len(x) == 0:
@@ -280,3 +314,59 @@ def status(locales) -> list[str]:
 
 def size_mb(key) -> int:
     return 80 if any(s in key for s in ("libritts", "vctk", "mls")) else 63
+
+
+# ====================================================================== English with an accent
+# English sounds (as espeak writes them) that each language's speakers - and so its voice model - don't have,
+# and what they say instead.  Longest first: diphthongs and affricates before their parts.
+_COMMON = [("ɾ", "t"), ("ᵻ", "ɪ"), ("ɐ", "a"), ("ɚ", "ər"), ("ɝ", "ər")]
+ACCENTS = {
+    "de": [("oʊ", "oː"), ("eɪ", "eː"), ("dʒ", "tʃ"), ("ɜː", "øː"), ("ɑː", "aː"), ("w", "v"), ("θ", "s"),
+           ("ð", "z"), ("ɹ", "ʁ"), ("æ", "ɛ"), ("ʌ", "a"), ("ɒ", "ɔ"), ("ɚ", "ɐ")],
+    "ru": [("oʊ", "o"), ("eɪ", "ej"), ("ɜː", "ə"), ("ɑː", "a"), ("ɔː", "o"), ("iː", "i"), ("uː", "u"), ("w", "v"),
+           ("θ", "s"), ("ð", "z"), ("h", "x"), ("ɹ", "r"), ("æ", "ɛ"), ("ʌ", "a"), ("ɒ", "o"), ("ʊ", "u"),
+           ("ŋ", "n")],
+    "fr": [("oʊ", "o"), ("eɪ", "e"), ("aɪ", "aj"), ("aʊ", "au"), ("dʒ", "ʒ"), ("ɜː", "œ"), ("ɑː", "a"),
+           ("iː", "i"), ("uː", "u"), ("ɚ", "œʁ"), ("h", ""), ("θ", "s"), ("ð", "z"), ("ɹ", "ʁ"), ("æ", "a"),
+           ("ʌ", "œ"), ("ɒ", "ɔ"), ("ɪ", "i"), ("ʊ", "u")],
+    "it": [("oʊ", "o"), ("eɪ", "ei"), ("ɜː", "er"), ("ɑː", "a"), ("iː", "i"), ("uː", "u"), ("ɚ", "er"),
+           ("h", ""), ("θ", "t"), ("ð", "d"), ("ɹ", "r"), ("æ", "ɛ"), ("ʌ", "a"), ("ɒ", "ɔ"), ("ɪ", "i"),
+           ("ʊ", "u"), ("ə", "a"), ("ŋ", "nɡ")],
+    "pl": [("oʊ", "ɔw"), ("eɪ", "ɛj"), ("aɪ", "aj"), ("aʊ", "aw"), ("ɜː", "ɛr"), ("ɑː", "a"), ("ɔː", "ɔ"),
+           ("iː", "i"), ("uː", "u"), ("ɚ", "ɛr"), ("h", "x"), ("θ", "t"), ("ð", "d"), ("ɹ", "r"), ("æ", "ɛ"),
+           ("ʌ", "a"), ("ɒ", "ɔ"), ("ɪ", "ɨ"), ("ʊ", "u"), ("ə", "ɛ"), ("ŋ", "n")],
+    "fi": [("oʊ", "ou"), ("eɪ", "ei"), ("tʃ", "ts"), ("dʒ", "j"), ("ɜː", "øː"), ("ɑː", "aː"), ("ɔː", "oː"),
+           ("ɚ", "er"), ("θ", "t"), ("ð", "d"), ("w", "v"), ("ɹ", "r"), ("ʃ", "s"), ("ʒ", "s"), ("z", "s"),
+           ("b", "p"), ("ɡ", "k"), ("ʌ", "a"), ("ɒ", "o"), ("ɪ", "i"), ("ʊ", "u"), ("ə", "e")],
+    "hu": [("oʊ", "oː"), ("eɪ", "eː"), ("ɜː", "øː"), ("ɑː", "aː"), ("ɚ", "ør"), ("θ", "s"), ("ð", "d"),
+           ("w", "v"), ("ɹ", "r"), ("æ", "ɛ"), ("ʌ", "ɒ"), ("ɒ", "o"), ("ɪ", "i"), ("ʊ", "u"), ("ə", "ɛ"),
+           ("ŋ", "nɡ")],
+    "ro": [("oʊ", "o"), ("eɪ", "ej"), ("ɜː", "ər"), ("ɑː", "a"), ("iː", "i"), ("uː", "u"), ("ɚ", "ər"),
+           ("θ", "t"), ("ð", "d"), ("ɹ", "r"), ("æ", "e"), ("ʌ", "a"), ("ɒ", "o"), ("ɪ", "i"), ("ʊ", "u"),
+           ("ŋ", "nɡ")],
+}
+_DEVOICE = {"de": True, "ru": True, "pl": True}           # a voiced consonant at the end of a word goes hard
+_FINAL = {"b": "p", "d": "t", "ɡ": "k", "z": "s", "v": "f", "ʒ": "ʃ"}
+
+
+_ACCENT_RE: dict = {}
+
+
+def accented(ph: str, lg: str) -> str:
+    """English phonemes as a speaker of `lg` says them.
+
+    One pass, longest sound first: a swap's result is never swapped again (German keeps the ɐ it was
+    given for ɚ, Hungarian the ɒ for ʌ), and a common swap lands on the language's own sound."""
+    import re
+    hit = _ACCENT_RE.get(lg)
+    if hit is None:
+        own = dict(ACCENTS.get(lg, []))
+        table = {a: own.get(b, b) for a, b in _COMMON}
+        table.update(own)
+        pat = re.compile("|".join(re.escape(k) for k in sorted(table, key=len, reverse=True)))
+        hit = _ACCENT_RE[lg] = (pat, table)
+    pat, table = hit
+    ph = pat.sub(lambda m: table[m.group(0)], ph)
+    if _DEVOICE.get(lg):
+        ph = re.sub(r"[bdɡzvʒ](?=[\s!?.,;:]|$)", lambda m: _FINAL[m.group(0)], ph)
+    return ph

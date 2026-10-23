@@ -697,10 +697,13 @@ class SkySeaState:
                 self.note = "No submarine contact."
                 return False
             sub = min(subs, key=lambda s: math.hypot(s.x - ship.x, s.y - ship.y))
+            ss._sound("sonar", ship.x, ship.y, 60)
             self.note = ss.depth_charges(ship, sub)
             return True
         if c == "d" and bridge and ship.cls == "ss":
             ship.depth = (ship.depth + 1) % 3
+            if ship.depth:
+                ss._sound("klaxon", ship.x, ship.y, 70)       # (the diving alarm)
             self.note = ["'Surface!'", "'Periscope depth.'", "'Take her deep!'"][ship.depth]
             return True
         if c == "l" and bridge and ship.air is not None:
