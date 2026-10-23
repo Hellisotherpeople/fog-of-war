@@ -7,7 +7,7 @@ import pytest
 import tcod
 
 from test_smoke import Game, FakeApp
-from fow import streaming, tiles, service, orders
+from fow import streaming, tiles, service, orders, senses
 from fow.body import Wound
 from fow.entities import Item
 from fow.play import PlayState
@@ -47,6 +47,21 @@ def test_radio_hunt_survives_a_detachment_leaving_the_detailed_circle():
     man.body.dead = True
     agents._hunt_tick(g)
     assert g.agent['hunt'] is None and g.agent['df'] == 0
+
+
+@pytest.mark.parametrize('pos,dormant,visible', [
+    ((10, 10), False, True), ((10, 10), True, False),
+    ((30, 10), False, False), ((-1, 10), False, False),
+    ((10, 20), False, False), ((10, -1), False, False),
+])
+def test_player_visibility_uses_only_actors_in_the_current_frame(pos, dormant, visible):
+    from types import SimpleNamespace as NS
+    from fow.gamemap import GameMap
+    m = GameMap(30, 20)
+    m.visible[:] = True
+    p = NS(side='allies')
+    a = NS(side=p.side, x=pos[0], y=pos[1], vehicle=None, _stream_dormant=dormant)
+    assert senses.player_can_see_actor(NS(player=p, map=m), a) is visible
 
 
 def test_reframe_preserves_people_wounds_ammo_terrain_orders_and_ordnance():
@@ -177,6 +192,69 @@ def test_preloaded_post_is_fixed_when_reached_and_loss_is_explicit():
     live['destroyed'] = True
     assert service.assigned_destination(g,ticket,('motor_pool',)) is None
     assert ticket['destination'] is dest and ticket['destination_lost']
+
+
+@pytest.mark.parametrize('role', ['army_group_commander', 'tank_crew'])
+def test_arrival_preserves_preloaded_objectives_after_compression_and_save(tmp_path, role):
+    setup = {'battlefield': 'standard', 'reality_radius': 120}
+    if role == 'tank_crew':
+        setup.update(vehicle='m4', station='driver')
+    g = Game('bocage44', 'usa', role=role, seed=5, setup=setup)
+    PlayState(FakeApp(), g)
+    st = g.landscape
+    key = (g.sector.x + 7, g.sector.y)
+    sector = g.strategic.at(*key, create=True)
+    if role == 'tank_crew':
+        sector.control = g.player.side
+        sector.installations.append(['motor_pool', g.player.side, True])
+    cm = st.preload(g, key)
+    if role == 'tank_crew':
+        workshop = next(r for r in cm.gen_positions if r['kind'] == 'motor_pool'
+                        and r['side'] == g.player.side)
+        g.player.vehicle.hp -= 10
+        service.tick(g)
+        ticket = g.player.ai['service_order']
+        ticket['destination'] = service.post_destination(g, sector, workshop)
+        workshop_world = ticket['destination']['world']
+        assert service.entry(g)['point'] is not None
+    sq = next(sq for sq in st.squads.values() if st.squad_key(sq) == key
+              and sq.order.world_objective is not None)
+    ob = sq.order.world_objective
+    target = (ob.x + key[0]*st.w, ob.y + key[1]*st.h)
+    sid = sq.id
+    st.refresh(g, force=True)
+    assert isinstance(st.maps[key], bytes)
+    path = str(tmp_path / 'arrival.pkl')
+    g.save(path)
+    g = Game.load(path)
+    st, p = g.landscape, g.player
+    sq = st.squads[sid]
+    cm = st.preload(g, key)
+    assert sq.order.world_objective not in cm.objectives
+    wx, wy = next(a.pos for a in sq.members if a.alive)
+    g.remove_from_map(p)
+    p.x, p.y = wx - st.origin[0], wy - st.origin[1]
+    if p.vehicle is not None:
+        v = p.vehicle
+        g.lift_vehicle(v)
+        v.x, v.y = p.pos
+        for a in list(v.crew_actors) + list(v.passengers):
+            a.x, a.y = p.pos
+    st.refresh(g, force=True)
+    assert sq in g.squads and sq.order.obj is not None
+    assert sq.order.world_objective is g.map.objectives[sq.order.obj]
+    assert st.world_pos(*sq.order.world_objective.pos) == target
+    assert all(g.map.in_bounds(*a.pos) for a in g.actors)
+    assert all(a.pos == pos for pos, a in g.soldier_at.items())
+    if role == 'tank_crew':
+        assert g.player.ai['service_order']['destination']['world'] == workshop_world
+        assert st.world_pos(*service.entry(g)['point'][:2]) == workshop_world
+    ps = PlayState(FakeApp(), g)
+    for _ in range(3):
+        g.world_turn()
+    assert all(not senses.player_can_see_actor(g, a) for a in p.squad.members
+               if a.__dict__.get('_stream_dormant'))
+    ps.render(tcod.console.Console(SCREEN_W, SCREEN_H, order='F'))
 
 
 def test_removed_actor_stays_removed_and_save_restores_identity(tmp_path):

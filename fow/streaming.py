@@ -317,7 +317,13 @@ class Landscape:
         elif isinstance(self.maps[key], bytes):
             self.maps[key] = pickle.loads(zlib.decompress(self.maps[key]))
             self._repair_map_records(self.maps[key])
-        return self.maps[key]
+        m = self.maps[key]
+        # Orders retain these objects when a distant cell is compressed. Give
+        # them world coordinates before a later preload creates new instances.
+        for ob in m.objectives:
+            if ob.__dict__.get('_world_pos') is None:
+                ob._world_pos = (ob.x + key[0]*self.w, ob.y + key[1]*self.h)
+        return m
 
     def _generate(self, game, key):
         from .game import Game

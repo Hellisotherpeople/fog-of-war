@@ -578,10 +578,10 @@ def player_can_see_actor(game, a) -> bool:
     p = game.player
     if a is p:
         return True
-    if a.vehicle is not None:
+    if a.vehicle is not None or a.__dict__.get('_stream_dormant'):
         return False
     m = game.map
-    if not m.visible[a.x, a.y]:
+    if not m.in_bounds(a.x, a.y) or not m.visible[a.x, a.y]:
         return False
     if a.side == p.side:
         return True

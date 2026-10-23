@@ -43,8 +43,25 @@ def target(game, kind):
     return dict(dest, person=None, label=NAMES[kind]) if dest else None
 
 
+def _staff_at(game, kind, point, radius=12):
+    """The specialists actually at a post, seen or not: the post is known, so are its people."""
+    return [a for a in game.actors if a is not game.player and a.side == game.player.side and a.active
+            and not a.downed and a.role in ROLES.get(kind, ()) and distance(a.pos, point) <= radius]
+
+
+def _lose(game, ticket):
+    ticket['destination_lost'] = 'The assigned staff are missing, incapacitated or their post is no longer operating. Select another visit in X.'
+    game.msg(ticket['destination_lost'], 'warn')
+    return None
+
+
 def assigned_target(game, ticket, kind):
-    """A visit keeps its post/person; casualties do not create another appointment."""
+    """A visit keeps its post/person; casualties do not create another appointment.
+
+    Walking up to a post, its people are often out of sight behind its walls: that is not a
+    lost appointment. Only a post that no longer operates, or staff who are no longer there
+    when the player arrives and can see the place, ends it.
+    """
     from .service import resolve, destination_available
     if ticket.get('destination') is None and not ticket.get('destination_lost'):
         ticket['destination'] = target(game, kind)
@@ -54,29 +71,39 @@ def assigned_target(game, ticket, kind):
     if not dest.get('world') and tuple(dest['sector']) != (game.sector.x,game.sector.y):
         if dest.get('person') is not None or destination_available(game,dest,POSTS[kind]):
             return dest
-    candidates = people(game, kind)
-    person = next((a for a in candidates if a.id == dest.get('person')), None)
-    if person is not None:
+    landscape = game.__dict__.get('landscape')
+    framed = landscape is not None and landscape.frame is game.map
+    point = dest.get('point')
+    if point is not None and not game.map.in_bounds(*point):
+        return dest              # still beyond the simulated frame: keep walking
+    post = dest.get('post') or (point if dest.get('person') is None else None)
+    if post is not None and dest.get('kind') is not None and not destination_available(game, dict(dest, point=post), POSTS[kind]):
+        return _lose(game, ticket)
+
+    def follow(person):
         dest.update(point=person.pos, label=person.full_name)
-        landscape = game.__dict__.get('landscape')
-        if landscape is not None and landscape.frame is game.map:
+        if framed:
             dest['world'] = landscape.world_pos(*person.pos)
             dest['sector'] = (dest['world'][0]//landscape.w, dest['world'][1]//landscape.h)
         return dest
-    point = dest.get('point')
-    if dest.get('person') is None:
-        at_post = [a for a in candidates if point and distance(a.pos, point) <= 12]
-        if at_post:
-            person = at_post[0]
-            dest.update(point=person.pos, person=person.id, label=person.full_name)
+    known = people(game, kind)
+    person = next((a for a in known if a.id == dest.get('person')), None)
+    if person is not None:
+        return follow(person)
+    if post is not None:
+        seen = [a for a in known if distance(a.pos, post) <= 12]
+        if seen:
+            person = min(seen, key=lambda a: distance(a.pos, game.player.pos))
+            dest.update(person=person.id, post=post)
+            return follow(person)
+        # Out of sight behind the post's walls is still at the post; never a tracking beacon.
+        if _staff_at(game, kind, post) or distance(game.player.pos, post) > 6 or not game.can_see(*post):
+            dest['point'] = post
             return dest
-        if destination_available(game, dest, POSTS[kind]) and (not point or distance(game.player.pos,point)>6):
-            return dest
-    elif point and (not game.map.in_bounds(*point) or distance(game.player.pos,point)>6 and not game.can_see(*point)):
+        return _lose(game, ticket)
+    if point and (distance(game.player.pos, point) > 6 and not game.can_see(*point)):
         return dest  # last known location, never a live tracking beacon
-    ticket['destination_lost'] = 'The assigned staff are missing, incapacitated or their post is no longer operating. Select another visit in X.'
-    game.msg(ticket['destination_lost'], 'warn')
-    return None
+    return _lose(game, ticket)
 
 
 def request(game, kind):

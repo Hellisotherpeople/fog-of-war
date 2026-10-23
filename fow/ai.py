@@ -272,6 +272,12 @@ def path_step(game, a, tx, ty, margin=10) -> int | None:
     """Follow a short A*-style path to (tx,ty) computed on a cropped window."""
     if (a.x, a.y) == (tx, ty):
         return None
+    m = game.map
+    if not m.in_bounds(tx, ty):
+        # A destination beyond the simulated frame (a reframe moved it out): head for the nearest point of it.
+        tx, ty = min(max(tx, 0), m.w - 1), min(max(ty, 0), m.h - 1)
+        if (a.x, a.y) == (tx, ty):
+            return None
     ai = a.ai
     path = ai.get("path")
     if path and ai.get("path_goal") == (tx, ty) and ai.get("path_turn", -99) > game.turn - 15:
