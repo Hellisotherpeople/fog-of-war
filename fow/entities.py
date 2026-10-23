@@ -9,6 +9,7 @@ from .data.items import ITEMS, ammo_id
 from .data.nations import NATIONS, rank_name
 from .data.roles import ROLES
 from .data.vehicles import MOUNTS, VEHICLES
+from . import translate
 
 _ids = itertools.count(1)
 
@@ -559,10 +560,13 @@ class Actor:
 
     def say(self, text: str, turn: int, duration: int = 3, voice: str | None = None, tone: str | None = None):
         """A speech bubble - and, for the sound system, the line as it's actually spoken."""
+        english = False
+        if text and translate.ACTIVE_SIDE is not None and translate.active_for(self):
+            text, voice, english = translate.line(self, text, voice)      # (Options: your side speaks English)
         self.shout = (text, turn + duration)
         if text:
             self.spoken = (voice if voice is not None else text, turn,
-                           tone or ("shout" if text.rstrip().endswith("!") else "talk"))
+                           tone or ("shout" if text.rstrip().endswith("!") else "talk"), english)
 
     def weapon_ready(self) -> bool:
         w = self.weapon

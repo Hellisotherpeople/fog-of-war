@@ -518,7 +518,7 @@ def take_attack(game, plane, tgt):
         ac.bombs = [[500, 5, 1]]
     sup.aircraft.append(ac)
     plane.ai["local"] = True
-    game.audio("aircraft", cx, cy, 80)
+    game.audio("stuka" if mode == "dive" and at.siren else "aircraft", cx, cy, 80)
     what = {"dive": "A dive bomber peels off and comes screaming down at us",
             "torpedo": "Torpedo plane, low on the water, coming in",
             "kamikaze": "He's not pulling out - he's coming straight in",
@@ -627,6 +627,7 @@ def _torpedo_run(game, ship, ac):
     """The torpedo drops, and runs at her."""
     rng = game.rng
     if rng.random() < 0.55:
+        game.audio("torpedo", game.player.x, game.player.y, 70)
         game.msg("The torpedo's in the water - the track's running straight at us!", "death")
         ship.order_kn = ship.st["speed"]
         game.skysea._ship_hit(ship, 450, 60, "a torpedo") if rng.random() < 0.5 else \
@@ -1029,7 +1030,7 @@ def tick_plane(game):
         x = rng.randrange(0, m.w)
         y = rng.choice((rng.randrange(0, max(1, meta_cy(game) - 2)), rng.randrange(meta_cy(game) + 2, m.h)))
         game.effect_explosion(x, y, 1)
-        game.emit_sound(x, y, 95, "explosion", "flak bursting", None, None, power=80)
+        game.emit_sound(x, y, 95, "explosion", "flak bursting", None, None, power=80, extra="flak")
         if rng.random() < 0.3:
             hx, hy = rng.choice(ab["meta"]["hull"])
             for yy in (hy - 1, hy + 1):

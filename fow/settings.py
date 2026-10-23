@@ -37,6 +37,10 @@ DEFAULTS = {
     "vol_voices": 0.9,        # shouts, orders, the radio
     "vol_effects": 0.8,       # footsteps, engines, doors, digging, the ringing in your ears
     "vol_ui": 0.6,            # clicks and rustles of the interface
+    "vol_music": 0.55,        # the music (on top of the master volume)
+    "music": "all",           # all: title, briefings and the quiet hours in play; title: menus only; off
+    "sound_pack": "cinema",   # cinema: recorded weapons and war sounds (assets/sounds); synth: all synthesised
+    "translate_own": False,   # your side's words shown and spoken in English, in their own voices
     "sound_log": "all",       # which sounds are written in the message log: all / near / off
     "battlefield": "large",   # for new games: standard / large / huge (see game.BATTLEFIELDS)
     "reality_radius": 240,    # player-centered tactical radius, in tiles (new games)

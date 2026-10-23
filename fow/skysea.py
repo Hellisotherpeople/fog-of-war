@@ -239,6 +239,14 @@ class SkySea:
     def add_effect(self, kind, x, y, dur=1.5):
         self.effects.append(dict(kind=kind, x=x, y=y, t=self.t + dur))
 
+    def _sound(self, kind, x, y, loud):
+        """A sound out on the sea, heard from your own ship or plane (a sea tile is about 100 yards)."""
+        me = self.player_ship or self.player_plane
+        p = self.game.player
+        if me is None or p is None:
+            return
+        self.game.audio(kind, p.x + (x - me.x) * 3, p.y + (y - me.y) * 3, loud)
+
     def entity(self, eid):
         for p in self.planes:
             if p.id == eid:
@@ -1266,6 +1274,7 @@ class SkySea:
         else:
             s.main_ready = self.t + reload
         self.add_effect("muzzle", s.x, s.y, 1.0)
+        self._sound("naval_gun", s.x, s.y, 75 + min(25, cal / 16))
 
     def _shells(self):
         keep = []
@@ -1344,6 +1353,8 @@ class SkySea:
             dud = rng.random() < (0.3 if s.nation == "usa" and self.game.year < 1943.6 else 0.05)
             self.torps.append(dict(x=s.x, y=s.y, hdg=h, kn=kn, left=rng_t, side=s.side, src=s.id, dmg=500, dud=dud))
         s.torps -= n
+        if s.player or tgt.player:
+            self._sound("torpedo", s.x, s.y, 70)
         return f"{n} torpedo{'es' if n > 1 else ''} away - running {int(t_run)} seconds."
 
     def _torpedoes(self):
@@ -1380,6 +1391,7 @@ class SkySea:
         s.dc = max(0, s.dc - 10)
         s.ai["dc_t"] = self.t
         self.add_effect("dc", s.x, s.y, 3)
+        self._sound("depth_charge", s.x, s.y, 85)
         d = math.hypot(sub.x - s.x, sub.y - s.y)
         p = (0.35 if sub.depth < 2 else 0.18) * max(0.0, 1 - d / 2.5)
         if rng.random() < p:

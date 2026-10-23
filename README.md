@@ -5,7 +5,7 @@
 <p align="center">
   <b>A Second World War roguelike. You are one soldier, and the whole war is simulated around you.</b><br>
   Turn based or optional real time (one turn is one second) · procedurally generated and endless · sprites or ASCII ·
-  synthesised sound · deliberately unfair
+  synthesised sound (or your own recorded pack and music) · deliberately unfair
 </p>
 
 <p align="center">
@@ -45,10 +45,16 @@ py -m venv .venv
 .venv\Scripts\python main.py
 ```
 
-That's all: three packages (`tcod`, `numpy`, `pillow`), no other assets to download. Soldiers'
+That's all: four packages (`tcod`, `numpy`, `pillow`, `soundfile`), no other assets to download.
+Every sound is synthesised. The game can also play a recorded sound pack (**Esc > Options > Sound
+pack**: *cinema*, falling back to *synth* for anything the pack lacks) and period music: drop a pack built
+by `tools/build_sounds.py` into `assets/sounds/<pack>/`, and recordings with a `music.json` into
+`assets/music/`. Soldiers'
 shouts and radio traffic are spoken through your system's speech engine if it has one: built in on
 macOS, and on Linux or Windows install [espeak-ng](https://github.com/espeak-ng/espeak-ng)
 (`sudo apt install espeak-ng`). Without it the game is the same, just quieter.
+**Esc > Options > Your side speaks English** shows and speaks your own army's words in English, in its own
+voices (a German platoon sounds like the Germans of an old war film); the enemy keeps his language.
 Speech also appears as readable bubbles over visible soldiers, even with sound off, and stays
 long enough to read while turns advance. Extra captions along the battlefield edge are off by
 default; enable **Esc > Options > UI speech captions** for crew, radio, unseen speakers, and

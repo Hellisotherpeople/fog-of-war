@@ -1,6 +1,7 @@
 """The in-battle game state: input, commands, targeting, diegetic popups."""
 from __future__ import annotations
 
+from . import translate
 from .constants import cap
 
 import math
@@ -3443,8 +3444,8 @@ class PlayState:
                 return
             who.morale = min(100.0, who.morale + 10)
             g.duty.rep += 1
-            who.say(g.rng.choice(["Thanks, pal.", "God bless you.", "Lifesaver."]) if who.nation in (
-                "usa", "uk", "canada", "australia", "newzealand") else "", g.turn, tone="talk")
+            who.say(g.rng.choice(["Thanks, pal.", "God bless you.", "Lifesaver."]) if translate.in_english(who)
+                    else "", g.turn, tone="talk")
             g.msg(f"You light a cigarette for {g.name_of(who)}. His hands stop shaking a little.", "info")
             return self.act(90)
 
@@ -3541,7 +3542,7 @@ class PlayState:
                 return
             if who.alive and g.rng.random() < 0.5:
                 who.say(g.rng.choice(["Thanks...", "Christ, that hurts.", "Am I gonna make it?", "Don't leave me."])
-                        if p.nation in ("usa", "uk", "canada", "australia", "newzealand") else "", g.turn, tone="talk")
+                        if translate.in_english(who) else "", g.turn, tone="talk")
             g.command.merit += 0.5
             if hasattr(g, "duty"):
                 g.duty.good_deed(g, "patched", who)
@@ -3594,6 +3595,7 @@ class PlayState:
 
     def wait_at_hq(self, turns):
         self.game.msg("You settle in at headquarters with the maps and the telephones.", "info")
+        self.game.audio("telephone", self.game.player.x, self.game.player.y, 55)
         self.auto_wait = int(turns)
         self.mark_interrupt()
 

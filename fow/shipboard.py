@@ -312,7 +312,7 @@ def general_quarters(game, ship):
     ab = game.aboard
     ab["condition"] = "GQ"
     ab["gq_turn"] = game.turn
-    game.audio("siren", game.player.x, game.player.y, 90)
+    game.audio("klaxon", game.player.x, game.player.y, 90)
     game.msg("BONG-BONG-BONG... 'General quarters, general quarters! All hands man your battle stations!' "
              "Men pour up and down the ladders.", "death")
     _transition(game, ship, "GQ")

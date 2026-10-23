@@ -484,11 +484,12 @@ class VoiceBank:
         return out[:3] if out and (out[0].voice or "").startswith("piper:") else out
 
     # ---------------------------------------------------------------- rendering
-    def _key(self, spk, text, rate):
+    def _key(self, spk, text, rate, accent=None):
         eng = "piper" if (spk.voice or "").startswith("piper:") else self.synth.name
-        return hashlib.sha1(f"{eng}|{spk.voice}|{spk.pbas}|{rate}|{text}".encode()).hexdigest()[:20]
+        tail = f"|en>{accent}" if accent else ""
+        return hashlib.sha1(f"{eng}|{spk.voice}|{spk.pbas}|{rate}|{text}{tail}".encode()).hexdigest()[:20]
 
-    def request(self, spk, line, style="shout", warm=False, emotion=None):
+    def request(self, spk, line, style="shout", warm=False, emotion=None, english=False):
         """Ask for a line.  Returns a processed clip if it's ready, else queues it and returns None."""
         from .prosody import STYLES, shape
         delivery = emotion or style
@@ -501,11 +502,13 @@ class VoiceBank:
                 clip = shape(process(babble(line, rng, spk.pitch, spk.female), acoustic, rng), delivery, SR)
                 self._store(key, clip)
             return clip
-        text = native(line, spk.locale)
+        # English from a man whose language isn't (Options: your side speaks English): his own voice reads it
+        accent = spk.locale[:2] if english and not spk.locale.startswith("en") else None
+        text = line if accent else native(line, spk.locale)
         if not text:
             return None
         rate = STYLES.get(delivery, STYLES["talk"]).rate
-        rk = self._key(spk, text, rate)
+        rk = self._key(spk, text, rate, accent)
         ck = ("expressive-v1", rk, round(spk.pitch, 2), style, delivery)
         clip = self.clips.get(ck)
         if clip is not None:
@@ -518,7 +521,7 @@ class VoiceBank:
                     if not warm:
                         self.urgent.add(rk)
                     self._seq += 1
-                    self.jobs.put((1 if warm else 0, self._seq, (rk, spk.voice, text, rate, spk.pbas)))
+                    self.jobs.put((1 if warm else 0, self._seq, (rk, spk.voice, text, rate, spk.pbas, accent)))
                 return None
         x, sr = raw
         seed = int(hashlib.sha1(str(ck).encode()).hexdigest()[:8], 16)
@@ -542,13 +545,13 @@ class VoiceBank:
 
     def _work(self):
         while True:
-            _, _, (rk, voice, text, rate, pbas) = self.jobs.get()
+            _, _, (rk, voice, text, rate, pbas, accent) = self.jobs.get()
             with self.lock:
                 if rk not in self.queued or rk in self.rendering:
                     continue                 # a promoted live request already completed this warm job
                 self.rendering.add(rk)
             try:
-                self._job(rk, voice, text, rate, pbas)
+                self._job(rk, voice, text, rate, pbas, accent)
             except Exception:
                 # (a full disk or a vanished cache folder mustn't kill the worker - and with it every voice)
                 with self.lock:
@@ -559,7 +562,7 @@ class VoiceBank:
                 with self.lock:
                     self.rendering.discard(rk)
 
-    def _job(self, rk, voice, text, rate, pbas):
+    def _job(self, rk, voice, text, rate, pbas, accent=None):
         if True:
             path = os.path.join(CACHE_DIR, rk + ".wav")
             ok = os.path.exists(path) and os.path.getsize(path) > 1000
@@ -568,7 +571,8 @@ class VoiceBank:
                 fd, tmp = tempfile.mkstemp(suffix=".wav", dir=CACHE_DIR)
                 os.close(fd)
                 eng = self.neural if (voice or "").startswith("piper:") and self.neural is not None else self.synth
-                ok = eng.render(voice, text, rate, pbas, tmp)
+                ok = eng.render(voice, text, rate, pbas, tmp, accent) if accent and eng is self.neural else \
+                    eng.render(voice, text, rate, pbas, tmp)
                 if ok:
                     os.replace(tmp, path)
                 else:
