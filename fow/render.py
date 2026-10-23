@@ -1072,7 +1072,8 @@ def draw_panel(con, game):
         con.print(x, y, "Squad", fg=UI_FRAME, bg=UI_BG)
         y += 1
         for mbr in sq.members:
-            if mbr is p or y >= SCREEN_H - 3:
+            if (mbr is p or y >= SCREEN_H - 3 or mbr.__dict__.get('_stream_dormant') or
+                    not game.map.in_bounds(mbr.x, mbr.y)):
                 continue
             close = mbr.vehicle is None and mbr.alive and (
                 math.hypot(mbr.x - p.x, mbr.y - p.y) < 8 or

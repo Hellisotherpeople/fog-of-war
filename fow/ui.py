@@ -15,7 +15,7 @@ from .constants import (ALLIES, AXIS, COMPASS, SCREEN_H, SCREEN_W, SIDE_COLOR, S
                         UI_DIM, UI_FRAME, UI_HI, UI_SEL_BG, UI_TEXT, VIEW_W, other_side)
 from .data.nations import NATIONS
 from .data.roles import PLAYER_ROLE_WEIGHTS, ROLES
-from .data.theatres import THEATRES
+from .data.theatres import THEATRES, theatre_year
 from .play import Key, PlayState
 from .render import draw_center_box
 from .search import Search, advance
@@ -454,8 +454,10 @@ class CreatorState:
                                                               "corporal or sergeant, a platoon officer a lieutenant.")]
             lo, hi = ROLE_GRADES.get(role, (0, 18))
             sv = v.get("service", "army")
+            th = THEATRES.get(self._theatre())
+            year = theatre_year(th) if th else 1944
             from .data.rank_profiles import available
-            for rank in available(n, sv, year or 1944):
+            for rank in available(n, sv, year):
                 if not lo <= rank.grade <= hi:
                     continue
                 st = stars(rank.grade)
@@ -574,11 +576,6 @@ class CreatorState:
             self.v["scenario"] = "random"
             self.v["role"] = "default"
             self.v["rank"] = None
-        if key == "role" and self.v["rank"] is not None:
-            from .data.roles import ROLE_GRADES
-            lo, hi = ROLE_GRADES.get(self.v["role"], (0, 18))
-            if self.v["role"] in ("default", "random") or not (lo <= self.v["rank"] <= hi):
-                self.v["rank"] = None
         if key in ("side", "theatre"):
             n = self._nation()
             vals = [o[1] for o in self.options("nation")]
@@ -621,6 +618,8 @@ class CreatorState:
                 self.notice = "Vehicle cleared: no compatible assignment. Enable captured equipment to use a foreign model."
         if self.v.get("station") not in [o[1] for o in self.options("station")]:
             self.v["station"] = None
+        if self.v["rank"] is not None and self.v["rank"] not in [o[1] for o in self.options("rank")]:
+            self.v["rank"] = None
 
     def _special_fix(self):
         """A special unit means its army, and a battle it fought in."""
