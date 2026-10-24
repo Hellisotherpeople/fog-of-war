@@ -503,7 +503,6 @@ def quarry(gen):
 
 
 def slag_heap(gen):
-    r = gen.rng
     at = spot(gen, 26, 22, dense_ok=0.5)
     if at is None:
         return False
@@ -640,7 +639,6 @@ def shrine(gen):
 
 
 def pagoda(gen):
-    r = gen.rng
     at = spot(gen, 22, 18, dense_ok=0.8)
     if at is None:
         return False

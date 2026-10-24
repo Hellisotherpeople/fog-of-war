@@ -102,11 +102,6 @@ def moonlight(game) -> float:
     return v
 
 
-def night_range(game) -> float:
-    """How far you can make a man out in the dark, before the light comes."""
-    return (NIGHT_RANGE + MOON_RANGE * moonlight(game)) * weather_visibility(game)
-
-
 def base_view_range(game) -> float:
     d = daylight(game)
     nr = NIGHT_RANGE + MOON_RANGE * moonlight(game)

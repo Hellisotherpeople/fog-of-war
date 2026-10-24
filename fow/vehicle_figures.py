@@ -150,7 +150,7 @@ def occupants(v, climate="summer", turn=0):
 
 def paint_person(spec):
     """Helmet, face, shoulders, hands and the task in front of him, at tile master scale."""
-    from .sprites import Canvas, M, UNIFORM, _helmet, shade, mix
+    from .sprites import Canvas, M, UNIFORM, _helmet, mix
     from .figures import CREW, DESERT, TROPICAL, SKINS, SKIN_DEFAULT
     from PIL import Image
     nation, climate, helmet, coat, tanker, skin_index = spec.appearance

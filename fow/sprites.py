@@ -75,7 +75,7 @@ class Canvas:
             x, y = self.rng.uniform(0, M), self.rng.uniform(4, M)
             L = self.rng.uniform(*length)
             dx = self.rng.uniform(-lean, lean)
-            c = mix(color, (255, 255, 255), self.rng.uniform(-0.1, 0.25)) if True else color
+            c = mix(color, (255, 255, 255), self.rng.uniform(-0.1, 0.25))
             self.d.line((x, y, x + dx, y - L), fill=c + (alpha,), width=width)
 
     def lines_h(self, color, spacing, width=1, jitter=1.0, alpha=255):
@@ -388,12 +388,6 @@ def paint_ground(c: Canvas, key: str, tid: int):
             _fern(c, x, y, c.rng.uniform(0, math.tau), c.rng.uniform(8, 12), mix(fg, (160, 120, 60), c.rng.random() * 0.5))
     else:
         c.texture(lighten(base, 0.1), 0.1)
-
-
-def ground_under(key, tid, climate_hint=None):
-    """What ground to paint beneath an object tile."""
-    bg = ground_color(tid)
-    return bg
 
 
 def _sprays(c, x, y, col, n=5, length=(5, 9), width=2, alpha=255, narrow=False):
@@ -1138,7 +1132,6 @@ def paint_soldier(nation: str, role: str, stance: int, state: str = "ok", winter
     if winter:
         uni = mix(uni, (225, 228, 235), 0.7)
     c = Canvas(seed=hash((nation, role, stance, state)) & 0xFFFF)
-    d = c.d
     gun = (40, 38, 36)
     wood = (120, 80, 45)
     if stance == 2 or state in ("downed", "dead"):

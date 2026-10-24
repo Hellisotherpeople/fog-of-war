@@ -379,10 +379,6 @@ _nation(
 
 # ---------------------------------------------------------------- helpers
 
-def side_nations(side: str) -> list[str]:
-    return [k for k, v in NATIONS.items() if v["side"] == side]
-
-
 def equip_sources(nation: str, year: float) -> list[str]:
     """Equipment pools usable by a nation in a given year, most specific first."""
     srcs = [s for s, y0, y1 in NATIONS[nation]["equip"] if y0 <= year < y1]

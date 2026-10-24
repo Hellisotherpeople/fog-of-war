@@ -7,7 +7,6 @@ The player's sector is simulated in full; units flow in and out of it.
 """
 from __future__ import annotations
 
-import math
 import random
 from collections import Counter
 
@@ -780,9 +779,6 @@ class Strategic:
         if not sup:
             sup = self.compute_supply()
         return sup.get((side, s.x, s.y), 1.0 if s.control == side else 0.0)
-
-    def side_power(self, side) -> float:
-        return sum(power(s.units[side]) for s in self.sectors())
 
     # ------------------------------------------------------------ attacks in progress
     def note_attack(self, dst, side, src=None, planned=False):

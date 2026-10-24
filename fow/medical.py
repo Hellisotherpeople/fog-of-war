@@ -16,7 +16,6 @@ work the aid station, the walking wounded make their own way back.
 """
 from __future__ import annotations
 
-import math
 
 from .body import BLOOD_MAX, PART_NAME, PARTS
 
@@ -94,7 +93,6 @@ def _first_aid(game, medic, patient, item=None):
     b = patient.body
     if s < MEDIC:
         return A.treat(game, medic, patient, item)
-    rng = game.rng
     self_aid = medic is patient
     who = "yourself" if (self_aid and medic.is_player) else ("you" if patient.is_player else game.name_of(patient))
     kit = medic.medical("kit")

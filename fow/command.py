@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import math
 
-from .ai import Order, order_target
+from .ai import Order
 from .constants import cap, other_side
 from .data import ranks as R
 from .data.nations import NATIONS, ordinal, random_name
@@ -715,7 +715,6 @@ class CommandState:
             # this battlefield isn't one of your sectors (you've gone forward into an attack): the battalion
             # here belongs to the regiment next door it's attacking out of
             host = top
-            st = game.strategic
             best = None
             for fid_ in [ob.bn_of.get((here[0] + dx, here[1] + dy)) for dx, dy in ((0, 1), (0, -1), (1, 0), (-1, 0))]:
                 if fid_ is not None and ob.node(fid_) is not None and ob.node(fid_).parent is not None:
@@ -790,7 +789,6 @@ class CommandState:
         return None
 
     def billet_title(self, game):
-        p = game.player
         if self.billet is not None:
             f = self.billet
             t = f.title() if f.echelon == "platoon" else f.name
@@ -1642,7 +1640,6 @@ class CommandState:
         return max(v for k, v in REACH.items() if g >= k)
 
     def can_order_sector(self, game, s):
-        st = game.strategic
         here = game.sector
         reach = self.strategic_reach(game)
         if reach <= 0:

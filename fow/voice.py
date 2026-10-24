@@ -563,38 +563,38 @@ class VoiceBank:
                     self.rendering.discard(rk)
 
     def _job(self, rk, voice, text, rate, pbas, accent=None):
-        if True:
-            path = os.path.join(CACHE_DIR, rk + ".wav")
-            ok = os.path.exists(path) and os.path.getsize(path) > 1000
-            if not ok:
-                os.makedirs(CACHE_DIR, exist_ok=True)
-                fd, tmp = tempfile.mkstemp(suffix=".wav", dir=CACHE_DIR)
-                os.close(fd)
-                eng = self.neural if (voice or "").startswith("piper:") and self.neural is not None else self.synth
-                ok = eng.render(voice, text, rate, pbas, tmp, accent) if accent and eng is self.neural else \
-                    eng.render(voice, text, rate, pbas, tmp)
-                if ok:
-                    os.replace(tmp, path)
-                else:
-                    try:
-                        os.remove(tmp)
-                    except OSError:
-                        pass
-            raw = None
+        path = os.path.join(CACHE_DIR, rk + ".wav")
+        ok = os.path.exists(path) and os.path.getsize(path) > 1000
+        if not ok:
+            os.makedirs(CACHE_DIR, exist_ok=True)
+            fd, tmp = tempfile.mkstemp(suffix=".wav", dir=CACHE_DIR)
+            os.close(fd)
+            eng = self.neural if (voice or "").startswith("piper:") and self.neural is not None else self.synth
+            ok = eng.render(voice, text, rate, pbas, tmp, accent) if accent and eng is self.neural else \
+                eng.render(voice, text, rate, pbas, tmp)
             if ok:
+                os.replace(tmp, path)
+            else:
                 try:
-                    x, sr = _load_wav(path)
-                    x = _trim(x)
-                    raw = (x, sr) if len(x) else None
-                except Exception:
-                    raw = None
-            with self.lock:
-                self.queued.discard(rk)
-                self.urgent.discard(rk)
-                if raw is not None:
-                    if len(self.ready) > self.MAX_READY:
-                        for k in list(self.ready)[: self.MAX_READY // 4]:
-                            del self.ready[k]       # still on disk: comes back on the next request
-                    self.ready[rk] = raw
-                else:
-                    self.failed.add(rk)
+                    os.remove(tmp)
+                except OSError:
+                    pass
+        raw = None
+        if ok:
+            try:
+                x, sr = _load_wav(path)
+                x = _trim(x)
+                raw = (x, sr) if len(x) else None
+            except Exception:
+                raw = None
+        with self.lock:
+            self.queued.discard(rk)
+            self.urgent.discard(rk)
+            if raw is not None:
+                if len(self.ready) > self.MAX_READY:
+                    for k in list(self.ready)[: self.MAX_READY // 4]:
+                        del self.ready[k]       # still on disk: comes back on the next request
+                self.ready[rk] = raw
+            else:
+                self.failed.add(rk)
+

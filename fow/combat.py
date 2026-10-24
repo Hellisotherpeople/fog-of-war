@@ -1,7 +1,6 @@
 """Ballistics, explosions, damage to people, vehicles and terrain."""
 from __future__ import annotations
 
-from .constants import cap
 
 import math
 
@@ -10,7 +9,6 @@ import tcod
 
 from . import tiles as T
 from .body import PART_NAME
-from .constants import other_side
 from .data.items import ITEMS
 from .entities import riding
 from .gamemap import octant
@@ -619,6 +617,8 @@ def _riders_hit(game, v, source, attacker=None):
 def hit_vehicle(game, v, pen, dmg, ox, oy, attacker, source, kind="ap", he_power=0, face=None):
     was_alive, hp, crew = not v.dead, v.hp, v.crew
     v.ai["hit_turn"] = game.turn
+    if attacker is not None and (ox, oy) != (v.x, v.y):
+        v.ai["hit_dir"] = octant(ox - v.x, oy - v.y)          # (the crew look round to where it came from)
     if v.passengers:
         _riders_hit(game, v, source, attacker)
     result = _hit_vehicle(game, v, pen, dmg, ox, oy, attacker, source, kind, he_power, face)

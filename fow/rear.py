@@ -15,7 +15,6 @@ anything at all.
 """
 from __future__ import annotations
 
-import math
 
 from .constants import SIDES, other_side
 
@@ -217,7 +216,6 @@ def _vehicles(game, side, nat, kind, x, y, tx, ty, info):
 def _column(game, side, nat, kind, x, y, tx, ty, info):
     """Men on foot: replacements marching up; prisoners marched back under guard."""
     from .spawn import make_squad
-    rng = game.rng
     if kind == "march":
         sq = make_squad(game, side, nat, "rifle", x, y, name=f"replacements for {info['dest']}")
         info["n"] = len(sq.members)

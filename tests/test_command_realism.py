@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import pickle
-from collections import Counter
 from copy import deepcopy
 from unittest.mock import patch
 

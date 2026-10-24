@@ -27,9 +27,8 @@ import numpy as np
 
 from . import tiles as T
 from .ai import Order, Squad
-from .constants import other_side
 from .gamemap import GameMap
-from .skysea import KNOT_TILES_S, SEC, Plane, Ship, angdiff, bearing
+from .skysea import SEC, Ship, bearing
 
 TILE_M = 2.0
 K = 100.0 / TILE_M          # deck tiles to a sea tile
@@ -593,7 +592,6 @@ def _aircraft_about(game, ship):
 def _blasts_on_her(game, ship):
     """What lands on her does her harm: bombs, rockets and crashing aircraft that burst on the deck plating
     (and near misses that open her seams)."""
-    ab = game.aboard
     wd = deck(game)
     hull = wd.cells
     ss = game.skysea
@@ -658,7 +656,7 @@ def _contacts_line(game, ship):
         rel = bearing(ship.x, ship.y, e.x, e.y) - ship.hdg
         where = _relative(rel)
         km = d * 0.1
-        name = e.name if kind == "ship" else f"{e.name}{'s' if False else ''}"
+        name = e.name
         game.msg(f"Lookout: '{'Aircraft' if kind == 'aircraft' else 'Ship'} {where}, {km:.0f} kilometres - "
                  f"{name}!'", "radio")
 
@@ -1057,7 +1055,6 @@ def meta_cy(game):
 
 def _crew_sync(game, pl):
     """The crew in the sky world and the men in the fuselage are the same men."""
-    ab = game.aboard
     from .combat import hit_actor
     by = {a.ai.get("station"): a for a in game.actors if a.ai.get("station")}
     for c in pl.crew:
@@ -1138,8 +1135,6 @@ def use_in_plane(ps):
     ps._skysea_pushed = True
     ps.app.push(st)
     return True
-    g.msg({"pilot": "You take the controls.", "bombardier": "You settle over the bombsight."}.get(
-        here, f"You squeeze into the {here}'s position and grip the guns."), "info")
 
 
 def _leave_plane(game, domain):

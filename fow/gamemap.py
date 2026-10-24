@@ -284,9 +284,6 @@ class GameMap:
     def is_walkable(self, x: int, y: int) -> bool:
         return 0 <= x < self.w and 0 <= y < self.h and bool(self.walk[x, y])
 
-    def is_transparent(self, x: int, y: int) -> bool:
-        return 0 <= x < self.w and 0 <= y < self.h and bool(self.see[x, y])
-
     def items_at(self, x: int, y: int) -> list:
         return self.items.get((x, y), [])
 

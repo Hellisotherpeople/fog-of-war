@@ -21,7 +21,7 @@ from __future__ import annotations
 from collections import Counter
 
 from .data import ranks as R
-from .data.nations import ordinal, random_name
+from .data.nations import random_name
 
 # what each strategic unit actually is on the ground: one squad, team, gun or vehicle (see spawn.spawn_units)
 HEADS = {"mg": 3.5, "mortar": 2.5, "at": 3, "hq": 4, "sniper": 1.4, "eng": 6.4, "tank": 5, "td": 4, "atgun": 4, "ht": 2}
@@ -101,22 +101,6 @@ class Operations:
         self.chief = None
 
     # ------------------------------------------------------------ building the order of battle
-    def _div_name(self, game, i):
-        nat = game.player_nation
-        th = game.theatre
-        pool = [d for d in th.get("divisions", {}).get(nat, []) if "Division" in d or "Divisioona" in d
-                or "Army" in d or "division" in d.lower()]
-        used = {d["name"] for d in self.divs.values()}
-        for d in pool:
-            if d not in used:
-                return d
-        for _ in range(20):
-            n = game.rng.randint(1, 120 if nat not in ("finland", "newzealand") else 18)
-            name = DIV_STYLE.get(nat, "{o} Division").format(n=n, o=ordinal(n))
-            if name not in used:
-                return name
-        return name
-
     def organise(self, game):
         """Your formations, from the order of battle (oob.py): the ones you give orders to on the war map
         are the level below your own command (battalions for a colonel, regiments for a division,
@@ -157,17 +141,6 @@ class Operations:
                 self.corps[g.fid] = dict(name=" / ".join(reversed(chain)), divs=[c for c in g.children if c in divs],
                                          echelon=OB.level_name(ob.nation, group_ech))
 
-    def div_units(self, game, did) -> Counter:
-        st = game.strategic
-        side = game.player_side
-        u = Counter()
-        for k in self.divs[did]["sectors"]:
-            c = st.at(*k)
-            if c is None or c is game.sector:
-                continue
-            u.update(c.units[side])
-        return u
-
     def div_strength(self, game, did) -> dict:
         """Men, tanks and guns: counted on the battlefield you're on, from the units elsewhere."""
         st = game.strategic
@@ -185,22 +158,6 @@ class Operations:
             for key in out:
                 out[key] += s[key]
         return out
-
-    def totals(self, game) -> dict:
-        t = dict(men=0, tanks=0, guns=0, halftracks=0)
-        for did in self.divs:
-            s = self.div_strength(game, did)
-            for k in t:
-                t[k] += s[k]
-        r = strength(self.reserve, game.player_nation)
-        for k in t:
-            t[k] += r[k]
-        # reserves on the road to the front are still ours (not casualties)
-        for _due, _k, u in getattr(self, "arriving", []):
-            a = strength(u, game.player_nation)
-            for k in t:
-                t[k] += a[k]
-        return t
 
     # ------------------------------------------------------------ orders
     def order(self, game, did, kind, target=None):

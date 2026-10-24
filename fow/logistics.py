@@ -181,7 +181,6 @@ def turn_in_papers(game, player, it):
     level, credit, merit = DOCS[it.tid]
     info = []
     data = it.data or {}
-    rng = game.rng
     enemy = data.get("side")
     if level >= 1:
         info.append(f"identifies {data.get('unit', 'an enemy unit')}")
@@ -206,24 +205,6 @@ def turn_in_papers(game, player, it):
         merge_map(player, reports)
         info.append("dated enemy dispositions copied to your map")
     return credit, merit, info
-
-
-def _reveal_local(game, side, enemy, radius, near=None) -> int:
-    brain = game.brains[side]
-    n = 0
-    px, py = near if near else (game.player.x, game.player.y)
-    for a in game.actors:
-        if a.side != enemy or not a.alive or a.state != "ok":
-            continue
-        if max(abs(a.x - px), abs(a.y - py)) > radius:
-            continue
-        brain.report(a, game.turn)
-        n += 1
-    for v in game.vehicles:
-        if v.side == enemy and not v.dead and max(abs(v.x - px), abs(v.y - py)) <= radius:
-            brain.report(v, game.turn)
-            n += 1
-    return n
 
 
 def _enemy_plan(game, side) -> str | None:

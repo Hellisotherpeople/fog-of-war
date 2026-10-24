@@ -231,6 +231,33 @@ def test_all_exposed_types_paint_in_every_direction_and_cache_without_state_chan
             assert b.next_cp == allocated and pickle.dumps(v) == before
 
 
+def test_idle_turrets_search_and_turn_toward_threats_at_traverse_speed():
+    from fow.ai import aim_turret
+    g, v, _ = battlefield("m4")
+    v.facing = v.turret = 0
+    seen = set()
+    for _ in range(90):
+        g.turn += 1
+        aim_turret(g, v, [], None)
+        seen.add(v.turret)
+    assert len(seen) >= 3                  # (a crew with nothing to shoot at searches its arc; it doesn't freeze)
+    v.ai.pop("watch", None)
+    v.turret = 0
+    v.ai["hit_turn"], v.ai["hit_dir"] = g.turn, 4
+    path = []
+    for _ in range(4):
+        g.turn += 1
+        aim_turret(g, v, [], None)
+        path.append(v.turret)
+    assert path in ([1, 2, 3, 4], [7, 6, 5, 4])    # an eighth of the way round a second, toward the hit
+    jammed = vehicle("m4")
+    jammed.parts["turret"] = vdamage.OUT
+    jammed.turret = 3
+    g.turn += 1
+    aim_turret(g, jammed, [], None)
+    assert jammed.turret == 3
+
+
 if __name__ == "__main__":
     import traceback
     tests = [(name, fn) for name, fn in list(globals().items()) if name.startswith("test_") and callable(fn)]

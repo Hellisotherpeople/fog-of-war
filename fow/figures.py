@@ -19,7 +19,7 @@ from __future__ import annotations
 import math
 
 import numpy as np
-from PIL import Image, ImageChops, ImageDraw, ImageFilter
+from PIL import Image, ImageDraw, ImageFilter
 
 S = 3                    # master pixels per logical pixel
 G = 32                   # logical grid

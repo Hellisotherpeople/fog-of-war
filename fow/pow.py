@@ -10,9 +10,8 @@ and back in the war.
 """
 from __future__ import annotations
 
-import math
 
-from .constants import SIDES, other_side
+from .constants import other_side
 
 # (captor, prisoner) -> (daily chance of dying, ration quality 0..1, camp word)
 CAMPS = {

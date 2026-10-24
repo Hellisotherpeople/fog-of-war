@@ -218,7 +218,6 @@ def _reload_loose(game, actor, gun) -> int | None:
 
 def unload(actor, gun):
     """Pull the magazine (or the loose rounds) out of a gun into your kit."""
-    from .entities import Item
     if gun.mag_item is not None:
         m = gun.mag_item
         m.loaded = gun.loaded

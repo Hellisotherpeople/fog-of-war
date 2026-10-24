@@ -110,6 +110,9 @@ Most content is data, declared with small helper functions:
   equipment pools, years, then weight, fire modes, reload and shot costs, jam and heat, sound.
   Which soldiers carry it comes from the pools in `fow/data/nations.py` and the role kits in
   `fow/data/roles.py`.
+- **Its picture**: an ASCII drawing under `%% item_id` in `assets/art/*.txt` (at most 56 × 10, printable
+  ASCII), shown when it's looked over. `tools/check_art.py` validates the files and lists any item without one;
+  the test suite fails while one is missing.
 - **A vehicle or gun**: `fow/data/vehicles.py` (armour per facing, penetration, crew seats).
   Its footprint on the ground comes from its real dimensions (`fow/footprint.py`).
 - **A ship**: `ship(...)` in `fow/data/ships.py` for her guns, armour, speed and air group; her

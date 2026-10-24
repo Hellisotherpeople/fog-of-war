@@ -18,7 +18,7 @@ import math
 import random
 
 from .constants import other_side
-from .data.ships import CLASS_NAME, SHIPS, available
+from .data.ships import CLASS_NAME, SHIPS
 from .data.vehicles import AIRCRAFT
 
 SEC = 30                    # tiles per strategic sector

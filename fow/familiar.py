@@ -13,7 +13,7 @@ Familiarity runs from 0 (never seen one) to 1 (issued it, trained on it).
 """
 from __future__ import annotations
 
-from .data.nations import NATIONS, equip_sources
+from .data.nations import equip_sources
 from .data.ranks import same_army
 
 # armies that trained on (or were issued) each other's weapons

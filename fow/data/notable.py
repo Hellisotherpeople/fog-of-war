@@ -355,11 +355,6 @@ NOTABLE = {
 }
 
 
-def for_battle(nation, theatre) -> list:
-    """The notable units of this army that fought this battle: [(key, entry)]."""
-    return [(k, d) for k, d in NOTABLE.items() if d["nation"] == nation and (theatre is None or theatre in d["theatres"])]
-
-
 def division(d, theatre) -> str:
     return (d.get("div_by") or {}).get(theatre) or d["div"]
 

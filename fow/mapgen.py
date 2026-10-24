@@ -7,7 +7,6 @@ generate(spec) builds a GameMap for one strategic sector.  spec keys:
 """
 from __future__ import annotations
 
-import math
 import random
 
 import numpy as np
@@ -767,7 +766,6 @@ class Gen:
         if level <= 0 or not self.att:
             return
         r = self.rng
-        att = self.att
         # main line at 55-70% depth (from attacker edge)
         lines = 1 + (level >= 2) + (level >= 3 and r.random() < 0.6)
         depths = sorted(r.uniform(0.52, 0.72) for _ in range(lines))
@@ -1578,7 +1576,6 @@ class Gen:
 
     def _inst_naval_base(self, rec, x0, y0, sw, sh):
         """A quay along the shore, piers out into the water, a harbour office, a warehouse, fuel tanks."""
-        r = self.rng
         m = self.m
         sea, shore, lat_i = getattr(self, "naval_shore", (None, 0, 0))
         if sea is None:

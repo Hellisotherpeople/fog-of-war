@@ -78,7 +78,6 @@ def _piles(game, kind, man, x0, y0, r=RADIUS):
 
 def available(game, sq, origin):
     """For the menu: how much of each job there is within reach of the unit - {kind: (number, words)}."""
-    from . import maintenance as MT
     ox, oy = origin
     side = sq.side
     man = next((a for a in sq.members if a.active and not a.is_player), None) or \
@@ -147,7 +146,6 @@ def assign(game, sq, kind, by=None):
     sq.__dict__["task"] = dict(kind=kind, until=game.turn + DURATION, by=getattr(by, "id", None), found=Counter(),
                                start=game.turn, home=anc)
     if kind == "repair":
-        from . import maintenance as MT
         needy = [v for v in game.vehicles if v.side == sq.side and not v.dead and not v.abandoned and
                  _needs_hands(v, game)]
         if anc is not None and needy:

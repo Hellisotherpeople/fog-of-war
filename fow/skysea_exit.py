@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import math
 
-from .constants import other_side
 from .skysea import SEC
 
 
@@ -55,7 +54,6 @@ def to_land(g, sector, frac=None, airfield=False, notes=None):
 
 def finish(g, over, state):
     """The flight (or the voyage) is over, one way or another."""
-    from . import scenarios as SC
     ss = g.skysea
     p = g.player
     app = state.app
@@ -101,7 +99,6 @@ def adrift(g, ss):
     rng = g.rng
     p = g.player
     side = p.side
-    st = g.strategic
     x, y = ss.raft if ss is not None and ss.raft else (0, 0)
     friends = ss is not None and any(s.alive and s.side == side for s in ss.ships)
     enemies = ss is not None and any(s.alive and s.side != side for s in ss.ships)

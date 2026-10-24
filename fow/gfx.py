@@ -144,11 +144,6 @@ class Graphics:
         mw, mh = self.map_cell
         return mw / cw, mh / ch
 
-    def map_cell_to_text(self, sx: float, sy: float) -> tuple[int, int]:
-        """Map-view cell -> UI text cell (for anchoring popups and bubbles)."""
-        tx, ty = self.map_scale()
-        return int((sx + 0.5) * tx), int((sy + 0.5) * ty)
-
     def text_to_map_cell(self, tx: float, ty: float) -> tuple[int, int]:
         sx, sy = self.map_scale()
         return math.floor(tx / sx), math.floor(ty / sy)

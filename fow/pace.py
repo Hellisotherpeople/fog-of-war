@@ -19,10 +19,6 @@ LOUD = {"sneak": 0.35, "walk": 1.0, "run": 1.4, "sprint": 1.8}
 WORD = {"sneak": "creeping", "walk": "walking", "run": "running", "sprint": "sprinting"}
 
 
-def max_breath(a) -> float:
-    return 100.0 - 0.6 * getattr(a, "fatigue", 0.0)
-
-
 def allowed(a, turn=None) -> str:
     """The fastest this man can go right now."""
     b = a.body

@@ -56,13 +56,6 @@ def _env(n, attack=0.001, decay=0.1):
     return a * np.exp(-t / max(decay, 1e-4))
 
 
-def _pad(x, dur):
-    n = int(SR * dur)
-    if len(x) >= n:
-        return x[:n]
-    return np.concatenate([x, np.zeros(n - len(x), np.float32)])
-
-
 def _reverb(x, taps=((0.07, 0.35), (0.16, 0.22), (0.31, 0.14), (0.55, 0.08)), rng=None):
     extra = int(SR * (taps[-1][0] + 0.1))
     out = np.concatenate([x, np.zeros(extra, np.float32)])

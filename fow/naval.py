@@ -13,9 +13,7 @@ better be back aboard by 0600, because when her sailing orders come she sails, w
 """
 from __future__ import annotations
 
-import math
 
-from .constants import other_side
 
 HOUR = 3600
 DAY = 86400
@@ -89,7 +87,7 @@ def nearest_port(game, near=None):
     if not cands:
         return None
     cands.sort(key=lambda t: t[:3])
-    s = cands[-1][3] if False else cands[0][3]
+    s = cands[0][3]
     if s.sea_edge is None and s.saved is None:
         v = _has_sea_neighbour(st, s)
         s.sea_edge = {(0, -1): "N", (0, 1): "S", (1, 0): "E", (-1, 0): "W"}[v]

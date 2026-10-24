@@ -27,7 +27,6 @@ import math
 
 from . import tiles as T
 from .ai import Order, Squad
-from .constants import other_side
 
 # what men at each kind of station are
 KIND_ROLE = {"gun": "sailor", "mount_captain": "petty_officer", "bridge": "petty_officer", "lookout": "sailor",
@@ -178,7 +177,6 @@ def organise(game):
     """The command tree for the deck you're on: the ship, her departments, the parties here."""
     from .command import Formation
     cmd = game.command
-    ab = game.aboard
     ship = _ship(game)
     if ship is None:
         return
@@ -444,7 +442,7 @@ def _watch_change(game):
 
 def _man_overboard(game):
     """Someone's gone over the side."""
-    from .aboard import deck, weather_deck
+    from .aboard import weather_deck
     ab = game.aboard
     wd = weather_deck(game)
     if wd is None:
@@ -456,7 +454,7 @@ def _man_overboard(game):
 # ====================================================================== the lookout
 def _lookout(game, ship):
     """At a lookout post, you may see what the ship hasn't yet - a speck in the sky, smoke on the horizon."""
-    from .aboard import _relative, deck
+    from .aboard import _relative
     ab = game.aboard
     p = game.player
     m = game.map
@@ -596,7 +594,6 @@ def _tasks(game, ship):
 def _check(game, ship, t):
     ab = game.aboard
     k = t["kind"]
-    p = game.player
     done = False
     if k == "station":
         done = at(game, ab["battle_station"], 2) or ab["condition"] != "GQ"
@@ -779,7 +776,7 @@ def fast_step(game, secs=30):
         secs = min(secs, 10)                     # standing by at general quarters: shorter steps
     t0 = game.turn
     ss.hit_hook = None
-    from .aboard import on_hit, take_attack
+    from .aboard import on_hit
     ss.hit_hook = lambda s, dmg, flood, what, fire, deck_: on_hit(game, s, dmg, flood, what, fire, deck_)
     ss.local_hook = lambda plane, tgt: False
     ss.step(secs, clock=False)

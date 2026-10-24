@@ -63,9 +63,6 @@ class Body:
     def arms_ok(self) -> int:
         return (self.hp["l_arm"] > 0) + (self.hp["r_arm"] > 0)
 
-    def can_walk(self) -> bool:
-        return self.legs_ok() == 2 and self.effective_pain() < 120
-
     def downed(self) -> bool:
         """Can't stand: crawl only."""
         hp = self.hp
@@ -140,6 +137,12 @@ class Body:
         return res
 
     # ------------------------------------------------------------ time
+    def at_rest(self) -> bool:
+        """Nothing for update() to do: no wound, drug, drink, daze or blackout, and blood enough to stay up.
+        (The thousands of men outside the simulated circle are mostly like this, every second.)"""
+        return not (self.wounds or self.pain or self.morphine or self.alcohol or self.stunned or self.deaf or
+                    self.unconscious) and self.blood >= 2900
+
     def update(self, rng: random.Random) -> list[str]:
         """One turn of physiology.  Returns event keys."""
         ev = []

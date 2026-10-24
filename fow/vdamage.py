@@ -71,11 +71,18 @@ def move_mult(v) -> float:
     return m
 
 
+def turreted(vt) -> bool:
+    """A gun that swings in its own turret: tanks, armoured cars, tankettes, open-topped tank destroyers and the
+    quad AA mount.  (Trucks and half-tracks leave vt.turret set for a pintle gun that is drawn with the hull.)"""
+    return bool(vt.turret) and not vt.static and (vt.main is not None or vt.aa or
+                                                  vt.vtype in ("tank", "ltank", "tankette", "armcar"))
+
+
 def traverse(v) -> str:
     """How the gun is swung: 'power', 'hand' (a dead engine, a damaged ring) or 'jammed'.  Turretless
-    guns and gun shields are 'hull'."""
+    guns and gun shields are 'hull'; a machine-gun turret (it has no ring to damage) always turns."""
     if "turret" not in v.parts:
-        return "hull"
+        return "power" if turreted(v.vt) else "hull"
     t = state(v, "turret")
     if t == OUT:
         return "jammed"

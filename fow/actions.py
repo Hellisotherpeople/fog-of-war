@@ -8,27 +8,15 @@ import math
 import tcod
 
 from . import tiles as T
-from .combat import explode, fire_weapon, hit_actor, ignite, melee_attack
+from .combat import explode, fire_weapon, hit_actor, melee_attack
 from .data.items import ITEMS, ammo_id
-from .entities import ACCESS_COST, Item
+from .entities import Item
 
 STANCE_MOVE = {0: 1.0, 1: 1.45, 2: 3.2}
 STANCE_NAME = {0: "standing", 1: "crouching", 2: "prone"}
 
 
 # ====================================================================== movement
-
-def can_enter(game, a, x, y) -> bool:
-    m = game.map
-    if not m.in_bounds(x, y):
-        return False
-    tid = m.t[x, y]
-    if not T.WALK[tid] and not T.DOOR[tid]:
-        return False
-    if (x, y) in game.vehicle_at:
-        return False
-    return True
-
 
 FLOOR_WORD = {-1: "the cellar", 0: "the ground floor", 1: "the first floor", 2: "the second floor",
               3: "the top of the tower"}

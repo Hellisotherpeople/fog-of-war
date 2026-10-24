@@ -9,6 +9,10 @@ Full tactical activation follows a circle around the player. The allocation is r
 because NumPy, tcod and the existing pathfinding use rectangular arrays; this allocation is
 not a square simulation boundary. Engaged soldiers, medical work, vehicle occupants and
 incoming artillery retain additional simulation space. Reframing happens between world turns.
+A shell or fuse forces an early reframe only when its blast reaches beyond the loaded terrain or
+near someone outside the simulated circle; otherwise it falls inside the existing frame, and the
+extra space it held is released at the next ordinary reframe (under a barrage, rebuilding the frame
+for every new shell had made long battles crawl).
 Orders, sights, map damage, construction, corpses, items, shells and interface routes retain
 their world positions. Artillery missions store canonical world addresses.
 

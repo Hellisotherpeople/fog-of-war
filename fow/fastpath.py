@@ -132,10 +132,6 @@ def dijkstra2d(dist: np.ndarray, cost: np.ndarray, cardinal: int = 2, diagonal: 
     return dist
 
 
-def accelerated() -> bool:
-    return native.core is not None or numba_accelerated()
-
-
 def numba_accelerated() -> bool:
     if _fast is None:
         _compile()
