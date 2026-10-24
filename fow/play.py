@@ -22,8 +22,8 @@ from .data.items import ITEMS
 from .data.nations import NATIONS
 from .entities import LOC_NAME, riding
 from .render import (Camera, Popup, apply_condition_filters, draw_cursor, draw_effects,
-                     draw_entities, draw_line, draw_log, draw_map, draw_overlays, draw_panel,
-                     draw_popup, draw_tooltip)
+                     draw_entities, draw_line, draw_look_tooltip, draw_log, draw_map,
+                     draw_overlays, draw_panel, draw_popup, draw_tooltip)
 from .senses import player_can_see_actor
 
 MOVE_KEYS = {
@@ -563,7 +563,10 @@ class PlayState:
                 lines.append((f"{yards(d)} - {'in reach' if d <= rng else 'too far, it will fall short'}",
                               (180, 220, 150) if d <= rng else (240, 140, 80)))
         if lines and self.cam.on_screen(cx, cy):
-            box = draw_tooltip(con, self.cam.to_text(cx, cy), lines, title)
+            m = g.map
+            box = draw_look_tooltip(con, self.cam.to_text(cx, cy), lines, title,
+                                    art=self._look_art(cx, cy, m.visible[cx, cy], math.hypot(cx - ox, cy - oy))
+                                    if self.mode in ("look", "nearby") else [])
             if self.mode == "target":
                 self._sight_picture(con, cx, cy, box)
 
@@ -620,7 +623,11 @@ class PlayState:
                 draw_cursor(mc, self.cam, x, y)
             lines, title = self.describe_tile(x, y)
             if lines:
-                draw_tooltip(con, self.cam.to_text(x, y), lines, title)
+                g = self.game
+                p = g.player
+                ox, oy = (p.vehicle.x, p.vehicle.y) if p.vehicle is not None else (p.x, p.y)
+                draw_look_tooltip(con, self.cam.to_text(x, y), lines, title,
+                                  art=self._look_art(x, y, g.map.visible[x, y], math.hypot(x - ox, y - oy)))
             return
         if not g.map.explored[x, y]:
             return
@@ -799,6 +806,37 @@ class PlayState:
         if targeting and not lines:
             lines.append((yards(d), UI_TEXT))
         return lines, title
+
+    def _look_art(self, x, y, vis, d):
+        """What a look at that tile shows you: the thing itself, drawn (in-world, not a menu)."""
+        from .itemart import look_lines
+        from . import itemart
+        g = self.game
+        m = g.map
+        if not vis:
+            return []
+        a = g.soldier_at.get((x, y))
+        if a is not None and a.weapon is not None and a.weapon.t.kind == "gun" and \
+                player_can_see_actor(g, a) and (d < 25 or g.player_binoculars):
+            return look_lines(a.weapon, itemart.MAX_W)
+        items = m.items_at(x, y)
+        if items:
+            top = min(items, key=lambda i: {"gun": 0, "explosive": 1, "grenade": 1, "melee": 2}.get(i.t.kind, 3))
+            if top.t.kind == "corpse":
+                from .entities import visible_body_items
+                for kit, _loc in visible_body_items(top, d):
+                    if kit.t.kind == "gun":
+                        return look_lines(kit, itemart.MAX_W, dim=True)
+                return []
+            return look_lines(top, itemart.MAX_W, dim=True)
+        if m.in_bounds(x, y) and T.DEFS[int(m.t[x, y])].key.startswith("ac_"):
+            from .parked import at as ac_at, sketch as ac_sketch
+            rec = ac_at(m, x, y)
+            if rec is not None and ac_at is not None:
+                rows = ac_sketch(rec["model"], rec.get("folded", False))
+                pad = " " * max(0, (itemart.MAX_W - max(len(r) for r in rows)) // 2)
+                return [(pad + r, (150, 152, 140)) for r in rows]
+        return []
 
     # ================================================================== animation / ticking
     def realtime_enabled(self):
@@ -3666,6 +3704,10 @@ class PlayState:
         if e is None:
             return
         if c in ("x", ";"):
+            if st["tab"] == 1:
+                it = self._nearby_item(e)
+                if it is not None:
+                    return self.examine(it)
             self.enter_mode("look", (e["x"], e["y"]))
             return
         enter = key.sym in (E.KeySym.RETURN, E.KeySym.KP_ENTER)
@@ -3700,6 +3742,21 @@ class PlayState:
             if not self.start_travel(e["x"], e["y"], stop_short=1):
                 g.msg("You can't see a way there.", "info")
             return
+
+    def _nearby_item(self, e):
+        """The thing itself behind an entry in the V list (to look it over)."""
+        g = self.game
+        label = e["label"]
+        plain = label.split("] ", 1)[-1].split(" +", 1)[0]     # (strip [P]/[S] tags and the +N count)
+        for it in g.map.items_at(e["x"], e["y"]):
+            if it.t.kind == "corpse":
+                from .entities import visible_body_items
+                for kit, _loc in visible_body_items(it, e.get("d", 0)):
+                    if kit.name == plain or plain.endswith(kit.name):
+                        return kit
+            elif it.name == plain or plain.endswith(it.name) or it.name in label:
+                return it
+        return None
 
     def cmd_binoculars(self):
         g = self.game

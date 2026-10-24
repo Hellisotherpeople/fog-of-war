@@ -1327,6 +1327,39 @@ def draw_tooltip(con, anchor, lines, title=None):
     return x, y, w, h
 
 
+def draw_look_tooltip(con, anchor, lines, title=None, art=()):
+    """The look tooltip: what a look shows, drawn above the words that say it."""
+    if not art:
+        return draw_tooltip(con, anchor, lines, title)
+    ax, ay = anchor
+    wide = max([len(t) for t, _ in art] + [1])
+    w = min(VIEW_W - 2, max([len(t) for t, _ in lines] + [len(title or "") + 2] + [wide + 2]))
+    rows = [(t, c) for t, c in art if t] or [(" ", None)]
+    h = len(lines) + len(rows) + 2
+    x = ax + 2 if ax + 2 + w < VIEW_W else ax - 2 - w
+    y = ay - h - 1 if ay - h - 1 >= 0 else ay + 2
+    if y + h > VIEW_H:
+        y = max(0, VIEW_H - h)
+    x = max(0, x)
+    lx = x if x > ax else x + w - 1
+    con.print(ax + (1 if lx > ax else -1), ay, "·", fg=UI_FRAME)
+    con.draw_frame(x, y, w, h, clear=True, fg=(110, 100, 70), bg=(16, 15, 12))
+    from . import icons
+    icons.erase(x, y, w, h)
+    if title:
+        con.print(x + 1, y, f" {title[:w - 4]} ", fg=UI_HI, bg=(16, 15, 12))
+    y0 = y + 1
+    for t, col in rows:
+        con.print(x + 1 + max(0, (w - 2 - len(t)) // 2), y0, t[:w - 2], fg=col or UI_TEXT, bg=(16, 15, 12))
+        y0 += 1
+    con.print(x + 1, y0, "─" * min(w - 2, max(3, w - 6)), fg=(70, 62, 48), bg=(16, 15, 12))
+    y0 += 1
+    for t, col in lines:
+        con.print(x + 1, y0, t[:w - 2], fg=col or UI_TEXT, bg=(16, 15, 12))
+        y0 += 1
+    return x, y, w, h
+
+
 def draw_line(con, game, cam, x0, y0, x1, y1, color_fn=None):
     pts = tcod.los.bresenham((x0, y0), (x1, y1))
     blocked = False

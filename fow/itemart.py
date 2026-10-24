@@ -52,3 +52,15 @@ def art_lines(t, width: int) -> list[tuple[str, tuple]]:
     pad = " " * max(0, (width - max(len(r) for r in rows)) // 2)
     col = tuple(min(255, int(c * 0.6 + 100)) for c in t.color)
     return [(pad + r, col) for r in rows] + [("", None)]
+
+
+def look_lines(it, width: int, dim=False) -> list[tuple[str, tuple]]:
+    """The drawing of one thing you're looking at in the world - at a distance, so a touch quieter than the
+    look-it-over box (the words carry the detail; this says what it is)."""
+    t = it.t
+    rows = load().get(t.id)
+    if not rows:
+        return []
+    pad = " " * max(0, (width - max(len(r) for r in rows)) // 2)
+    col = tuple(min(255, int(c * (0.45 if dim else 0.55) + (70 if dim else 90))) for c in t.color)
+    return [(pad + r, col) for r in rows]

@@ -205,6 +205,29 @@ def box(model, facing, folded=False):
     return (S, L) if facing in (0, 2) else (L, S)
 
 
+def sketch(model, folded=False, max_w=56, max_h=10):
+    """The aircraft as a little text planform, nose up - what a look at it shows (fow.itemart sized)."""
+    S, L, g = grid(model, folded)
+    # a tile a metre is too long: squeeze the fuselage to fit the look box, wings keep their reach
+    step = max(1, -(-L // max_h))
+    rows = []
+    for i in range(0, L, step):
+        band = g[i:i + step]
+        row = ""
+        for j in range(S):
+            cols = [c for c in (r[j] for r in band) if c]
+            row += {"ac_engine": "o", "ac_body": "█", "ac_wing": "▓", "ac_tail": "▒"}.get(
+                cols[0] if cols else None, " ")
+        rows.append(row.rstrip())
+    while rows and not rows[-1]:
+        rows.pop()
+    if max(map(len, rows), default=0) > max_w:            # (a very big wing, folded wings off: still fits)
+        cut = max(map(len, rows))
+        off = max(0, (cut - max_w) // 2)
+        rows = [r[off:off + max_w] for r in rows]
+    return rows
+
+
 # ====================================================================== on the map
 def fits(m, model, x0, y0, facing, folded=False, ok=None):
     w, h = box(model, facing, folded)
