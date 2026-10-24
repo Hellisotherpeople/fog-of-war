@@ -2551,11 +2551,15 @@ def wounded_act(game, a, vis) -> int | None:
     if game.turn - a.ai.get("wa_fight", -99) < 8:
         return None                     # (and a few seconds more before he turns his back on them)
     if MED.at_aid_post(game, a):
-        if MED.fit_for_duty(a):
+        mended = (MED.fit_for_duty(a) if not a.is_player
+                  else not a.downed and a.body.bleed_rate() < 0.05 and MED.missing_hp(a.body) == 0)
+        if mended:
             a.ai.pop("to_aid", None)
             a.ai.pop("at_aid", None)
             a.ai.pop("aid_since", None)
-            if game.rng.random() < 0.5:
+            if a.is_player:
+                game.msg("Patch by patch you've come right. The doctor signs you back to your unit.", "good")
+            elif game.rng.random() < 0.5:
                 a.say(game.rng.choice(["Back to it.", "Right. Where's my squad?"]) if translate.in_english(a)
                       else "", game.turn, tone="talk")
             return None

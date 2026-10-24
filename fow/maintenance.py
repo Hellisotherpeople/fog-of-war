@@ -104,6 +104,9 @@ def needs_words(v) -> list[str]:
         out.append("shells")
     if mg_short(v) > full_load(v)[2] * 0.4:
         out.append("belts for the machine guns")
+    for job, done in (v.ai.get("maint") or {}).items():
+        if job in JOBS and done >= JOBS[job][1]:
+            out.append("spare parts")            # the work's done; the parts haven't come
     return out
 
 
@@ -325,10 +328,11 @@ def _repair(game, v):
             if v.ai.get("field_parts", 0) > 0:
                 v.ai["field_parts"] -= 1
             elif not consume_parts(game, v, 0 if job == "track" else 1 if skilled else .25):
+                w[job] = need                     # the work stands done, banked until the parts come
                 if not v.ai.get("parts_warned"):
                     _tell(game, v, f"The {v.vt.name}'s repair is waiting for spare parts.", "warn")
                     v.ai["parts_warned"] = True
-                return
+                break                             # (nothing else to do on this hull this tick)
             v.ai.pop("parts_warned", None)
             del w[job]
             _mend(v, job)
@@ -348,11 +352,14 @@ def _repair(game, v):
 
 
 def work_left(v) -> tuple[str, int] | None:
-    """(job, about how many minutes more at the rate the men on it are going) - for the look tooltip."""
+    """(job, about how many minutes more at the rate the men on it are going) - for the look tooltip.
+    None minutes: the work's done and it's waiting for spare parts."""
     w = v.ai.get("maint") or {}
     rate = max(1.0, v.ai.get("maint_rate", v.crew or 1))
     for job, done in w.items():
         if job in JOBS:
+            if done >= JOBS[job][1]:
+                return job, None
             mins = max(1, int((JOBS[job][1] - done) / rate / 60))
             return job, mins
     return None

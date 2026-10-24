@@ -3630,14 +3630,18 @@ class Game:
                         self.msg("You leave the table half-done. An orderly closes him up as best he can.", "warn")
                 continue
             MED.recover(self, a, 30)
-            if a.is_player or a.role in ("surgeon",) or a.ai.get("to_aid") is not None or a.vehicle is not None:
+            if (a.is_player and not self.__dict__.get("autopilot")) or a.role in ("surgeon",) or \
+                    a.ai.get("to_aid") is not None or a.vehicle is not None:
                 continue
             if MED.should_evacuate(a.body) and not a.downed and a.body.bleed_rate() < 0.3 and \
                     MED.nearest_aid(self, a) is not None:
                 sq = a.squad
                 if sq is None or self.turn - sq.last_contact > 40:
                     a.ai["to_aid"] = self.turn
-                    if self.rng.random() < 0.3 and sq is not None and sq.leader is not None and sq.leader.active:
+                    if a.is_player:
+                        self.msg("You're no use to anyone like this. You turn and make for the aid station.",
+                                 "info")
+                    elif self.rng.random() < 0.3 and sq is not None and sq.leader is not None and sq.leader.active:
                         sq.leader.say("Get yourself back to the aid station." if translate.in_english(sq.leader)
                                       else "", self.turn, tone="talk")
 

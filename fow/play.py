@@ -751,7 +751,12 @@ class PlayState:
                 from . import maintenance as MT
                 wl = MT.work_left(v)
                 if wl is not None:
-                    lines.append((f"the crew are at work on {MT.REPAIR_WORD[wl[0]]} (about {wl[1]} min)", (220, 200, 140)))
+                    what = MT.REPAIR_WORD[wl[0]]
+                    if wl[1] is None:
+                        lines.append((f"{what[0].upper() + what[1:]}: the work's done, waiting for spare parts.",
+                                      (240, 170, 90)))
+                    else:
+                        lines.append((f"the crew are at work on {what} (about {wl[1]} min)", (220, 200, 140)))
                 needs = MT.needs_words(v)
                 if needs:
                     lines.append(("needs " + ", ".join(needs), (230, 170, 110)))
