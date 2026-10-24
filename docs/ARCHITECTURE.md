@@ -1,6 +1,6 @@
 # How FOG OF WAR is put together
 
-About 46,000 lines of Python in one package, `fow/`, on top of
+About 83,000 lines of Python in one package, `fow/`, on top of
 [python-tcod](https://github.com/libtcod/python-tcod) (SDL3), NumPy and Pillow. There is no
 engine besides those: the map, the AI, the sprites, the sound and the war are all generated
 by the code here.
