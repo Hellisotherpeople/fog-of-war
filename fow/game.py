@@ -17,21 +17,19 @@ import numpy as np
 from . import ai as AI
 from . import tiles as T
 from .ai import Order, Squad
-from .body import PART_NAME
 from .brain import SideBrain
 from .combat import explode, hit_actor, ignite, settle_recoil
 from .command import CommandState
 from .commander import commander_update, update_objectives
-from .constants import (ALLIES, AXIS, BASE_SPEED, MAP_H, MAP_W, SIDES, STRATEGIC_TICK,
-                        other_side)
+from .constants import (ALLIES, AXIS, MAP_H, MAP_W, SIDES, STRATEGIC_TICK, other_side)
 from .data.items import ITEMS
-from .data.nations import NATIONS, random_name
+from .data.nations import NATIONS
 from .data.theatres import THEATRES, theatre_year
-from .entities import Actor, Item, Vehicle, make_corpse
+from .entities import Actor, Vehicle, make_corpse
 from . import translate
 from .mapgen import generate
 from .senses import (HEAR_THRESHOLD, ONOMATOPOEIA, base_view_range, compute_light, daylight,
-                     direction_word, distance_word, player_can_see_actor, player_fov, sound_at)
+                     direction_word, distance_word, player_fov, sound_at)
 from .strategic import OPP, Strategic, power
 from .support import Support
 
@@ -436,13 +434,13 @@ class Game:
         wid = su.get("weapon")
         if wid and wid in ITEMS:
             w = Item(wid)
-            if p.add_item(w) is not None or True:
-                p.wield(w)
-                from .ammo import give_loads
-                try:
-                    give_loads(p, w, 4)
-                except Exception:
-                    pass
+            p.add_item(w)
+            p.wield(w)
+            from .ammo import give_loads
+            try:
+                give_loads(p, w, 4)
+            except Exception:
+                pass
         for tid, n in (su.get("kit") or {}).items():
             if tid in ITEMS and n:
                 it = Item(tid, n)
@@ -523,7 +521,6 @@ class Game:
         landscape = self.__dict__.get('landscape')
         if landscape is not None:
             return landscape.enter(self, sector)
-        rng = self.rng
         st = self.strategic
         recall = self.__dict__.get("field_order")
         if recall and recall.get("sector") != (sector.x, sector.y):
@@ -577,7 +574,6 @@ class Game:
             self.map = hit[1] if hit is not None and hit[0] == self._spec_key(sector, spec) and \
                 not isinstance(hit[1], tuple) else generate(spec)
         self.__dict__.get("_nb_cache", {}).clear()
-        m = self.map
         self.brains = {s: SideBrain(self, s) for s in SIDES}
         if self.support is None:
             self.support = Support(self)
@@ -1407,26 +1403,6 @@ class Game:
                         bs, best = s, (xx, yy)
         return best
 
-    def free_adjacent(self, x, y, prefer_away_from=None):
-        m = self.map
-        best = None
-        bs = -1e9
-        for dx in (-1, 0, 1):
-            for dy in (-1, 0, 1):
-                if dx == dy == 0:
-                    continue
-                xx, yy = x + dx, y + dy
-                if not m.in_bounds(xx, yy) or not m.walk[xx, yy] or (xx, yy) in self.soldier_at \
-                        or (xx, yy) in self.vehicle_at:
-                    continue
-                s = self.rng.random()
-                if prefer_away_from is not None:
-                    s += math.hypot(xx - prefer_away_from[0], yy - prefer_away_from[1]) * 0.1
-                s -= m.water[xx, yy] * 2
-                if s > bs:
-                    bs, best = s, (xx, yy)
-        return best
-
     def brain_enemy_center(self, side):
         b = self.brains.get(side)
         return b.enemy_center if b else None
@@ -1812,7 +1788,6 @@ class Game:
             casualty(self, a, killer)
             self.body_falls(a, killer)
             return
-        m = self.map
         seen = self.can_see(a.x, a.y) or a.is_player
         from .squadcare import witnessed_kill
         witnessed_kill(self, killer, a)
@@ -2442,9 +2417,8 @@ class Game:
                                 sound=sound, side=side, fire=fire, pen=pen, smoke=smoke, evidence=current(self)))
         landscape = self.__dict__.get('landscape')
         if landscape is not None and landscape.frame is self.map and self.player is not None:
-            if not self.map.in_bounds(x,y) or any(a.id not in landscape.active_actors and a.alive and
-                    abs(a.x-(x+landscape.origin[0])) <= radius+32 and
-                    abs(a.y-(y+landscape.origin[1])) <= radius+32 for a in landscape.actors.values()):
+            if not self.map.in_bounds(x,y) or landscape.dormant_near(x+landscape.origin[0], y+landscape.origin[1],
+                                                                       radius+32):
                 landscape.center = None  # activate the impact neighborhood at the next safe frame boundary
 
     def _tick_shells(self):
@@ -3511,7 +3485,6 @@ class Game:
     def _disguise_tick(self):
         """Walking among them in civilian clothes: every look is a risk."""
         p = self.player
-        rng = self.rng
         body = p.invent.slots.get("body")
         why = None
         from . import agents as AG
@@ -3707,7 +3680,8 @@ class Game:
         os.makedirs(SAVE_DIR, exist_ok=True)
         path = path or os.path.join(SAVE_DIR, "save.pkl")
         tmp = path + ".tmp"
-        with gzip.open(tmp, "wb", compresslevel=5) as f:
+        with gzip.open(tmp, "wb", compresslevel=1) as f:     # (a long campaign pickles to 150 MB: level 1 halves the
+                                                             # autosave's pause for a file a tenth bigger)
             pickle.dump(self, f, protocol=pickle.HIGHEST_PROTOCOL)
         os.replace(tmp, path)
         return path

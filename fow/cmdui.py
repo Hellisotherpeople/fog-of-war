@@ -500,7 +500,6 @@ def draw_markers(con, ps):
     g = ps.game
     cmd = g.command
     cam = ps.cam
-    p = g.player
     chain, others = command_units(g)
     t = g.turn
     for sq in chain + others:

@@ -566,6 +566,7 @@ Select a body item and Enter to approach its inventory. In the inventory, **s** 
 opens the closed pack; this takes six seconds. Obvious worn kit and webbing need no full search first.
 The footer lists every key; `Tab` changes sides, `[`/`]` changes sources, and `PgUp`/`PgDn` changes sections.
 
-Inspect an item with **x** to see its condition and how damage affects it. Blasts can scatter equipment,
+Inspect an item with **x** to see a drawing of it (as in Cataclysm's item view), its story, its condition and
+how damage affects it. Blasts can scatter equipment,
 fire can destroy supplies, and torn bags lose usable storage. The armourer repairs damaged equipment
 using parts and time. Cleaning a weapon does not replace broken parts; destroyed items need replacement.

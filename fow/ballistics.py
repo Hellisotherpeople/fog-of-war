@@ -1,7 +1,6 @@
 """Material impacts for small arms, in the simulation's existing energy/armour units."""
 from __future__ import annotations
 
-import math
 
 from . import tiles as T
 

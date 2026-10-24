@@ -7,7 +7,6 @@ belts are individual items with round counts.  Bodies keep their kit.
 """
 from __future__ import annotations
 
-from .data.items import ITEMS
 
 SLOTS = ("head", "body", "rig", "pack", "primary", "secondary", "holster", "melee")
 SLOT_NAME = {"head": "Head", "body": "Body", "rig": "Webbing", "pack": "Pack", "primary": "Primary (sling)",
@@ -151,10 +150,6 @@ class Grid:
         if 0 <= x < self.w and 0 <= y < self.h:
             return self.cells[x][y]
         return None
-
-    def free_cells(self) -> int:
-        return sum(self.cells[x][y] is None and self.usable(x, y) for x in range(self.w) for y in range(self.h))
-
 
 def container_grids(item) -> list:
     """The grids inside a container item (created on first use)."""

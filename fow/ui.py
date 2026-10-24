@@ -808,10 +808,9 @@ class GameOverState:
         if g.stats["desertions"]:
             lines.append(("You left your post under fire.", (220, 120, 80)))
         lines.append(("", None))
-        if p.inv or True:
-            keep = [i.name for i in p.inv if i.t.tool in ("letter", "photo", "rosary", "dogtags", "coin", "bible", "harmonica")]
-            if keep:
-                lines.append(("On the body: " + ", ".join(keep) + ".", UI_DIM))
+        keep = [i.name for i in p.inv if i.t.tool in ("letter", "photo", "rosary", "dogtags", "coin", "bible", "harmonica")]
+        if keep:
+            lines.append(("On the body: " + ", ".join(keep) + ".", UI_DIM))
         lines.append(("", None))
         lines.append(("Your name has been added to the memorial.", UI_DIM))
         from .awards import records, draw_card
@@ -1732,7 +1731,6 @@ class OptionsState:
     # (label, key, kind, description, extra)
     def _spec(self):
         app = self.app
-        st = app.settings
         sizes = ("standard", "large", "huge")
         return [
             ("SOUND", None, "head", "", None),
@@ -2331,7 +2329,7 @@ class OvermapState:
                     own = "▮" * min(4, int(pa / 5 + 0.99)) if pa else ""
                     con.print(x + 1, y + 1, own, fg=SIDE_COLOR[p.side], bg=bg)
                     if map_report(g, s) and map_report(g, s).get("enemy_known"):
-                        import random as _r
+                        pass
                         # The estimate was made when this report was written.
                         enemy = "▮" * min(4, int(pb / 5 + 0.99)) if pb >= 0.5 else ""
                         con.print(x + self.CW - 1 - len(enemy) - 1, y + 1, enemy, fg=SIDE_COLOR[other_side(p.side)], bg=bg)
@@ -2490,7 +2488,6 @@ class OvermapState:
         import random as _r
         from .strategic import UNIT_NAME, power
         g = self.game
-        st = g.strategic
         enemy = other_side(g.player.side)
         u = s.units[enemy]
         col = SIDE_COLOR[enemy]

@@ -221,7 +221,6 @@ def setup_player(game, sid, notes):
     side = p.side
     enemy = other_side(side)
     m = game.map
-    st = game.strategic
     home = game.home_edge(side) or _edge_toward_friends(game, side)
     game.mission = None
     if sid.startswith(("air:", "sea:")):
@@ -336,7 +335,7 @@ def setup_player(game, sid, notes):
         x, y = best or (rng.randint(20, m.w - 20), rng.randint(15, m.h - 15))
         game.remove_actor(p)
         place(game, p, x, y, 8)
-        from .combat import explode, ignite
+        from .combat import ignite
         wx, wy = x + rng.randint(-8, 8), y + rng.randint(-6, 6)
         if m.in_bounds(wx, wy):
             ignite(game, wx, wy, 4)
@@ -662,9 +661,6 @@ def _spawn_convoy(game, ms):
     enemy = other_side(game.player.side)
     nat = pick_nation(game, enemy)
     roads = getattr(m, "roads", None) or []
-    ends = None
-    if hasattr(game.map, "gen_roads"):
-        ends = game.map.gen_roads
     e0, e1 = rng.choice([("W", "E"), ("E", "W"), ("N", "S"), ("S", "N")])
     from .spawn import edge_band_point
     ids = []

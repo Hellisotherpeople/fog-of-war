@@ -13,7 +13,6 @@ you, you believe the old man is still in charge.
 """
 from __future__ import annotations
 
-import datetime as dt
 
 from .data import commanders as HC
 from .data import ranks as R

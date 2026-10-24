@@ -408,6 +408,7 @@ the English sounds his language lacks swapped for its nearest ones (`neural_voic
 | `medevac.py` | calling stretcher-bearers, the evacuation chain, hospital time, back to duty |
 | `agents.py`, `data/agents.py`, `data/items_special.py` | the secret war: careers, covers, agent and resistance missions, the wireless and direction-finding, supply drops from special-duties squadrons, the special weapons and gadgets |
 | `relief.py`, `floors.py` | the heightmap (generation, viewsheds, crest checks, slope costs, hillshade) and building floors (stairs, cellars, open tops, falls, AI use) |
+| `itemart.py` | the ASCII drawing of each item (`assets/art/*.txt`), shown at the top of the look-it-over box |
 | `icons.py` | pictures in the interface: painters (kit, body, stance, rounds, sky, map sheet, sight picture...), keys, and the per-frame picture list that `gfx.present` paints, caches and draws under, over and above the consoles |
 | `rear.py` | the living rear: convoys, columns and posts on the supply roads; destroying them cuts the road on the war map (`Strategic.interdict`, supply parents and traffic in `compute_supply`) |
 | `orders.py` | the orders book (all the orders you hold, who gave them, rewards and punishments, carried out) |

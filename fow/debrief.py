@@ -162,10 +162,6 @@ def career_offer(game):
     return dict(grade=choices[0], title='field appointment', **{'from': p.rank}), ''
 
 
-def apply_career(game):
-    return R.consider(game)
-
-
 def support_units(game):
     p = game.player
     from .data.ranks import same_army

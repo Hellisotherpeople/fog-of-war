@@ -625,6 +625,3 @@ EXPLODE[ID["ac_wing"]] = (60, 2, 5)            # the fuel tanks
 def tid(key: str) -> int:
     return ID[key]
 
-
-def tdef(i: int) -> TileDef:
-    return DEFS[int(i)]

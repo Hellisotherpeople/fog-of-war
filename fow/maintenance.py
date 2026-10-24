@@ -15,7 +15,6 @@ a tank, take a crate off a truck, call a truck up by radio, drive a supply run f
 """
 from __future__ import annotations
 
-import math
 
 STEP = 5                          # the work is done in five-second slices
 TRACK_WORK = 7200                 # man-seconds: four men, half an hour

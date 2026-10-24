@@ -17,8 +17,7 @@ import time
 import tcod.event as E
 
 from .constants import SCREEN_H, SCREEN_W, UI_BG, UI_DIM, UI_HI, UI_TEXT, VIEW_H, VIEW_W
-from .skysea import SEC, Plane, Ship, angdiff, bearing, compass
-from .skysea_missions import AIR_MISSIONS, SEA_MISSIONS
+from .skysea import SEC, Plane, Ship, bearing, compass
 
 ARROW8 = ["↑", "↗", "→", "↘", "↓", "↙", "←", "↖"]
 BIOME_COL = {"sea": ((30, 60, 120), (12, 28, 70), "~"), "farmland": ((150, 160, 90), (70, 85, 40), '"'),
@@ -127,7 +126,6 @@ class SkySeaState:
             return
         ex, ey = self._eye()
         me = ss.player_plane
-        ship = ss.player_ship
         alt = me.alt if me is not None else (ss.chute[2] if ss.chute else 0)
         cloud_band = 1500 <= alt <= 3200
         above = alt > 3200
@@ -507,7 +505,6 @@ class SkySeaState:
             self.zoom = min(16, self.zoom * 2)
             return
         if c == "?":
-            from .ui import TextState
             from .ui import HelpState
             return self.app.push(HelpState(self.app, "chart"))
         if c == "m":
@@ -795,7 +792,6 @@ class SkySeaState:
             self.note = {"follow": "Signal: form line astern.", "engage": "Signal: concentrate fire on the enemy.",
                          "torps": "Signal: destroyers, attack!", "free": "Signal: engage at will."}[v]
         self.play.open_popup(Popup("Signal to the force", opts, (VIEW_W // 2, VIEW_H // 2)), pick)
-        self.app.pop() if False else None
         return False
 
     # ------------------------------------------------------------ coming back to earth

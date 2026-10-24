@@ -178,6 +178,3 @@ class MusicDirector:
         t = self._pick(ctx, nation)
         if t is not None:
             self._start(t, fade_in=4.0 if ctx == "play" else 2.0)
-
-    def now_playing(self):
-        return self.track.title if self.track is not None and self.source is not None else None

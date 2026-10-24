@@ -643,7 +643,6 @@ class Duty:
 
     def panic_prisoners(self, game, victim):
         """The others saw it.  Some run, some go for a rifle, some beg."""
-        from . import actions as A
         from .senses import los_clear
         rng = game.rng
         game.no_quarter[victim.side] += 1

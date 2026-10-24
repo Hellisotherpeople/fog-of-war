@@ -893,7 +893,10 @@ On top of that:
 - **Vehicles and big guns are their real size**, about 2 m to a tile:
   - Sherman 3×2, King Tiger 4×2, jeep 2×1, landing craft 5×2, 88mm flak 3×3
   - they turn only where there's room, run down the enemy, and scatter their own men
-  - they leave wrecks as big as they were, and a turret points where it's aiming
+  - they leave wrecks as big as they were, and a turret points where its gunner is looking: onto
+    his target, toward the most dangerous thing in sight or where a hit came from, at known enemy
+    armour, otherwise searching its own arc of the enemy's side. A powered turret swings an eighth
+    of the way round a second, and the gun fires only once it bears
 - **F3** turns sound on or off. Gunfire, explosions, engines, shell whistles, sirens and
   ricochets are all synthesised in the game, positioned in stereo, and delayed by distance.
   Sounds are muffled beyond walls, and there are ambient battle, wind and rain loops.

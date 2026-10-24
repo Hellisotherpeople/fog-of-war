@@ -25,10 +25,6 @@ TREACHERY = {"japan": 0.03}
 SEARCH_TIME = 30
 
 
-def is_prisoner_of(a, p):
-    return a.state == "surrendered" and a.ai.get("captor") == p.id
-
-
 def prisoners_of(game, p):
     return [a for a in game.actors if a.alive and a.state == "surrendered" and a.ai.get("captor") == p.id]
 

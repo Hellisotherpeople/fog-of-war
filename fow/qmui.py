@@ -6,7 +6,7 @@ what the army owes you for what you've brought in.  Cigarettes are the other cur
 from __future__ import annotations
 
 from . import logistics as L
-from .constants import UI_DIM, UI_HI, UI_TEXT
+from .constants import UI_DIM, UI_TEXT
 from .render import Popup
 
 CATS = [("Weapons", ("gun",)), ("Ammunition", ("mag", "clip", "ammo")), ("Grenades and explosives", ("grenade", "explosive")),
@@ -216,7 +216,6 @@ def open_intel(ps, officer):
     from .contacts import met
     met(ps.game, officer)
     g = ps.game
-    p = g.player
     from .contacts import documents
     docs = documents(g)
     lines = [(f"{officer.rank_short} {officer.last_name}, intelligence.", UI_TEXT)]

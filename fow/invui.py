@@ -6,16 +6,13 @@ Everything you do costs time; the battle doesn't wait.
 """
 from __future__ import annotations
 
-import math
 import textwrap
 
 import tcod.event as E
 
 from .ammo import fill_magazine, reload as ammo_reload, unload
 from .constants import UI_BG, UI_DIM, UI_FRAME, UI_HI, UI_SEL_BG, UI_TEXT, VIEW_H, VIEW_W
-from .data.nations import NATIONS
-from .entities import Item
-from .inventory import ACCESS, SLOT_NAME, SLOTS, Grid, Inventory, container_grids, item_size
+from .inventory import ACCESS, SLOT_NAME, SLOTS, Grid, Inventory, container_grids
 
 CW, CH = 4, 2          # text cells per grid cell
 HELP_LINES = ("Enter pick/drop   r rotate", "e use/equip   q quick move   d drop",
@@ -126,7 +123,6 @@ class InventoryScreen:
     # ================================================================== drawing
     def render(self, con):
         game = self.game
-        p = game.player
         self.cells = []
         loot = self.loot
         own_w = 66 if loot is None else 56
@@ -472,7 +468,6 @@ class InventoryScreen:
         return search_choices(self.play.app, "Find an item — your kit and visible loot", options, pick)
 
     def on_key(self, key):
-        p = self.game.player
         if self.menu is not None:
             return self._menu_key(key)
         if key.char == "/":

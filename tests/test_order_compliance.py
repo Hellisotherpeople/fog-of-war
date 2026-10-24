@@ -1,6 +1,6 @@
 """Time spent obeying or surviving must not become disciplinary evidence."""
 from test_command_realism import scene, soldier
-from fow import actions, orders
+from fow import actions
 from fow.entities import Item
 
 

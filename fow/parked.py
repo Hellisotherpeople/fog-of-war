@@ -17,7 +17,6 @@ Carrier aircraft on deck and in the hangar have their wings folded, as they were
 """
 from __future__ import annotations
 
-import math
 
 import numpy as np
 from PIL import Image, ImageDraw

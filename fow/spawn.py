@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import math
-import random
 from collections import Counter
 
 import numpy as np
@@ -10,10 +9,10 @@ import tcod
 
 from . import tiles as T
 from .ai import Order, Squad, assign_positions
-from .constants import ALLIES, AXIS, SIDES, other_side
-from .data.items import ITEMS, ammo_id
-from .data.nations import NATIONS, equip_sources, nco_rank, officer_rank, ordinal, random_name, unit_designation
-from .data.roles import PLAYER_ROLE_WEIGHTS, ROLES, build_kit, squad_template
+from .constants import SIDES, other_side
+from .data.items import ITEMS
+from .data.nations import NATIONS, equip_sources, nco_rank, ordinal, random_name, unit_designation
+from .data.roles import PLAYER_ROLE_WEIGHTS, build_kit, squad_template
 from .data.vehicles import VEHICLES
 from .entities import Actor, Item, Vehicle
 
@@ -1190,7 +1189,6 @@ def create_player(game, nation: str, role: str | None = None) -> tuple[Actor, li
             x, y = edge_band_point(game, e, rng, depth=(4, 14)) if e else (game.map.w // 2, game.map.h // 2)
             sq = make_squad(game, side, nation, "hq", x, y)
         if sq is None:
-            from .spawn import make_squad as _ms
             e = game.home_edge(side)
             x, y = edge_band_point(game, e, rng)
             sq = make_squad(game, side, nation, want, x, y)

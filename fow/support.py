@@ -4,7 +4,7 @@ from __future__ import annotations
 import math
 
 from . import tiles as T
-from .combat import explode, hit_actor, hit_vehicle, trace_projectile
+from .combat import hit_actor, hit_vehicle
 from .constants import SIDES, other_side
 from .data.nations import equip_sources
 from .data.vehicles import AIRCRAFT, BATTERIES
@@ -86,14 +86,6 @@ class Support:
             from .fires import Fires
             f = g.fires = Fires(g)
         return f
-
-    def capacity_mult(self, side) -> float:
-        """Installations in this and nearby sectors change what is available."""
-        g = self.game
-        mult = 1.0
-        if g.strategic is not None:
-            mult = g.strategic.support_mult(side, "arty", g.sector)
-        return mult
 
     def request_fire(self, side, x, y, caller=None, battery=None, rounds=None, delay=None,
                      silent=False, smoke=False) -> bool:
@@ -197,7 +189,7 @@ class Support:
         if side == g.player.side and target is not None and not quiet:
             g.msg(f"Radio: '{n} {at.name}{'s' if n > 1 else ''} of {sqn.name.split(' (')[0]} on the way.'", "radio")
         friendly = side == g.player.side
-        g.audio("aircraft", int(ac.x) if False else g.player.x, g.player.y, 58)
+        g.audio("aircraft", g.player.x, g.player.y, 58)
         if at.siren and not friendly:
             g.audio("stuka", tx, ty, 90)
         if not quiet:
@@ -210,7 +202,6 @@ class Support:
     def update_aircraft(self):
         g = self.game
         m = g.map
-        rng = g.rng
         keep = []
         for ac in self.aircraft:
             if ac.done:

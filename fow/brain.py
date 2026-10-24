@@ -26,7 +26,7 @@ import tcod
 from . import fastpath
 from .distancefield import field as navigation_field
 from . import tiles as T
-from .constants import BIG, OCTANT_VEC, other_side
+from .constants import BIG
 
 THREAT_BY_KIND = {"inf": 1.0, "mg": 2.6, "hmg": 3.2, "sniper": 2.0, "tank": 3.5, "atgun": 2.2,
                   "vehicle": 1.6, "sound": 0.5, "bunker": 3.0, "mortar": 0.6, "officer": 1.0}
@@ -158,8 +158,10 @@ class SideBrain:
 
     def forget(self):
         g = self.game
+        # (a heard shot counts for 15 seconds - live_contacts - and a bombardment hears thousands of them: kept for
+        # the full 90 they were thousands of stale entries scanned every time anyone asked what's out there)
         dead = [k for k, c in self.contacts.items()
-                if g.turn - c.turn > 90 or (c.ref is not None and (
+                if g.turn - c.turn > (15 if c.sound else 90) or (c.ref is not None and (
                     (getattr(c.ref, "vt", None) is not None and c.ref.dead) or
                     (getattr(c.ref, "vt", None) is None and (not c.ref.alive or c.ref.state != "ok"))))]
         for k in dead:

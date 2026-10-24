@@ -16,8 +16,7 @@ from __future__ import annotations
 import math
 from collections import deque
 
-from .constants import UI_DIM, UI_HI, UI_TEXT
-from .data.nations import NATIONS
+from .constants import UI_DIM, UI_TEXT
 from .render import Popup
 
 EDGE_VEC = {"N": (0, -1), "S": (0, 1), "E": (1, 0), "W": (-1, 0)}
@@ -98,10 +97,6 @@ def staff_roles(kind, nation):
             continue
         out.append(r)
     return out
-
-
-def is_staff(a) -> bool:
-    return a is not None and a.role in TALKERS and a.active
 
 
 # ============================================================================ the staff
@@ -308,7 +303,6 @@ def _straggler(game) -> bool:
 def report_in(ps, who):
     """A lost man reports to headquarters: he's put with a squad in this sector, or sent to one."""
     g = ps.game
-    p = g.player
     sq = _best_squad_here(g)
     if sq is not None:
         _join(g, sq)
@@ -409,7 +403,6 @@ def _leave(ps, who):
 # ---------------------------------------------------------------- the clerk
 def _clerk(ps, who):
     g = ps.game
-    p = g.player
     owed_days = _days_owed(g)
     lines = [(f"{_name(who)}, clerk. Typewriter, carbon paper, a mug of cold {DRINK.get(who.nation, 'coffee')}.",
               UI_TEXT)]
@@ -492,7 +485,6 @@ def _clerk_choice(ps, who, v):
 # ---------------------------------------------------------------- military police
 def _mp(ps, who):
     g = ps.game
-    p = g.player
     if g.__dict__.get("awol") or g.__dict__.get("wanted") or getattr(g.duty, "arrest", False):
         return _arrest(ps, who)
     lines = [(f"{_name(who)}, {staff_title(who)}. {_he(who).capitalize()} looks at your face, then your boots, then "
@@ -614,7 +606,6 @@ def _armourer_choice(ps, who, v):
         return ps.act(200)
     if v == "swap" and w is not None:
         from .data.roles import build_kit
-        from .spawn import apply_kit
         kit = build_kit(g.rng, p.nation, g.year, "rifleman")
         nid = kit.get("wield")
         if not nid:
@@ -741,7 +732,6 @@ def _chaplain_choice(ps, who, v, tags):
 # ---------------------------------------------------------------- the political officer
 def _politruk(ps, who):
     g = ps.game
-    p = g.player
     lines = [(f"{_name(who)}, political officer. A copy of Krasnaya Zvezda, a notebook, and eyes that miss nothing.",
               UI_TEXT)]
     opts = [("Listen to the political talk", "talk", None, _ready(g, "politruk", HOUR * 12)),

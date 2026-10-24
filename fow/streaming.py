@@ -108,6 +108,7 @@ class Landscape:
     def __getstate__(self):
         state = dict(self.__dict__)
         state.pop('_terrain_window', None)  # transient padded storage is never duplicated in saves
+        state.pop('_dormant_pos', None)
         return state
 
     def __init__(self, game):
@@ -326,12 +327,8 @@ class Landscape:
         return m
 
     def _generate(self, game, key):
-        from .game import Game
-        from .command import CommandState
-        from .brain import SideBrain
         from .spawn import populate
         from .mapgen import generate
-        from .support import Support
         sec = game.strategic.at(*key, create=True)
         game.strategic.touch(*key, r=1)
         spec, att, edge = game.sector_spec(sec)
@@ -465,8 +462,12 @@ class Landscape:
         center = (wx, wy)
         blasts = self._blast_regions(game)
         previous = self.__dict__.get('_blast_interest', ())
-        blast_changed = blasts != previous and any(
-            math.hypot(x-wx, y-wy)+r > self.radius for x, y, r in blasts+previous)
+        # A new blast site needs a new frame only if this one doesn't hold its ground or someone outside the simulated
+        # circle is near it.  One that has gone off is released at the next ordinary reframe, not by one of its own:
+        # under a steady bombardment that was a full reframe (and both sides' maps rebuilt) nearly every second.
+        extent = self.radius + self.margin
+        blast_changed = any(b not in previous and self.blast_needs_frame(game, *b) for b in blasts) or (
+            game.map.w > 2 * extent + 1 and not any(max(abs(x-wx), abs(y-wy))+r > extent for x, y, r in blasts))
         self._blast_interest = blasts
         if not force and not blast_changed and self.center is not None and max(abs(wx-self.center[0]), abs(wy-self.center[1])) < 24:
             self.locate_player(game,self.sector_at(game, p.x, p.y))
@@ -676,6 +677,23 @@ class Landscape:
         self._initial = False
         return dx, dy
 
+    def blast_needs_frame(self, game, x, y, r):
+        ox, oy = self.origin
+        m = game.map
+        return not (0 <= x-r-ox and x+r-ox < m.w and 0 <= y-r-oy and y+r-oy < m.h) or self.dormant_near(x, y, r)
+
+    def dormant_near(self, x, y, r):
+        """Is any man or vehicle outside the simulated circle within r of world point (x, y)?"""
+        c = self.__dict__.get('_dormant_pos')
+        key = (len(self.actors), len(self.vehicles))
+        if c is None or c[0] is not self.active_actors or c[1] is not self.active_vehicles or c[2] != key:
+            pts = [a.pos for a in self.actors.values() if a.id not in self.active_actors and a.alive]
+            pts += [v.pos for v in self.vehicles.values() if v.id not in self.active_vehicles and not v.dead]
+            c = self._dormant_pos = (self.active_actors, self.active_vehicles, key,
+                                     np.array(pts, dtype=np.int64).reshape(-1, 2))
+        a = c[3]
+        return bool(len(a)) and bool(np.any((np.abs(a[:, 0] - x) <= r) & (np.abs(a[:, 1] - y) <= r)))
+
     def _blast_regions(self, game):
         """Reactivate imminent blast sites, including their people and vehicles.
 
@@ -768,10 +786,13 @@ class Landscape:
         for a in self.actors.values():
             if a.id in self.active_actors or not a.alive:
                 continue
-            a.body.update(game.rng)
-            a.suppression = max(0, a.suppression-3)
+            if not a.body.at_rest():
+                a.body.update(game.rng)
+            if a.suppression:
+                a.suppression = max(0, a.suppression-3)
             # No stored action credit when the detailed simulation resumes.
-            a.moves = min(a.moves, 100)
+            if a.moves > 100:
+                a.moves = 100
 
     def tick_waves(self, game):
         from .spawn import spawn_units, split_local

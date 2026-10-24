@@ -318,7 +318,6 @@ class Fires:
     def bearing_point(self, game, sec, pos):
         """For something off your map: the point on its edge in its direction (for its sound, its aircraft)."""
         m = game.map
-        here = (game.sector.x, game.sector.y)
         gx, gy = self._global(game, sec, pos)
         center_sec, center_pos = self.map_address(game, (m.w//2, m.h//2))
         cx, cy = self._global(game, center_sec, center_pos)
@@ -455,7 +454,6 @@ class Fires:
 
     def _compass(self, game, b) -> str:
         from .senses import direction_word
-        here = (game.sector.x, game.sector.y)
         m = game.map
         bx, by = self._global(game, b.sec, b.pos)
         center_sec, center_pos = self.map_address(game, (m.w//2, m.h//2))
@@ -607,7 +605,6 @@ class Fires:
     def _fire_round(self, game, b, gun, m) -> bool:
         """One round from one gun (a vehicle, a mortarman, or a number)."""
         from .combat import fire_mortar
-        rng = game.rng
         bt = b.bt
         kind, sec, pos = self._concrete(game, b, m)
         on_map = kind == "map"
@@ -717,7 +714,6 @@ class Fires:
     def _sector_effect(self, game, b, m):
         """What a mission on another sector did to the enemy there - done for real on the war map, and so what
         an observer can honestly report."""
-        from .strategic import UNIT_POWER
         kind, sec, pos = m["target"]
         st = game.strategic
         s = st.at(*sec) if st else None
@@ -1104,7 +1100,6 @@ class Fires:
         in mils (6400 to the circle) - worked out from where your gun is and where the target is."""
         p = game.player
         kind, sec, pos = target
-        here = (game.sector.x, game.sector.y)
         source_sec, source_pos = self.map_address(game, p.pos)
         gx, gy = self._global(game, source_sec, source_pos)
         tx, ty = self._global(game, sec, pos)
@@ -1219,7 +1214,6 @@ class Fires:
         guns, and over or short of the target, in metres."""
         bx, by = m["bias"]
         kind, sec, pos = m["target"]
-        here = (g.sector.x, g.sector.y)
         p = g.player
         source_sec, source_pos = self.map_address(g, p.pos)
         gx, gy = self._global(g, source_sec, source_pos)

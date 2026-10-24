@@ -312,10 +312,6 @@ def status(locales) -> list[str]:
     return out
 
 
-def size_mb(key) -> int:
-    return 80 if any(s in key for s in ("libritts", "vctk", "mls")) else 63
-
-
 # ====================================================================== English with an accent
 # English sounds (as espeak writes them) that each language's speakers - and so its voice model - don't have,
 # and what they say instead.  Longest first: diphthongs and affricates before their parts.

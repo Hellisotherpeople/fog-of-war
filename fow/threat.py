@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from collections import Counter
 
-from .constants import SIDES, other_side
+from .constants import other_side
 
 # who fights behind the Axis lines, where
 PARTISANS = {"barbarossa41": "ussr", "moscow41": "ussr", "kursk43": "ussr", "don43": "ussr",

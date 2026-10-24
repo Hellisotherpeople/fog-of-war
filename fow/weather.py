@@ -5,7 +5,6 @@ on the game/map so saving or leaving a sector doesn't dry it out.
 """
 from __future__ import annotations
 
-import math
 import random
 import time
 

@@ -8,9 +8,7 @@ frostbite takes fingers and toes.  Heat brings exhaustion, then collapse.
 """
 from __future__ import annotations
 
-import math
 
-from . import tiles as T
 
 # (day, night) air temperature, degrees C, by theatre climate
 CLIMATE = {"winter": (-12, -24), "summer": (23, 12), "autumn": (8, 1), "desert": (36, 9), "tropical": (32, 24),

@@ -7,7 +7,7 @@ import pytest
 import tcod
 
 from test_smoke import Game, FakeApp
-from fow import streaming, tiles, service, orders, senses
+from fow import tiles, service, senses
 from fow.body import Wound
 from fow.entities import Item
 from fow.play import PlayState

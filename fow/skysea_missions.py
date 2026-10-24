@@ -12,9 +12,9 @@ from __future__ import annotations
 import math
 
 from .constants import other_side
-from .data.ships import SHIPS, available
+from .data.ships import available
 from .data.vehicles import AIRCRAFT
-from .skysea import SEC, CARRIER_AIR, Plane, Ship, SkySea, _latest, bearing
+from .skysea import SEC, Plane, Ship, SkySea, bearing
 
 AIR_MISSIONS = {
     "resupply": "Air supply: carry food, ammunition and medicine to troops short of supplies. Drop low and slow, then return.",
@@ -588,25 +588,6 @@ def _ship_name(game, nat, s, ss=None):
     if pool:
         return rng.choice(pool)
     return s.name
-
-
-def _old_ship_name(game, nat, s):
-    rng = game.rng
-    names = {"usa": ["USS Kidd", "USS Johnston", "USS Laffey", "USS O'Bannon", "USS Helena", "USS Boise",
-                     "USS San Francisco", "USS Washington", "USS Enterprise", "USS Hornet", "USS Wahoo",
-                     "USS Barb", "USS Hoel", "USS Heermann", "USS Atlanta"],
-             "uk": ["HMS Kelly", "HMS Javelin", "HMS Onslow", "HMS Belfast", "HMS Sheffield", "HMS Duke of York",
-                    "HMS Illustrious", "HMS Upholder", "HMS Jervis", "HMS Warspite", "HMS Exeter"],
-             "germany": ["Z 23", "Z 26", "Admiral Hipper", "Prinz Eugen", "Scharnhorst", "Bismarck", "U-48",
-                         "U-99", "U-96", "S-38"],
-             "japan": ["Yukikaze", "Amatsukaze", "Kirishima", "Haruna", "Chōkai", "Shōkaku", "Zuikaku", "I-19",
-                       "I-58", "Yamato", "Hatsuzuki"],
-             "italy": ["Artigliere", "Zara", "Pola", "Littorio", "Vittorio Veneto", "Scirè"],
-             "ussr": ["Soobrazitelny", "Kirov", "Marat", "Shch-213", "Bodry"],
-             "france": ["Le Terrible", "Le Fantasque", "Dunkerque"]}.get(nat, [])
-    used = {x.name for x in game.skysea.ships} if getattr(game, "skysea", None) else set()
-    pool = [n for n in names if n not in used]
-    return rng.choice(pool) if pool else s.name
 
 
 # ====================================================================== is it done?

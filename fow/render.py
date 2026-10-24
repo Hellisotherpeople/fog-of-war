@@ -8,9 +8,8 @@ import numpy as np
 import tcod
 
 from . import tiles as T
-from .constants import (SCREEN_H, SCREEN_W, DGREY, ENEMY_COLOR, FRIEND_COLOR, GREY, LGREY, LOG_H, MSG_COLORS, PANEL_W,
-                        PLAYER_COLOR, SCREEN_H, SCREEN_W, UI_BG, UI_DIM, UI_FRAME, UI_HI, UI_SEL_BG,
-                        UI_TEXT, VIEW_H, VIEW_W, WHITE)
+from .constants import (SCREEN_H, SCREEN_W, ENEMY_COLOR, FRIEND_COLOR, LOG_H, MSG_COLORS, PANEL_W, PLAYER_COLOR, SCREEN_H, SCREEN_W,
+                        UI_BG, UI_DIM, UI_FRAME, UI_HI, UI_SEL_BG, UI_TEXT, VIEW_H, VIEW_W)
 from .data.nations import NATIONS
 from .senses import daylight, player_can_see_actor
 

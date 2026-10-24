@@ -5,7 +5,7 @@ import itertools
 
 from .body import Body
 from .constants import BASE_SPEED, SIDE_COLOR
-from .data.items import ITEMS, ammo_id
+from .data.items import ITEMS
 from .data.nations import NATIONS, rank_name
 from .data.roles import ROLES
 from .data.vehicles import MOUNTS, VEHICLES
@@ -18,7 +18,7 @@ FEMALE_NAMES = {"Lyudmila", "Roza", "Nina", "Maria", "Natalya", "Klavdiya", "Mar
 
 # where an item can be carried, and how long it takes to get it out (moves)
 LOCATIONS = ("hands", "sling", "belt", "pockets", "pack", "worn", "carried")
-from .inventory import ACCESS as ACCESS_COST  # noqa: E402
+from .inventory import ACCESS as ACCESS_COST  # noqa: E402,F401  (actions imports it from here)
 LOC_NAME = {"hands": "in your hands", "primary": "slung", "secondary": "on your back", "holster": "in the holster",
             "melee": "on your belt", "rig": "in your webbing", "pockets": "in your pockets", "pack": "in your pack",
             "head": "worn", "body": "worn", "carried": "in your hands", "ground": "on the ground"}
@@ -377,12 +377,6 @@ class Actor:
             return (220, 200, 155)
         return SIDE_COLOR[self.side]
 
-    def is_officer(self) -> bool:
-        return self.role == "officer"
-
-    def is_leader(self) -> bool:
-        return self.squad is not None and self.squad.leader is self
-
     # ------------------------------------------------------------ inventory
     @property
     def inv(self) -> list:
@@ -407,9 +401,6 @@ class Actor:
 
     def carried_weight(self) -> float:
         return self.invent.weight()
-
-    def has_pack(self) -> bool:
-        return self.invent.slots["pack"] is not None
 
     def add_item(self, item: Item, where: str | None = None) -> Item | None:
         loc = self.invent.add(item, prefer=where)
@@ -454,9 +445,6 @@ class Actor:
             if pred(i):
                 return i
         return None
-
-    def items_of(self, pred) -> list[Item]:
-        return [i for i in self.inv if pred(i)]
 
     def ammo_for(self, gun: Item | None) -> Item | None:
         from .ammo import best_source

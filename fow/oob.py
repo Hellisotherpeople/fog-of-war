@@ -240,7 +240,6 @@ class OOB:
 
     def _home_for(self, game, c, echelon):
         """The formation at `echelon` a new sector's battalion joins: the nearest with room, or a new one."""
-        st = game.strategic
         best, bd = None, 1e9
         for n in self.at_level(echelon):
             if len(n.children) >= SIZE.get(echelon, 99):

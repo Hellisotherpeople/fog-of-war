@@ -96,9 +96,3 @@ def rect_center(length: int, width: int, facing: int):
     cy = (0.5 * uy if length % 2 == 0 else 0) + (0.5 * py if width % 2 == 0 else 0)
     return cx, cy
 
-
-def front_of(length: int, facing: int, x: int, y: int):
-    """The tile the nose of the vehicle is on (for barrels, ramps and headlights)."""
-    fx, fy = FACING_VEC[facing % 8]
-    k = length // 2
-    return x + fx * k, y + fy * k

@@ -86,7 +86,7 @@ def left_words(game, d) -> str:
 
 def book(game) -> list:
     """Received instructions, with authority, governing/active status and reasons; governing order first."""
-    from .duty import REWARD, STRICT, TASK_TEXT
+    from .duty import REWARD, TASK_TEXT
     p = game.player
     out = []
     if p is None:

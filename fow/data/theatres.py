@@ -522,10 +522,6 @@ def theatre_year(t: dict) -> float:
     return y + (m - 1) / 12 + (d - 1) / 365
 
 
-def theatres_for_side(side: str) -> list[dict]:
-    return list(THEATRES.values())
-
-
 # Where the sun is: (latitude, longitude east, the clock's hours ahead of GMT) for each battle.  The clock is
 # the one its start time is given in - German summer time, Moscow time, British double summer time, Tokyo
 # time - so a dawn attack starts at the dawn it really started at.

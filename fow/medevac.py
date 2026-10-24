@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import math
 
-from .constants import other_side
 
 TEAM = 4                      # bearers on a litter team (a stretcher over broken ground takes four)
 

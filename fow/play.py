@@ -15,15 +15,15 @@ from . import actions as A
 from . import tiles as T
 from .ai import Order
 from .gamemap import octant
-from .combat import describe_chance, dispersion, estimate_hit, vehicle_fire_main, vehicle_fire_mg
-from .constants import (COMPASS, DIRS8, ENEMY_COLOR, FRIEND_COLOR, UI_DIM, UI_HI, UI_TEXT,
-                        VIEW_H, VIEW_W, other_side)
+from .combat import describe_chance, estimate_hit, vehicle_fire_main, vehicle_fire_mg
+from .constants import (DIRS8, ENEMY_COLOR, FRIEND_COLOR, UI_DIM, UI_HI, UI_TEXT, VIEW_H,
+                        VIEW_W)
 from .data.items import ITEMS
 from .data.nations import NATIONS
-from .entities import LOC_NAME, Item, riding
-from .render import (Camera, Popup, apply_condition_filters, draw_center_box, draw_cursor,
-                     draw_effects, draw_entities, draw_line, draw_log, draw_map, draw_overlays,
-                     draw_panel, draw_popup, draw_tooltip)
+from .entities import LOC_NAME, riding
+from .render import (Camera, Popup, apply_condition_filters, draw_cursor, draw_effects,
+                     draw_entities, draw_line, draw_log, draw_map, draw_overlays, draw_panel,
+                     draw_popup, draw_tooltip)
 from .senses import player_can_see_actor
 
 MOVE_KEYS = {
@@ -1931,8 +1931,8 @@ class PlayState:
             if not idxs:
                 g.msg("Your gun won't bear - it points where the hull points.", "info")
                 return
-            if C.player_seat(v) == "gunner" and v.vt.turret:
-                from . import vdamage as VD
+            from . import vdamage as VD
+            if C.player_seat(v) == "gunner" and VD.turreted(v.vt):
                 tr = VD.traverse(v)
                 want = octant(x - v.x, y - v.y)
                 diff = (want - v.turret) % 8
@@ -2136,7 +2136,6 @@ class PlayState:
     def _replan_route(self) -> bool:
         """New ground seen on the way (or the next step turns out shut): plan again from here.  False if
         there's no way left."""
-        g = self.game
         if self.travel_dest is None:
             return False
         self.travel_replans = self.__dict__.get("travel_replans", 0) + 1
@@ -2220,7 +2219,6 @@ class PlayState:
         take the step again and you've been told.  ' ignores what you can see now; ! turns it off."""
         st = getattr(self.app, "settings", None) or {}
         g = self.game
-        p = g.player
         found = self.dangers()
         if not st.get("safe_mode", True):
             return False
@@ -2743,10 +2741,6 @@ class PlayState:
             g.update_orders(force=True)
             g.player_fov()
 
-    def after_travel(self):
-        self.recenter()
-        self.cam.focus(self.game)
-
     def _travel_chosen(self, edge):
         if edge:
             g = self.game
@@ -3076,7 +3070,7 @@ class PlayState:
 
     def aim(self, then_fire=False):
         """Take another moment over the sights (or all you need, then fire)."""
-        from .combat import AIM_WORD, aim_level, aim_time, max_aim
+        from .combat import aim_level, aim_time, max_aim
         g = self.game
         p = g.player
         if self.cursor is None:
@@ -3287,7 +3281,6 @@ class PlayState:
 
     def _wounded_near(self):
         """Comrades within reach who need patching up, the worst first."""
-        g = self.game
         out = []
         for a in self._adjacent_friends():
             b = a.body
@@ -3332,7 +3325,6 @@ class PlayState:
         """A prisoner of yours: search him, tell him what to do, patch him up, hand him on."""
         g = self.game
         p = g.player
-        from . import prisoners as PW
         if what == "take_wounded":
             g.surrender(who)
             if who.state != "surrendered":
@@ -4108,6 +4100,7 @@ class PlayState:
                 return
             steps = min((v.turret - v.facing) % 8, (v.facing - v.turret) % 8)
             v.turret = v.facing
+            v.ai["turret_front"] = g.turn + 120               # (and keeps it there, with nothing to shoot at)
             p.say("Gunner, traverse front.", g.turn, 2)
             if tr == "hand" and steps:
                 g.msg("No power to the traverse: the gunner cranks her round by hand.", "info")
@@ -4144,7 +4137,6 @@ class PlayState:
     def _take_off(self, kind, flier):
         from .skysea_missions import launch_air
         g = self.game
-        p = g.player
         ss = launch_air(g, kind)
         if ss is None:
             g.msg("There's nothing here you could fly for that.", "info")
@@ -4264,20 +4256,6 @@ class PlayState:
         if self.app.audio is not None:
             self.app.audio.ui("rustle")
 
-    def _tool_verb(self, tool):
-        return {"shovel": "Dig in here", "wirecutters": "Cut wire", "binoculars": "Look through them",
-                "radio": "Get on the radio", "flaregun": "Fire a flare", "compass": "Check your bearings",
-                "watch": "Check the time", "map": "Study the map", "orders": "Read your orders",
-                "canteen": "Take a drink", "flask": "Take a swig", "cigarettes": "Light one up",
-                "ration": "Eat something", "letter": "Read the letter", "photo": "Look at the photograph",
-                "harmonica": "Play something", "rosary": "Pray", "bible": "Read a verse", "coin": "Flip it",
-                "cards": "Shuffle the deck", "whistle": "Blow the whistle", "ammo_crate": "Resupply",
-                "sandbags": "Fill and stack them", "wire": "String the wire", "detector": "Sweep for mines",
-                "wireless": "Set up the wireless", "camera": "Take a photograph", "torch": "Lay out the lights",
-                "sphone": "Talk to the aircraft", "time_pencil": "Check the time pencils", "money": "Count it",
-                "cover_papers": "Go over your cover", "papers": "Go over your cover", "code": "Check the pad",
-                "film": "Look at it", "trade": "Handle it"}.get(tool, "Use it")
-
     def _adjacent_friends(self):
         g = self.game
         p = g.player
@@ -4391,7 +4369,9 @@ class PlayState:
     def examine_lines(self, it):
         """What you see when you look an item over: what it is, its story, and this one's particulars."""
         t = it.t
-        lines = []
+        from .itemart import art_lines
+        art = art_lines(t, 56)
+        lines = list(art)
         import textwrap
         for l in textwrap.wrap(t.desc or "Nothing remarkable.", 52):
             lines.append((l, UI_TEXT))
@@ -4423,13 +4403,15 @@ class PlayState:
             lines.append((f"Fuse about {t.fuse} seconds." if t.fuse > 1 else "Explodes on impact.", UI_DIM))
         if t.kind == "corpse" and it.data:
             d = it.data
-            lines = [(f"{d.get('name', 'Unknown')}", UI_HI),
+            lines = art + [(f"{d.get('name', 'Unknown')}", UI_HI),
                      (f"{NATIONS[d['nation']]['adj']} {d.get('role', 'soldier').replace('_', ' ')}", UI_TEXT),
                      (f"Killed by {d.get('cause') or 'unknown causes'}.", UI_DIM)]
         lines.append((f"Weight {it.weight:.1f} kg.", UI_DIM))
         from .equipment import description
         for line in description(it):
             lines.extend((s, UI_DIM) for s in textwrap.wrap(line, 52))
+        if art and len(lines) + 1 > VIEW_H - 6:
+            lines = lines[len(art):]                     # (the words matter more than the picture, if both won't fit)
         return lines
 
     def _personal_use(self, it):
@@ -4441,7 +4423,6 @@ class PlayState:
         p = g.player
         t = it.t
         tool = t.tool
-        rng = g.rng
 
         def used_one():
             p.consume_use(it)

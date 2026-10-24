@@ -26,6 +26,7 @@ from . import translate
 from .brain import contact_kind
 from .combat import aim_level, aim_time, estimate_hit, hit_vehicle, max_aim, vehicle_fire_main, vehicle_fire_mg
 from .constants import BIG, other_side
+from .strategic import DIRS as EDGE_VEC
 from .data.items import ITEMS
 from .data.nations import NATIONS
 from .data.phrases import phrase
@@ -121,9 +122,6 @@ class Squad:
 
     def active_members(self):
         return [m for m in self.members if m.active and m.vehicle is None]
-
-    def alive_members(self):
-        return [m for m in self.members if m.alive and m.state == "ok"]
 
     def strength(self) -> float:
         # (the wounded gone back to the aid post aren't in the line)
@@ -1320,7 +1318,6 @@ def switch_weapon(game, a) -> int | None:
 
 def engage_act(game, a, vis, sq, sstate) -> int:
     brain = game.brains[a.side]
-    m = game.map
     rng = game.rng
     w = a.weapon
     target = choose_target(game, a, vis)
@@ -2222,7 +2219,7 @@ def _willing(game, receiver) -> bool:
 def buddy_aid_act(game, a, vis) -> int | None:
     """A mate bleeding near you and no medic about: patch him up.  Your buddy, you go to further, and sooner
     (social.wounded: he called his name)."""
-    from .squadcare import sees, claimed, aid_claimed
+    from .squadcare import sees, aid_claimed
     hb = a.ai.get("help_buddy")
     if hb is not None and game.turn - hb[1] < 150 and not (vis and min(dist(a, e) for e in vis) < 6):
         o = next((m for m in game.near(a.x, a.y, 12, a.side) if m.id == hb[0]), None)
@@ -2885,6 +2882,7 @@ def vehicle_act(game, v) -> int:
             if c:
                 return c
     if sq is not None and sq.order.kind == "mount" and v.vt.seats > 0 and not v.player_crewed:
+        aim_turret(game, v, vis, None)
         return 100               # wait for the infantry to climb aboard
     # ---- shoot: every manned station on its own
     res, tgt = vehicle_gunnery(game, v, vis, sq)
@@ -2893,6 +2891,7 @@ def vehicle_act(game, v) -> int:
     if res == "crank":
         from .vdamage import HAND_TRAVERSE
         return HAND_TRAVERSE
+    aim_turret(game, v, vis, tgt)
     # ---- move: the driver, on the commander's word (yours, if you're the commander or at the wheel)
     if not v.mobile or not C.ai_manned(v, "driver"):
         return 100
@@ -2962,8 +2961,13 @@ def vehicle_gunnery(game, v, vis, sq):
     mg_cd = v.ai.setdefault("mg_cd", {})
     # the gunner: main gun, or the coax when the target's soft
     if tgt is not None and C.ai_manned(v, "gunner"):
+        from . import vdamage as VD
+        laid = True
+        if VD.turreted(vt) and VD.traverse(v) == "power":
+            # the turret comes round, an eighth of the way a second, before the gun (and the coax) can be laid on it
+            aim_turret(game, v, vis, tgt)
+            laid = (octant(tgt.x - v.x, tgt.y - v.y) - v.turret) % 8 in (0, 1, 7)
         if vt.main:
-            from . import vdamage as VD
             want = octant(tgt.x - v.x, tgt.y - v.y)
             tr = VD.traverse(v)
             if not vt.turret or v.static or tr == "jammed":
@@ -2990,7 +2994,7 @@ def vehicle_gunnery(game, v, vis, sq):
                 if diff not in (0, 1, 7):
                     v.turret = (v.turret + (1 if diff <= 4 else -1)) % 8     # cranking the handwheel
                     return "crank", tgt
-        if tgt is not None:
+        if tgt is not None and laid:
             blocked = friends_in_line(game, v, tgt.x, tgt.y, cone=0.05)
             if not blocked and vt.main and v.gun_ok and v.reload <= 0 and ammo is not None:
                 if vehicle_fire_main(game, v, tgt.x, tgt.y, tgt, ammo):
@@ -3033,6 +3037,83 @@ def vehicle_gunnery(game, v, vis, sq):
                 res = res or "mg"
             break
     return res, tgt
+
+
+SCAN = (0, 1, 0, -1, 2, 1, 0, -2, -1, 0, 1, -1)    # a gunner searching his arc, an eighth at a time
+
+
+def aim_turret(game, v, vis, tgt):
+    """Where the gun points between shots.  The gunner lays on his target, or on the most dangerous thing he can see,
+    or toward where a hit just came from or where enemy armour is known to be; failing all of that he searches his
+    sector of the enemy's side, and on the move the gun rides over the line of advance.  A powered turret swings an
+    eighth of the way round a second, so a threat on the flank takes seconds to answer; nobody cranks a dead one
+    round just to look about."""
+    from . import crew as C
+    from . import vdamage as VD
+    t = game.turn
+    if not VD.turreted(v.vt) or v.ai.get("slew_turn") == t or not C.ai_manned(v, "gunner") or \
+            VD.traverse(v) != "power":
+        return
+    v.ai["slew_turn"] = t
+    diff = (_turret_want(game, v, vis, tgt) - v.turret) % 8
+    if diff:
+        v.turret = (v.turret + (1 if diff <= 4 else -1)) % 8
+
+
+def _turret_want(game, v, vis, tgt):
+    """The octant the gunner wants the gun on now."""
+    t = game.turn
+    if tgt is not None:
+        return octant(tgt.x - v.x, tgt.y - v.y)
+    best, bs = None, 0.0
+    for e in vis:
+        if getattr(e, "vt", None) is not None:
+            if e.dead or e.abandoned:
+                continue
+            s = 4.0 if contact_kind(e) in ("tank", "atgun") else 2.0
+        else:
+            if not e.active:
+                continue
+            s = 3.0 if e.role == "at_soldier" else 1.0
+        s /= 1 + dist(v, e) / 30
+        if s > bs:
+            bs, best = s, e
+    if best is not None:
+        d = octant(best.x - v.x, best.y - v.y)
+        v.ai["watch"] = (d, t + 25)                    # (and keeps watching there a while after it's gone)
+        return d
+    if v.ai.get("hit_dir") is not None and t - v.ai.get("hit_turn", -999) < 30:
+        return v.ai["hit_dir"]
+    watch = v.ai.get("watch")
+    if watch is not None and watch[1] > t:
+        return watch[0]
+    cs = [c for c in armour_contacts(game, v.side) if max(abs(c.x - v.x), abs(c.y - v.y)) <= 70]
+    if cs:
+        c = min(cs, key=lambda c: (c.x - v.x) ** 2 + (c.y - v.y) ** 2)
+        return octant(c.x - v.x, c.y - v.y)
+    if v.ai.get("turret_front", -1) > t:
+        return v.facing
+    moving = v.moved_turn >= t - 2
+    axis = v.ai.get("axis")
+    if axis is None or axis[1] != t // 60:
+        edge = game.home_edge(other_side(v.side))
+        axis = v.ai["axis"] = (octant(*EDGE_VEC[edge]) if edge in EDGE_VEC else None, t // 60)
+    base = axis[0]
+    if base is None or (moving and (base - v.facing) % 8 in (3, 4, 5)):
+        base = v.facing                                 # (nothing known, or driving away from the enemy's side)
+    else:
+        base += v.id % 3 - 1                            # a platoon's guns cover neighbouring arcs, not one
+    off = SCAN[((t + v.id * 5) // 6 + v.id) % len(SCAN)]
+    return (base + (max(-1, min(1, off)) if moving else off)) % 8
+
+
+def armour_contacts(game, side):
+    """The enemy tanks and guns the side knows of (once a turn, for every crew that asks)."""
+    b = game.brains[side]
+    c = b.__dict__.get("_armour")
+    if c is None or c[0] != game.turn:
+        c = b._armour = (game.turn, [c for c in b.live_contacts(20, False) if c.kind in ("tank", "atgun")])
+    return c[1]
 
 
 def vehicle_choose_target(game, v, vis):
@@ -3190,9 +3271,7 @@ def face_the_threat(game, v) -> int | None:
     """Halted, the hull's front toward whatever can knock it out (the thickest armour is the front)."""
     if v.vt.static or v.moved_turn >= game.turn - 1 or game.turn % 3:
         return None
-    brain = game.brains[v.side]
-    cs = [c for c in brain.live_contacts(20, False) if c.kind in ("tank", "atgun") and
-          max(abs(c.x - v.x), abs(c.y - v.y)) <= 70]
+    cs = [c for c in armour_contacts(game, v.side) if max(abs(c.x - v.x), abs(c.y - v.y)) <= 70]
     if not cs:
         return None
     c = min(cs, key=lambda c: (c.x - v.x) ** 2 + (c.y - v.y) ** 2)

@@ -233,19 +233,6 @@ def _paper_name(pid):
     return ITEMS[pid].name if pid in ITEMS else pid
 
 
-def papers_bonus(game, p) -> float:
-    """At a papers check: a cover with the right documents for its trade, and the language, help."""
-    from .skills import level
-    cv = cover(game)
-    b = .08 if p.has_tool("cover_papers") and p.find(lambda i: i.tid == "security_pass") else 0.0
-    if cv is not None and cv.get("name"):
-        have = {i.tid for i in p.inv}
-        b += 0.04 * sum(1 for x in cv.get("papers", ()) if x in have)
-        b += 0.03 * sum(1 for x in cv.get("tools", ()) if x in have)
-    b += (level(p, "languages") - 5) * 0.03
-    return b
-
-
 def bribe(game, p) -> bool:
     """When the papers don't satisfy him: money, if you have enough, and he's that kind of man."""
     money = next((i for i in p.inv if i.t.tool == "money" and i.count >= 20), None)
@@ -619,16 +606,6 @@ def _update_drop(game, ms, done, here):
                       for it in a.inv if (it.data or {}).get('drop') == drop['id'])
         if drop['n_items'] > 0 and recovered + carried >= math.ceil(drop['n_items'] * .7):
             done(f"The reception party has recovered {recovered + carried} of the {drop['n_items']} dropped stores.", 9)
-
-
-def _drop_left(game, drop):
-    m = game.map
-    n = 0
-    x0, y0 = drop["dz"]
-    for (x, y), items in list(getattr(m, "items", {}).items()):
-        if abs(x - x0) <= 40 and abs(y - y0) <= 40:
-            n += sum(1 for it in items if (it.data or {}).get("drop") == drop["id"])
-    return n
 
 
 # ============================================================================ the resistance on the ground

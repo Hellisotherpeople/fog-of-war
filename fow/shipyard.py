@@ -17,9 +17,7 @@ stations: the places the ship's company stands - by watch, and at general quarte
 """
 from __future__ import annotations
 
-import math
 
-import numpy as np
 
 from . import tiles as T
 from .gamemap import GameMap
@@ -114,14 +112,6 @@ class Deck:
 
     def room(self, name, kind, x0, y0, x1, y1):
         self.rooms.append(dict(name=name, kind=kind, rect=(x0, y0, x1, y1)))
-
-    def room_at(self, x, y):
-        for r in self.rooms:
-            x0, y0, x1, y1 = r["rect"]
-            if x0 <= x <= x1 and y0 <= y <= y1:
-                return r
-        return None
-
 
 # ====================================================================== building blocks
 def _fill(m, cells, key):
@@ -342,7 +332,6 @@ def _weather_deck(d, fr, ship, rng, deck_key):
     d.cells = cells
     _fill(m, cells, deck_key)
     _fill(m, _edge(cells), "railing")
-    cls = fr.cls
     cy = int(round(fr.cy))
     return m, cells, cy
 

@@ -307,7 +307,6 @@ def _state_words(g, a) -> str:
                 "I can't stop my hands shaking. Look at them.")
     if getattr(a, "stamina", 100) < 35 or getattr(a, "fatigue", 0) > 60:
         bits.append("I could sleep for a week.")
-    from . import thermal
     t = getattr(a.body, "temp", 37.0)
     if t < 36.4:
         bits.append("And I'm freezing.")

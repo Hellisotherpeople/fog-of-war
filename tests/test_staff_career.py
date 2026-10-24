@@ -1,5 +1,4 @@
 """Physical reporting, useful rewards and full careers without instant rank jumps."""
-from copy import deepcopy
 import pickle
 from unittest.mock import patch
 

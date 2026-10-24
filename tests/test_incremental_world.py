@@ -3,7 +3,7 @@ from copy import deepcopy
 from types import SimpleNamespace
 from unittest.mock import patch
 import numpy as np
-from fow import senses, native, streaming
+from fow import senses, streaming
 from fow.gamemap import GameMap
 from fow.terrain_window import TerrainWindow
 

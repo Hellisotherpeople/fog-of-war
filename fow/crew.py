@@ -125,11 +125,6 @@ def mg_arc_ok(v, i, tx, ty) -> bool:
     return (want - v.facing) % 8 in (0, 1, 7)
 
 
-def gunner_can_drive(v) -> bool:
-    """Does the vehicle have nobody at the wheel but you?"""
-    return not is_manned(v, "driver")
-
-
 def can(v, action) -> tuple[bool, str]:
     """May the player, in their seat, do this?  Returns (ok, why not)."""
     st = player_seat(v)
