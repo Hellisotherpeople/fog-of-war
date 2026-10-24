@@ -1,0 +1,156 @@
+%% ammo_3006 ammo_792 ammo_303 ammo_762r ammo_65it ammo_65jp ammo_77jp ammo_75fr ammo_763m
+      _        _        _
+     | |      | |      | |
+    (   )    (   )    (   )
+    |   |    |   |    |   |
+    |   |    |   |    |   |
+    |___|    |___|    |___|
+    `---'    `---'    `---'
+%% ammo_8lebel ammo_8x56 ammo_455 ammo_38200
+      _        _        _
+     | |      | |      | |
+    (   )    (   )    (   )
+    |   |    |   |    |   |
+   (|   |)  (|   |)  (|   |)
+   (|___|)  (|___|)  (|___|)
+    `---'    `---'    `---'
+%% ammo_45acp ammo_9mm ammo_762t ammo_8nambu ammo_9glis ammo_765l ammo_32acp ammo_22lr ammo_30carb ammo_9x25 ammo_792k
+     ___      ___      ___
+    | _ |    | _ |    | _ |
+    |( )|    |( )|    |( )|
+    | | |    | | |    | | |
+    |_|_|    |_|_|    |_|_|
+    `---'    `---'    `---'
+%% ammo_50bmg ammo_127r ammo_145 ammo_55boys ammo_792ds ammo_20mm
+         __
+     ___/  \___________________
+    |  o                        |
+     \__________________________/
+      `----------------------'
+%% ammo_12ga
+     ___      ___      ___
+    |   |    |   |    |   |
+    |###|    |###|    |###|
+    |:::|    |:::|    |:::|
+    [___]    [___]    [___]
+%% ammo_rkt_bazooka ammo_rkt_schreck
+         ______________________
+    ____/                      \
+   ( o o  ___    ___    ___  o o)
+      |  |   |  |   |  |   |  |
+      |__|___|__|___|__|___|__|
+%% ammo_piat
+        ____
+       /    \_________________
+      |  o                     |
+       \___________  ________/
+          |  |     \/
+          |__|     /\
+         (____)   /  \
+%% ammo_m50 ammo_m60 ammo_m81 ammo_knee ammo_m45 ammo_m46
+       ___
+      /   \
+     |     |
+     |     |
+      \___/
+       | |
+      /| |\
+    [_| |_]
+%% ammo_fuel
+      .---------.
+     |   _____   |
+     |  |  o  |  |
+     |  |_____|  |
+     |___________|
+       |  o    []
+       |________|
+%% mag_45acp_7_pistol mag_9mm_8_pistol mag_9mm_13_pistol mag_762t_8_pistol mag_9glis_7_pistol mag_8nambu_8_pistol mag_765l_8_pistol mag_32acp_8_pistol mag_32acp_7_pistol mag_22lr_10_pistol mag_45acp_7_carbine
+     ___
+    | o |
+    | o |
+    | o |
+    | o |
+    | o |
+    |___|]
+%% mag_30carb_15_carbine
+     ___
+    | o |
+    | o |
+    | o |
+    | o |
+    | o |
+    | o |
+    | o |
+    |___|]
+%% mag_9mm_32_smg mag_9mm_33_smg mag_9mm_40_smg mag_762t_35_smg mag_765l_32_smg mag_9x25_40_smg mag_8nambu_30_smg
+     ___
+    | o |
+    | o |
+    | o |
+    | o |
+    | o |
+    | o |
+    | o |
+    |___|]
+%% mag_45acp_30_smg mag_45acp_20_smg
+     ___
+    |o o|
+    |o o|
+    |o o|
+    |o o|
+    |o o|
+    |o o|
+    |o o|
+    |___|]
+%% mag_9mm_50_smg mag_762t_71_smg belt_792_50
+      .-----.
+     /  ___  \
+    | | ( ) | |
+    |  \\___/  |
+    | |       | |
+     \         /
+      '-------'
+%% mag_762r_47_lmg
+     .-----------------.
+    /  o  o  o  o  o  /
+   |  o  o  o  o  o  |
+    \  o  o  o  o  /
+     '-------------'
+%% mag_762r_10_rifle mag_792_10_rifle mag_792k_30_assault mag_792_20_assault
+     ____
+    | o  |___
+    | o     |
+    | o     |
+    | o     |
+    |_______|]
+%% mag_3006_20_lmg mag_303_30_lmg mag_792_20_lmg mag_762r_20_lmg mag_75fr_25_lmg mag_8x56_25_lmg mag_65jp_30_lmg mag_77jp_30_lmg
+     ___
+    | o |
+    | o |
+    | o |___
+    | o     |
+    | o     |
+    | o     |
+    |_______|]
+%% mag_55boys_5_at_rifle mag_20mm_10_at_rifle mag_20mm_7_at_rifle mag_792ds_4_at_rifle
+     ______
+    |  o   |__
+    |  o      |
+    |  o      |
+    |  o      |
+    |__________|]
+%% strip_3006_5 strip_303_5 strip_762r_5 strip_792_5 strip_65jp_5 strip_77jp_5 strip_75fr_5 strip_763m_10 clip_145_5 clip_77jp_30 clip_8lebel_100 clip_65it_20
+     .-.-.-.-.-.-.
+    ( o  o  o  o )
+     `-----------'
+%% clip_3006_8 clip_65it_6 clip_792_5 clip_8x56_5 clip_65jp_30
+    ____________________
+   |  o  o  o  o  o  o  |
+   |____________________|
+    \__________________/
+%% belt_3006_100 belt_303_100 belt_762r_100 belt_792_100 belt_8x56_100
+    ________________
+   |  ____________  |
+   | | o o o o o o||===========
+   | | o_o_o_o_o o||
+   |_______________|
