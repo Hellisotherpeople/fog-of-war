@@ -350,6 +350,35 @@ def _prioritize(game, out):
     return out
 
 
+def queue_order(sq, kind, target=None, radius=4) -> None:
+    q = sq.rep.setdefault("queue", [])
+    q.append(dict(kind=kind, target=target, radius=radius))
+    if len(q) > 6:
+        del q[0]
+
+
+def next_queued(game, sq) -> bool:
+    """The section has finished an order: give it the next one it was told to queue."""
+    q = sq.rep.get("queue")
+    if not q or game.turn - sq.last_contact < 5:
+        return False
+    nxt = q.pop(0)
+    from .ai import Order
+    sq.order = Order(nxt["kind"], target=nxt.get("target"), radius=nxt.get("radius", 4), issued=game.turn,
+                     src="player")
+    sq.arrived = False
+    sq.positions = {}
+    sq.rep.pop("queued_called", None)
+    return True
+
+
+def cancel_current(sq) -> None:
+    from .ai import Order
+    sq.rep.pop("queue", None)
+    sq.order = Order("hold", target=(sq.leader.x, sq.leader.y) if sq.leader else None, radius=6,
+                     issued=0, src="player")
+
+
 def governing(game):
     return next((o for o in book(game) if o["governing"]), None)
 

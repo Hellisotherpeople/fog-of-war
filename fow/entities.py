@@ -621,7 +621,7 @@ class Actor:
     def say(self, text: str, turn: int, duration: int = 3, voice: str | None = None, tone: str | None = None):
         """A speech bubble - and, for the sound system, the line as it's actually spoken."""
         english = False
-        if text and translate.ACTIVE_SIDE is not None and translate.active_for(self):
+        if text and translate.active_for(self):
             text, voice, english = translate.line(self, text, voice)      # (Options: your side speaks English)
         self.shout = (text, turn + duration)
         if text:

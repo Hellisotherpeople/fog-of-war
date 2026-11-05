@@ -35,6 +35,7 @@ from .support import Support
 
 # saves, the memorial and the error log (FOW_HOME moves them: the tests and tools use a scratch folder)
 SAVE_DIR = os.environ.get("FOW_HOME") or os.path.join(os.path.expanduser("~"), ".fogofwar")
+SAVE_VERSION = 4          # bump when a load migration is needed; old saves are brought forward, never rejected
 _NATIVE = {}
 
 
@@ -67,7 +68,8 @@ def an(word: str) -> str:
     return ("an " if word[:1].upper() in "AEIOU" else "a ") + word
 EDGE_VEC = {"N": (0, -1), "S": (0, 1), "E": (1, 0), "W": (-1, 0)}
 # battlefield sizes (tiles of about two yards) and how many troops a sector holds against the standard one
-BATTLEFIELDS = {"standard": (MAP_W, MAP_H, 1.0), "large": (270, 180, 2.0), "huge": (360, 240, 3.0)}
+BATTLEFIELDS = {"standard": (MAP_W, MAP_H, 1.0), "large": (270, 180, 2.0), "huge": (360, 240, 3.0),
+                "massive": (480, 320, 5.0)}
 DEFAULT_BATTLEFIELD = "large"
 
 
@@ -95,12 +97,25 @@ class SoundMark:
 
 class Game:
     def __init__(self, theatre_id: str, nation: str, role: str | None = None, seed: int | None = None,
-                 setup: dict | None = None):
+                 setup: dict | None = None, **kw):
+        from .packs import load_all as _load_packs
+        _load_packs()                                   # (content packs first: they may add this theatre)
+        if seed is None and (setup or {}).get("seed"):
+            try:
+                seed = int((setup or {})["seed"])
+            except (TypeError, ValueError):
+                pass
         self.seed = seed if seed is not None else random.randrange(1 << 30)
         self.rng = random.Random(self.seed)
         self.theatre = THEATRES[theatre_id]
         # the character / scenario creator's choices (anything left out is up to chance or the army)
         self.setup = dict(setup or {})
+        from . import difficulty as _diff
+        self.difficulty = _diff.make(self.setup.get("difficulty", _diff.DEFAULT),
+                                     self.setup.get("difficulty_custom"))
+        self.ironman = bool(self.setup.get("ironman"))
+        self.run_id = self.setup.get("run_id")
+        self.run_code = None
         self.mission = None
         self.theatre_id = theatre_id
         self.year = theatre_year(self.theatre)
@@ -135,6 +150,7 @@ class Game:
         self.first_battle = True
         self.game_over = False
         self.death_text = None
+        self.death_timeline = None
         self.victory_text = None
         self.last_whizz_msg = -99
         self.player_orders = ""
@@ -145,6 +161,10 @@ class Game:
         # the size of each battlefield, and so how many men a sector holds (see BATTLEFIELDS)
         size = self.setup.get("battlefield") or DEFAULT_BATTLEFIELD
         self.map_w, self.map_h, self.troop_scale = BATTLEFIELDS.get(size, BATTLEFIELDS[DEFAULT_BATTLEFIELD])
+        try:
+            self.troop_scale *= max(0.25, float(self.setup.get("sim_scale", 1.0) or 1.0))
+        except (TypeError, ValueError):
+            pass
         self.strategic = Strategic(self.theatre, self.rng, self.year, scale=self.troop_scale)
         self.sector = None
         self.map = None
@@ -152,6 +172,7 @@ class Game:
         self.vehicles: list[Vehicle] = []
         self.squads: list[Squad] = []
         self.soldier_at: dict = {}
+        self.soldier_at_z: dict = {}          # (x, y, z) -> actor on an upper floor or in a cellar
         self.vehicle_at: dict = {}
         self.brains = {}
         self.player = None
@@ -318,6 +339,7 @@ class Game:
         vehicle_start.prepare(self, role)
         p, notes = __import__("fow.spawn", fromlist=["create_player"]).create_player(self, self.player_nation, role)
         self.player = p
+        p.body.__dict__["_diff_bleed"] = self.difficulty.get("player_bleed", 1.0)
         from .data.roles import service_of
         p.service = self.setup.get("service") or service_of(p.role)
         self._apply_setup(p, notes)
@@ -334,7 +356,11 @@ class Game:
             notes.append(start_in_camp(self))
         if self.scenario in SC.SCENARIOS and self.scenario != "front":
             notes.insert(0, f"[{SC.SCENARIOS[self.scenario]['name']}] {SC.SCENARIOS[self.scenario]['desc']}")
+        from .politics import start as _politics_start
+        _politics_start(self)
         self.briefing = self._make_briefing(notes)
+        from . import diary as _diary
+        _diary.start(self)
         self.update_orders(force=True)
         self.player_fov()
 
@@ -491,6 +517,10 @@ class Game:
         lines.append("You carry: " + ", ".join(kit[:14]) + ("..." if len(kit) > 14 else "") + ".")
         lines.append("")
         lines.append(f"Sector: {self.sector.name} ({self.sector_desc()}).")
+        if self.scenario not in ("pow",) and not self.scenario.startswith(("air:", "sea:")):
+            from . import scenarios as _SC
+            lines.append("")
+            lines += _SC.briefing_help(self)
         lines += notes
         return lines
 
@@ -544,6 +574,7 @@ class Game:
         if self.player is not None:
             self.player.peek = None
         self.soldier_at = {}
+        self.soldier_at_z = {}
         self.vehicle_at = {}
         self.explosives = []
         self.shells = []
@@ -959,6 +990,7 @@ class Game:
         d = dict(self.__dict__)
         d.pop("_nb_cache", None)            # regenerated on demand
         d.pop("_prefs", None)               # the player's settings live in settings.json, not the save
+        d.pop("_play", None)                # the current interface state, not simulation
         d.pop("_speech_captions", None)     # screen-time captions are not simulation/save state
         d.pop("_order_hint", None)
         d.pop("_vis_mat", None)             # this turn's distance matrix
@@ -1340,18 +1372,40 @@ class Game:
         pass
 
     # ================================================================== entity management
+    def actor_at(self, x, y, z=0):
+        return self.soldier_at.get((x, y)) if not z else self.soldier_at_z.get((x, y, z))
+
+    def set_actor_at(self, a, x=None, y=None, z=None):
+        """Put him in the position store for his storey (ground actors alone keep the 2D store)."""
+        x = a.x if x is None else x
+        y = a.y if y is None else y
+        z = a.z if z is None else z
+        if z:
+            self.soldier_at_z[(x, y, z)] = a
+        else:
+            self.soldier_at[(x, y)] = a
+
+    def pop_actor_at(self, a, x=None, y=None, z=None):
+        x = a.x if x is None else x
+        y = a.y if y is None else y
+        z = a.z if z is None else z
+        if z:
+            if self.soldier_at_z.get((x, y, z)) is a:
+                del self.soldier_at_z[(x, y, z)]
+        elif self.soldier_at.get((x, y)) is a:
+            del self.soldier_at[(x, y)]
+
     def add_actor(self, a):
         if a not in self.actors:
             self.actors.append(a)
         if a.vehicle is None:
-            self.soldier_at[(a.x, a.y)] = a
+            self.set_actor_at(a)
         self._arr_turn = -1
 
     def remove_actor(self, a):
         if a in self.actors:
             self.actors.remove(a)
-        if self.soldier_at.get((a.x, a.y)) is a:
-            del self.soldier_at[(a.x, a.y)]
+        self.pop_actor_at(a)
         self._arr_turn = -1
         landscape = self.__dict__.get('landscape')
         if landscape is not None and landscape.frame is self.map:
@@ -1359,12 +1413,11 @@ class Game:
             landscape.active_actors.discard(a.id)
 
     def remove_from_map(self, a):
-        if self.soldier_at.get((a.x, a.y)) is a:
-            del self.soldier_at[(a.x, a.y)]
+        self.pop_actor_at(a)
         self._arr_turn = -1
 
     def place_on_map(self, a):
-        self.soldier_at[(a.x, a.y)] = a
+        self.set_actor_at(a)
         if a not in self.actors:
             self.actors.append(a)
         self._arr_turn = -1
@@ -1627,6 +1680,11 @@ class Game:
     # ================================================================== messages
     def msg(self, text, cat="info", pos=None, heard=False):
         self.msg_total = getattr(self, "msg_total", 0) + 1
+        prefs = self.__dict__.get("_prefs") or {}
+        if prefs.get("log_level") == "quiet" and cat in ("combat", "sound", "system", "info"):
+            return
+        if prefs.get("log_level") == "loud":
+            print(f"[{cat}] {text}", flush=True)
         if pos is not None and not heard and self.player is not None:
             x, y = pos
             if not (self.map.in_bounds(x, y) and self.map.visible[x, y]):
@@ -1636,6 +1694,10 @@ class Game:
             self.messages[-1].turn = self.turn
             return
         self.messages.append(Message(text, cat, self.turn))
+        prefs = self.__dict__.get("_prefs") or {}
+        if prefs.get("screen_reader"):
+            from . import screenreader
+            screenreader.say(f"{cat}: {text}")
         if cat == "radio":
             self._radio_voice(text)
 
@@ -1808,12 +1870,27 @@ class Game:
         seen = self.can_see(a.x, a.y) or a.is_player
         from .squadcare import witnessed_kill
         witnessed_kill(self, killer, a)
-        if killer is not None and hasattr(killer, "kills") and killer is not a:
+        if killer is not None and getattr(killer, "vt", None) is None and hasattr(killer, "kills") and killer is not a:
             killer.kills += 1
+            from .heroism import brave
+            if max(abs(killer.x - a.x), abs(killer.y - a.y)) <= 8 and \
+                    (killer.suppression > 10 or killer.body.blood < 4000 or killer.downed is False and
+                     killer.body.effective_pain() > 30):
+                brave(self, killer, "kill_close")
             if killer is self.player or (self.player is not None and killer is self.player.vehicle):
                 self.stats["kills"] += 1
                 self.kills_by[a.nation] += 1
                 self.command.on_kill(self, a)
+                from . import renown as _renown
+                if max(abs(a.x - killer.x), abs(a.y - killer.y)) <= 8:
+                    _renown.event(self, "close")
+                else:
+                    _renown.event(self, "kill")
+                if self.stats["kills"] == 1:
+                    from . import diary
+                    _d = int(math.hypot(a.x - self.player.x, a.y - self.player.y) * 2.2 / 10) * 10
+                    diary.entry(self, "first", f"First blood: an {a.nation} {a.role_name.lower()} at about "
+                                               f"{_d} yards. My hands were steady afterwards, which surprised me.")
         if a.is_player:
             self.player_died(killer)
             if self.game_over or a.is_player:
@@ -1822,6 +1899,11 @@ class Game:
         else:
             from . import social
             social.died(self, a, killer)             # his buddy, and the man who shot him
+            from . import bonds
+            bonds.remember(self, a.squad, a)         # (the section counts its gaps)
+            if a.squad is not None and self.player is not None and a.squad is self.player.squad and seen:
+                from . import diary
+                diary.lost(self, a)
         self.body_falls(a, killer, seen)
 
     def body_falls(self, a, killer, seen=None):
@@ -1842,9 +1924,10 @@ class Game:
             from .spawn import free_tile_near
             spot = free_tile_near(self, a.x, a.y, 3)
             if spot is not None:
-                if self.soldier_at.get((a.x, a.y)) is a:
-                    del self.soldier_at[(a.x, a.y)]
-                a.x, a.y = spot
+                old_z = a.z
+                self.pop_actor_at(a, a.x, a.y, old_z)
+                a.x, a.y, a.z = spot[0], spot[1], 0
+                self.set_actor_at(a)
         if a.vehicle is None and m.in_bounds(a.x, a.y):
             for it in list(a.inv):
                 if it.data and it.data.get("live") is not None:
@@ -1900,6 +1983,16 @@ class Game:
     def player_died(self, killer):
         p = self.player
         b = p.body
+        if (self.__dict__.get("_prefs") or {}).get("god_mode"):
+            b.dead = False
+            b.unconscious = 0
+            for k in b.hp:
+                b.hp[k] = max(1, b.hp[k])
+            b.blood = max(3500.0, b.blood)
+            b.shock = 0.0
+            self.game_over = False
+            self.msg("God mode: you should be dead. You are not.", "good")
+            return
         self.game_over = True
         cause = b.cause or "wounds"
         where = f"{self.sector.name}"
@@ -1917,10 +2010,15 @@ class Game:
                 who += " - one of your own"
         self.death_text = (f"{p.rank_full} {p.name}, {p.unit}. Killed by {cause}{who}, "
                            f"near {where}, {self.datetime_str(exact=True)}.")
+        from .afteraction import report as _after_report
+        self.death_timeline = _after_report(self, k)
         award = self.command.posthumous(self)
         if award:
             self.death_text += f" Posthumously awarded the {award}."
         self.msg("You die...", "death")
+        from . import diary
+        diary.entry(self, "death", f"Hit by {cause}{who}. It is {self.datetime_str(exact=True)}. "
+                                   f"If this is the last page, someone send it on.")
         self.write_memorial()
         from .succession import on_death
         cfg = self.__dict__.get("_prefs") or {}
@@ -1938,6 +2036,12 @@ class Game:
                 f.write(f"  {self.theatre['name']}: {self.theatre['battle']}\n")
                 f.write(f"  Role: {p.role_name}. Kills: {self.stats['kills']}. Wounds: {self.stats['wounds']}. "
                         f"Survived {self.clock // 60} minutes of battle across {len(self.sector_log)} sector(s).\n")
+                try:
+                    from .legacy import project
+                    for text, _tone in project(self)[:2]:
+                        f.write(f"  After: {text}\n")
+                except Exception:
+                    pass
                 cmd = getattr(self, "command", None)
                 if cmd is not None and cmd.medals:
                     f.write(f"  Decorations: {', '.join(cmd.medals)}.\n")
@@ -1954,6 +2058,11 @@ class Game:
         if a.state != "ok":
             return
         a.state = "surrendered"
+        from .heroism import officer_surrenders, cowardly
+        if a.command_grade >= 8 or a.rank >= 8:
+            officer_surrenders(self, a)
+        else:
+            cowardly(self, a, "surrender")
         a.say(self.shout(a, "surrender"), self.turn, 5)
         if a.weapon is not None and self.map.in_bounds(a.x, a.y):
             self.map.add_item(a.x, a.y, a.weapon)
@@ -2383,7 +2492,7 @@ class Game:
                     ignite(self, x + dx, y + dy, 3)
             for dx in (-1, 0, 1):
                 for dy in (-1, 0, 1):
-                    a = self.soldier_at.get((x + dx, y + dy))
+                    a = self.actor_at(x + dx, y + dy, int((item.data or {}).get("z", 0)))
                     if a is not None and a.alive:
                         a.body.burning = max(a.body.burning, 4)
                         hit_actor(self, a, self.rng.uniform(10, 30), "burn", thrower, "a Molotov cocktail")
@@ -2406,7 +2515,8 @@ class Game:
             pen = t.pen
             explode(self, x, y, t.blast, t.blast_r, frags=t.frags, frag_dmg=t.frag_dmg, pen=pen,
                     attacker=thrower, source=f"a {t.name}", crater=t.kind == "explosive",
-                    contact=placed and t.kind == 'explosive' and attached is None)
+                    contact=placed and t.kind == 'explosive' and attached is None,
+                    z=int((item.data or {}).get("z", 0)))
             if t.kind == "explosive":
                 self._cut_rails(x, y)
 
@@ -2982,8 +3092,15 @@ class Game:
         if mine:
             self.msg(f"{cap(o.name)} is ours!", "good")
             self.stats["objectives"] += 1 if p.squad is not None and p.squad.order.obj == i else 0
+            from . import diary
+            diary.entry(self, "ground", f"{cap(o.name)} taken. We are digging in on it.")
+            from . import renown
+            if p.squad is not None and p.squad.order.obj == i:
+                renown.event(self, "objective", text=o.name)
         else:
             self.msg(f"We've lost {o.name}!", "warn")
+            from . import diary
+            diary.entry(self, "ground", f"{cap(o.name)} lost.")
         self.update_orders(force=True)
 
     def on_withdrawal(self, side):
@@ -3196,6 +3313,8 @@ class Game:
     def player_fov(self):
         compute_light(self)
         player_fov(self)
+        if (self.__dict__.get("_prefs") or {}).get("reveal_map"):
+            self.map.explored[:] = True
 
     def player_done(self, max_turns=600):
         """After the player acts: run the world until the player may act again."""
@@ -3219,6 +3338,11 @@ class Game:
             hospital(self)                         # (between turns: the map changes under everyone)
         self.turn += 1
         self.clock += 1
+        from .afteraction import sample as _after_sample
+        _after_sample(self)
+        if self.turn % 3 == 0:
+            from .coach import tick as _coach_tick
+            _coach_tick(self)
         landscape = self.__dict__.get('landscape')
         if landscape is not None and landscape.frame is self.map:
             landscape.background_tick(self)
@@ -3256,7 +3380,7 @@ class Game:
             if not 0 <= a.morale <= 100:
                 a.morale = min(100.0, max(0.0, a.morale))      # (brave or broken, but within the scale)
             a.moves += a.speed(self.turn) if a is not p else a.speed()
-            if a is p and not self.__dict__.get("autopilot"):
+            if a is p and not self.__dict__.get("autopilot") and not a.ai.get("sleeping"):
                 # (no banking seconds while you're out cold or idle: a turn's worth, never a fortnight's)
                 a.moves = min(a.moves, max(100, a.speed()))
                 continue                          # (on autopilot, you're one of them: succession.py)
@@ -3342,6 +3466,18 @@ class Game:
             if w is not None and w.heat > 0:
                 w.heat = max(0.0, w.heat - 1.5)
         self.noise *= 0.93
+        if self.turn % 2 == 0 and self.domain == "land":
+            from .sleep import tick as _sleep_tick
+            _sleep_tick(self)
+        if self.turn % 3 == 0:
+            from . import bonds as _bonds
+            _bonds.tick(self)
+        if self.turn % 20 == 0 and self.domain == "land":
+            from . import consolidate as _lull
+            _lull.tick(self)
+        if self.turn % 30 == 0:
+            from . import manual as _manual
+            _manual.check(self)
         if getattr(self, "pow", None) is not None:
             from .pow import march_update
             march_update(self)
@@ -3351,9 +3487,17 @@ class Game:
             intelligence_tick(self)
             if self.turn % 30 == 0:
                 from .fieldworks import tick as works_tick
+                from .doctrine import tick as doctrine_tick
+                from .garrison import tick as garrison_tick
+                from .politics import tick as politics_tick
+                from .camp import tick as camp_tick
                 from .service import tick as service_tick
                 from .recognition import process as personnel_tick
                 works_tick(self)
+                doctrine_tick(self)
+                garrison_tick(self)
+                politics_tick(self)
+                camp_tick(self)
                 service_tick(self)
                 personnel_tick(self)
                 from .debrief import tick as debrief_tick
@@ -3375,8 +3519,12 @@ class Game:
         if self.turn % 60 == 0 and self.__dict__.get("domain", "land") == "land":
             from .homefront import tick as homefront_tick
             from .sustain import tick as supply_tick
+            from .rear_cycle import tick as rear_tick
+            from .weather_director import tick as front_tick
             homefront_tick(self)
             supply_tick(self)
+            rear_tick(self)
+            front_tick(self)
         if self.turn % 30 == 7:
             from .counterintel import tick as security_tick
             security_tick(self)
@@ -3720,23 +3868,116 @@ class Game:
             p.ai["fatigue_word"] = fw
 
     # ================================================================== save/load
+    def _save_path(self) -> str:
+        from . import runs
+        if self.run_id:
+            return runs.slot_path(self.run_id)
+        return os.path.join(SAVE_DIR, "save.pkl")
+
     def save(self, path=None):
         import gzip
+        from . import runs
         os.makedirs(SAVE_DIR, exist_ok=True)
-        path = path or os.path.join(SAVE_DIR, "save.pkl")
+        path = path or self._save_path()
+        if not self.run_id:
+            self.setup["quick_default"] = True
         tmp = path + ".tmp"
-        with gzip.open(tmp, "wb", compresslevel=1) as f:     # (a long campaign pickles to 150 MB: level 1 halves the
-                                                             # autosave's pause for a file a tenth bigger)
+        self.save_version = SAVE_VERSION
+        lvl = int((self.__dict__.get("_prefs") or {}).get("save_compression", 1) or 0)
+        with gzip.open(tmp, "wb", compresslevel=max(0, min(9, lvl))) as f:   # (a long campaign pickles to 150 MB:
+                                                                             # compression trades that for a pause)
             pickle.dump(self, f, protocol=pickle.HIGHEST_PROTOCOL)
+            f.flush()
+            os.fsync(f.fileno())
+        if os.path.exists(path) and not self.ironman:
+            try:
+                os.replace(path, path + ".bak")              # (a broken new save can never be the only copy)
+            except OSError:
+                pass
+        elif self.ironman and os.path.exists(path):
+            try:
+                os.remove(path)                              # (ironman: one rolling copy, and that is all)
+            except OSError:
+                pass
         os.replace(tmp, path)
+        if self.run_id:
+            try:
+                runs.note(self.run_id, self)
+            except Exception:
+                pass
         return path
+
+    def save_as(self, name: str) -> str:
+        """A new named save of this run, at a new slot."""
+        from . import runs
+        old = self.run_id
+        self.run_id = runs.new_id()
+        self.setup["run_id"] = self.run_id
+        try:
+            path = self.save()
+            runs.note(self.run_id, self, name=(name or "a copy")[:30], copied_from=old)
+            return path
+        finally:
+            pass
+
+    def _migrate_save(self):
+        """Bring an older save forward.  Missing systems get their empty state, never a rejection."""
+        self.__dict__.pop("_play", None)
+        self.__dict__.pop("_prefs", None)
+        ver = self.__dict__.get("save_version", 1)
+        for name, default in (("renown", None), ("manual", []), ("opponents", {}), ("consolidate", {}),
+                              ("diary", []), ("trade", {})):
+            if name not in self.__dict__:
+                self.__dict__[name] = default() if callable(default) else default
+        if not hasattr(self, "save_version"):
+            self.save_version = ver
+        if ver < 2:
+            for a in self.actors:
+                a.ai.setdefault("sleep_debt", 0.0)
+                a.ai.setdefault("needs", dict(hunger=0.0, thirst=0.0, infection=0.0))
+        if ver < 3:
+            for sq in self.squads:
+                sq.rep.setdefault("memory", dict(lost=[], new={}, graves=[]))
+        if ver < 4:
+            self.soldier_at_z = {}
+            for a in self.actors:
+                if getattr(a, "z", 0):
+                    self.set_actor_at(a)
+            if self.map is not None and not self.map.__dict__.get("storey_plan"):
+                import random as _random
+                from . import floors as _floors
+                rr = _random.Random(self.seed)
+                for b in list(self.map.buildings):
+                    rect = tuple(b[:4])
+                    _floors.build(self.map, rect, b[4] if len(b) > 4 else "house", 0.15, rr,
+                                  storeys=self.map.__dict__.get("storeys", {}).get(rect, 1))
+        self.save_version = SAVE_VERSION
 
     @staticmethod
     def load(path=None):
         import gzip
+        if path is None:
+            from . import runs
+            rid = runs.latest_alive()
+            if rid:
+                path = runs.slot_path(rid)
         path = path or os.path.join(SAVE_DIR, "save.pkl")
-        with gzip.open(path, "rb") as f:
-            g = pickle.load(f)
+        try:
+            with gzip.open(path, "rb") as f:
+                g = pickle.load(f)
+        except (OSError, EOFError, pickle.UnpicklingError, ValueError):
+            bak = path + ".bak"
+            if not os.path.exists(bak):
+                raise
+            with gzip.open(bak, "rb") as f:
+                g = pickle.load(f)
+            try:
+                import shutil
+                shutil.copy2(bak, path)
+            except OSError:
+                pass
+            g.__dict__["_recovered"] = True
+        g._migrate_save()
         g._arr_turn, g._arr, g._enemy_arr = -1, None, {}
         g.__dict__.pop('_vis_mat',None)
         g._reset_counters()

@@ -476,6 +476,8 @@ def _last_words(ps, who):
         keep.data["from_dead"] = who.name
         where = _take(g, p, keep)
         say = f"Take this. Give it to {to}. Tell her... tell her it didn't hurt."
+        from . import diary
+        diary.promise(g, f"{who.last_name} asked me to take {PP.name_of_item(keep)} to {to}.")
         _did(ps, f"{who.last_name} presses {PP.name_of_item(keep)} into your hand" +
              (" - you've nowhere to put it, and it goes down at your feet" if where == "ground" else "") +
              f". (Take it to a chaplain: he'll see it reaches {lf['town']}.)", "warn")
@@ -503,6 +505,8 @@ def _enemy(ps, who, said):
         opts.append(("Name, rank and unit?", "name", None, True))
         opts.append(("Where are your guns? Where are your men?", "intel", None, True))
         opts.append(("Lean on him", "lean", WARN, True))
+    if who.state == "surrendered" and who.ai.get("captor") == g.player.id:
+        opts.append(("Interrogate him properly...", "interrogate", (225, 210, 160), True))
     if who.state == "ok" and who.downed:
         opts.append(("Give up - we'll patch you up.", "offer", GOOD, True))
     if g.player.find(lambda i: i.t.tool == "cigarettes" and i.uses > 0) is not None:
@@ -527,6 +531,9 @@ def _enemy_choice(ps, who, v, und):
     if v == "name":
         say = f"{who.rank_full} {who.name}." + (f" {who.unit}." if op > 20 or lf["temper"] in ("nervous",) else
                                                " That's all I have to tell you.")
+    elif v == "interrogate":
+        from . import interrogation
+        return interrogation.menu(ps, who)
     elif v in ("intel", "lean"):
         if v == "lean":
             who.morale = max(0.0, who.morale - 15)

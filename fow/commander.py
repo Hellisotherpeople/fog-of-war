@@ -88,6 +88,8 @@ def commander_update(game, side: str):
     observers = game.near_people_many([(o.x, o.y, o.radius + 6) for o in objs])
     owners = {i: objective_owner(game, side, i, observers[i]) for i in range(len(objs))}
     enemy = other_side(side)
+    from .opponent import tick as opponent_tick
+    opponent_tick(game, side, squads, owners)
     attacker = game.attacker
     my_str = sum(sq.strength() for sq in squads)
     en_str = sum(c.threat for c in game.brains[side].live_contacts(120, False))
@@ -123,6 +125,8 @@ def commander_update(game, side: str):
             continue
         if sq.rep.get("withdrawing", 0) > game.turn:
             continue                # pulling out of ground that's been given up (plan.withdraw)
+        if sq.rep.get("shaken", 0) > game.turn:
+            continue                # a commander has just gone: the section is getting its wind back
         # quiet moment and the pouches are empty: back to the dump
         if game.turn - sq.last_contact > 60 and sq.members and low_on_ammo(sq):
             q = nearest_ammo(game, sq, max_d=70)
@@ -166,7 +170,8 @@ def commander_update(game, side: str):
                 # everything taken: consolidate
                 if o.kind != "defend":
                     best = min(range(len(objs)), key=lambda i: (objs[i].x - anc[0]) ** 2 + (objs[i].y - anc[1]) ** 2)
-                    sq.order = Order("defend", obj=best, radius=objs[best].radius, issued=game.turn)
+                    from .doctrine import ai_order as _ai_order
+                    sq.order = _ai_order(game, sq, "defend", best, objs[best].radius)
                     sq.arrived = False
                 continue
             if o.kind == "attack" and o.obj in targets and game.turn - o.issued < 900:
@@ -180,13 +185,16 @@ def commander_update(game, side: str):
                         mates[o2.order.obj] = mates.get(o2.order.obj, 0) + 1
             # where they're weakest, and a real weight of attack there (a Schwerpunkt, not a squad at every
             # objective): what we know is holding each one, and up to three squads together
+            pol = (game.__dict__.get("politics") or {}).get("stance")
+            push = -22 if pol == "press" else 0
             best = min(targets, key=lambda i: ((objs[i].x - anc[0]) ** 2 + (objs[i].y - anc[1]) ** 2) ** 0.5
                        + 5 * held[i] - 14 * min(3, load[i]) + 35 * max(0, load[i] - 3)
-                       - 45 * mates.get(i, 0) + rng.random() * 10)
+                       - 45 * mates.get(i, 0) + rng.random() * 10 + push)
             if o.obj is not None and o.obj in load:
                 load[o.obj] -= 1
             load[best] += 1
-            sq.order = Order("attack", obj=best, radius=objs[best].radius, issued=game.turn)
+            from .doctrine import ai_order as _ai_order
+            sq.order = _ai_order(game, sq, "attack", best, objs[best].radius)
             sq.arrived = False
         else:
             # defender
@@ -195,24 +203,32 @@ def commander_update(game, side: str):
                 # what we know is there (the German Gegenstoss); else fall back to another
                 near = [q for q in squads if q.order.obj == o.obj and q.anchor() is not None]
                 ours = sum(q.strength() for q in near)
-                if sq.morale > 30 and sq.strength() >= 3 and ours >= held[o.obj] * 1.2:
-                    sq.order = Order("attack", obj=o.obj, radius=objs[o.obj].radius, issued=game.turn)
+                from .opponent import counter_need
+                need = counter_need(game, side) + \
+                    (0.35 if (game.__dict__.get("politics") or {}).get("stance") == "hold" else 0.0)
+                if sq.morale > 30 and sq.strength() >= 3 and ours >= held[o.obj] * need:
+                    from .doctrine import ai_order as _ai_order
+                    sq.order = _ai_order(game, sq, "attack", o.obj, objs[o.obj].radius)
                     sq.arrived = False
                     continue
                 mine = [i for i, ob in enumerate(objs) if local_owners[i] == side]
                 if mine:
                     best = min(mine, key=lambda i: (objs[i].x - anc[0]) ** 2 + (objs[i].y - anc[1]) ** 2)
-                    sq.order = Order("defend", obj=best, radius=objs[best].radius, issued=game.turn)
+                    from .doctrine import ai_order as _ai_order
+                    sq.order = _ai_order(game, sq, "defend", best, objs[best].radius)
                     sq.arrived = False
                 continue
             if o.kind == "attack" and o.obj is not None and local_owners[o.obj] == side:
-                sq.order = Order("defend", obj=o.obj, radius=objs[o.obj].radius, issued=game.turn)
+                from .doctrine import ai_order as _ai_order
+                sq.order = _ai_order(game, sq, "defend", o.obj, objs[o.obj].radius)
+                sq.arrived = False
                 continue
             if o.kind in ("hold", "move") and sq.kind not in ("mg", "mortar", "sniper", "hq", "atgun"):
                 best = min(range(len(objs)), key=lambda i: load[i] * 40 +
                            ((objs[i].x - anc[0]) ** 2 + (objs[i].y - anc[1]) ** 2) ** 0.5)
                 load[best] += 1
-                sq.order = Order("defend", obj=best, radius=objs[best].radius, issued=game.turn)
+                from .doctrine import ai_order as _ai_order
+                sq.order = _ai_order(game, sq, "defend", best, objs[best].radius)
                 sq.arrived = False
 
     from .intent import defaults

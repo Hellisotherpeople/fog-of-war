@@ -1,0 +1,28 @@
+{
+  "name": "Example pack",
+  "author": "fog of war",
+  "version": 1,
+  "quotes": [
+    [["general", "caution"],
+     "The enemy has a vote.",
+     "attributed to every operations officer",
+     "A staff-room commonplace of both world wars, and the reason orders are written in pencil."]
+  ],
+  "phrases": {
+    "t_wire": {"en": ["Cut that wire, now!"]}
+  },
+  "items": {
+    "example_pistol": {
+      "name": "Example pistol", "kind": "gun", "cat": "pistol", "cal": "9mm", "mag": 8,
+      "dmg": 20, "disp": 2.2, "rng": 18, "hands": 1, "weight": 0.8,
+      "nations": ["usa", "uk"], "years": [1944, 1950]
+    }
+  },
+  "missions": {
+    "example_mission": {
+      "name": "Example mission", "w": 0,
+      "desc": "A demonstration battle type added by a pack. It uses the front-line setup for now.",
+      "role": null
+    }
+  }
+}

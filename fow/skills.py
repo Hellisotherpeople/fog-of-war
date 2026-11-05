@@ -116,7 +116,8 @@ def roll(rng, a):
             s[k] += d
     for table in (ROLE_SKILLS.get(a.role, {}), UNIT_SKILLS.get(a.__dict__.get("unit_type") or "", {})):
         for k, floor in table.items():
-            s[k] = max(s[k], floor + rng.gauss(0, 0.8))
+            # a floor is a floor: his training puts him at it, give or take a little - never far under
+            s[k] = max(s[k], floor + max(-0.6, min(0.8, rng.gauss(0, 0.8))))
     # a native speaker's languages are the enemy's - here: the tongues he'd need behind the lines
     for k in s:
         s[k] = round(max(0.0, min(10.0, s[k])), 1)

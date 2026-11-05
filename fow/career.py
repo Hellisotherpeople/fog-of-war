@@ -116,6 +116,8 @@ def accept(game, grade, duties='keep'):
     cmd.merit_at_promotion = cmd.merit
     cmd.promotions.append((game.datetime_str(), grade))
     s.setdefault('rank_history', []).append(dict(at=game.datetime_str(), key=chosen.key, title=chosen.title, duties=duties))
+    from . import diary
+    diary.entry(game, "promotion", f"Made {chosen.title} today. {'Command duties.' if duties == 'command' else 'Kept at the trade.'}")
     if duties == 'command':
         _command_appointment(game)
     sync_support(game)
@@ -156,7 +158,8 @@ def present(ps):
     g = ps.game
     s = R.state(g)
     if not s.get('show_promotion') or not eligible(g) or not g.player.body.conscious or ps.popups or \
-            ps.inv_screen is not None or ps.mode != 'normal':
+            ps.inv_screen is not None or ps.mode != 'normal' or ps.travel_path or ps.auto_wait or \
+            g.__dict__.get('autopilot'):
         return False
     s['show_promotion'] = False
     ps.stop_auto()

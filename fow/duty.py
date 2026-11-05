@@ -41,14 +41,22 @@ TASK_TEXT = {"help": "See to him! Patch him up!", "ammo": "Get that ammo over to
              "dig": "Get digging! I want a hole!", "runner": "Take this to him - run!",
              "fetch": "Go back to the dump and get us ammo!", "scout": "Go and have a look up there. Quietly.",
              "escort": "Take the prisoners back to the rear.",
-             "track": "Give that tank crew a hand with the track!", "shells": "Get some shells up to that tank!"}
+             "track": "Give that tank crew a hand with the track!", "shells": "Get some shells up to that tank!",
+             "evac": "Get him back to the aid post - carry him!", "restock": "Get some dressings in your pouches.",
+             "wire": "Get that wire cut!", "charge": "Put a charge on it!", "recover": "Get that vehicle going!",
+             "relay": "Take a message over to them - go!", "rally": "Steady him! Get him firing!"}
 TASK_PHRASE = {"help": "t_help", "ammo": "t_ammo", "gun": "t_gun", "down": "t_down", "come": "t_come",
                "fire": "t_fire", "dig": "t_dig", "runner": "t_runner", "fetch": "t_fetch", "scout": "t_scout",
-               "escort": "t_escort", "track": "t_help", "shells": "t_fetch"}
+               "escort": "t_escort", "track": "t_help", "shells": "t_fetch", "evac": "t_evac",
+               "restock": "t_restock", "wire": "t_wire", "charge": "t_charge", "recover": "t_recover",
+               "relay": "t_relay", "rally": "t_rally"}
 DEADLINE = {"help": 45, "ammo": 60, "gun": 60, "down": 12, "come": 50, "fire": 30, "dig": 500, "runner": 400,
-            "fetch": 700, "scout": 300, "escort": 900, "track": 2400, "shells": 1500}
+            "fetch": 700, "scout": 300, "escort": 900, "track": 2400, "shells": 1500, "evac": 900,
+            "restock": 700, "wire": 360, "charge": 300, "recover": 2400, "relay": 420, "rally": 60}
 REWARD = {"help": 5, "ammo": 4, "gun": 4, "down": 1, "come": 1, "fire": 2, "dig": 2, "runner": 4, "fetch": 4,
-          "scout": 4, "escort": 5, "track": 4, "shells": 5}
+          "scout": 4, "escort": 5, "track": 4, "shells": 5, "evac": 7, "restock": 3, "wire": 5, "charge": 6,
+          "recover": 5, "relay": 4, "rally": 3}
+TRADE_KINDS = frozenset(("evac", "restock", "wire", "charge", "recover", "relay", "rally"))
 
 
 def standing_word(rep: float) -> str:
@@ -242,6 +250,12 @@ class Duty:
             return
         strict = STRICT.get(sup.nation, 1.0)
         m = game.map
+        # 0. the man's trade, if there's work in it
+        from . import trade as TR
+        td = TR.find(game, p.role, sup)
+        if td is not None:
+            kind, target, data = td
+            return self.give(game, kind, sup, target, **data)
         # 1. standing up in the open under fire
         if p.stance == 0 and p.suppression > 25 and m.pos_cover[p.x, p.y] < 20:
             return self.give(game, "down", sup)
@@ -335,7 +349,15 @@ class Duty:
         tgt = t.get("target")
         m = game.map
         done = False
-        if k == "down":
+        if k in TRADE_KINDS:
+            from . import trade as TR
+            if k in ("evac", "relay", "rally"):
+                other = self._actor(game, tgt)
+                if other is not None and not other.alive and k == "evac":
+                    self._drop(t)
+                    return
+            done = TR.check(game, t)
+        elif k == "down":
             done = p.stance == 2 or m.pos_cover[p.x, p.y] >= 40
         elif k == "help":
             a = self._actor(game, tgt)
@@ -423,6 +445,9 @@ class Duty:
             reward_record(game, f"commended by {t['by_name']} for orders carried out in the field.")
             game.command.merit += 1
         r = REWARD.get(t["kind"], 2)
+        if t["kind"] in TRADE_KINDS:
+            from . import trade as TR
+            TR.credit(game, t["kind"])
         self.rep = min(100.0, self.rep + r)
         game.command.merit += r * 0.3
         self.strikes = max(0, self.strikes - 1) if self.done % 3 == 0 else self.strikes
@@ -685,6 +710,8 @@ class Duty:
         cares = CARES_POW.get(p.nation, 0.5)
         sup = self.watcher(game)
         self.pow_shot += 1
+        from . import atrocities
+        atrocities.prisoner_shot(game, victim, self.watcher(game))
         self.panic_prisoners(game, victim)
         if sup is not None and game.rng.random() < cares:
             self.rep -= 20

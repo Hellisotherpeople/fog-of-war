@@ -70,6 +70,16 @@ SCENARIOS = {
     "drill": dict(name="Training range", role=None, w=0,
                   desc="A corner of the rear with an instructor, sandbags and a few dummies. Movement, looking, "
                        "cover, the weapon, fire and the dressing - or the trial for the job you picked."),
+    "pow_guard": dict(name="Camp guard", role=None, w=1,
+                      desc="Behind the line, a prisoner-of-war camp. Roll calls, work parties, ration trouble "
+                           "and men at the wire. The war is a noise over the hill."),
+    "camp": dict(name="Camp", role=None, w=1,
+                 desc="A concentration camp in the Reich. Appell, Arbeitskommando, selections. The war is a "
+                      "noise over the hill, and the wire is not for prisoners to cross."),
+    "enlist": dict(name="Join up", role="rifleman", w=0,
+                   desc="A first hour with the section: your kit at the depot, five rounds on the zeroing range, "
+                        "report to the sergeant, then your first patrol - and whatever it walks into. No prior "
+                        "knowledge assumed."),
     "pow": dict(name="Prisoner of war", role=None, w=1,
                 desc="The war goes on without you, beyond the wire. Survive. Escape, if you can."),
 }
@@ -90,7 +100,7 @@ def eligible(sid, theatre, side) -> bool:
 
 
 def pick(rng, theatre, side) -> str:
-    ids = [k for k in SCENARIOS if eligible(k, theatre, side)]
+    ids = [k for k in SCENARIOS if SCENARIOS[k]["w"] and eligible(k, theatre, side)]
     return rng.choices(ids, [SCENARIOS[k]["w"] for k in ids])[0]
 
 
@@ -359,9 +369,30 @@ def setup_player(game, sid, notes):
                 place(game, a, p.x, p.y, 4)
         return sq
 
+    if sid in ("pow_guard", "camp"):
+        from . import camp
+        for sq in list(game.squads):
+            if sq.side == enemy:
+                for a in list(sq.members):
+                    game.remove_actor(a)
+                for v in list(sq.vehicles):
+                    game.lift_vehicle(v)
+                    v.dead = True
+                sq.members, sq.vehicles, sq.gone = [], [], True
+        for a in list(game.actors):
+            if a.side == enemy and a is not p:
+                game.remove_actor(a)
+        game.waves = []
+        game.sector.units[enemy] = Counter()
+        camp.build(game, "camp" if sid == "camp" else "pow")
+        camp.populate(game, 18 if sid == "camp" else 12)
+        notes.append("You are on the camp staff. The officer of the day's rounds come as they come.")
+        return
     if sid == "drill":
         from . import tiles as T
         from .drill import Drill
+        # the range is a fixed piece of ground: no moving world to drift the marker and the dummies away from it
+        game.setup["seamless"] = False
         from .entities import Item
         strip_friends([p.squad] if p.squad is not None else [])
         for sq in list(game.squads):
@@ -377,6 +408,7 @@ def setup_player(game, sid, notes):
                 game.remove_actor(a)
         game.waves = []
         game.sector.units[enemy] = Counter()
+        m.objectives = []                       # a range, not an objective: no flags and order arrows
         # a clear patch of the rear, a line of sandbags, and the dummies ahead
         cx = cy = None
         for _ in range(200):
@@ -392,6 +424,14 @@ def setup_player(game, sid, notes):
         for x in range(cx - 3, cx + 4):
             if m.walk[x, cy + 2]:
                 m.t[x, cy + 2] = T.ID["sandbags"]
+        # the learner starts on the firing line, behind the bags, with the instructor at his shoulder
+        m.t[cx, cy + 2] = T.ID["sandbags"]
+        game.remove_actor(p)
+        if not place(game, p, cx, cy + 2, 4):
+            game.add_actor(p)
+        game.soldier_at.pop((int(p.x), int(p.y)), None)
+        p.x, p.y = cx, cy + 2
+        game.soldier_at[(cx, cy + 2)] = p
         mk = None
         for d in range(8, 20):
             for dx, dy in ((d, 2), (d, -2), (2, d)):
@@ -410,7 +450,8 @@ def setup_player(game, sid, notes):
                     m.t[x, y] = ground
         for x in range(cx - 1, cx + 2):
             for y in range(min(cy, mk[1]) - 1, max(cy, mk[1]) + 2):
-                if m.in_bounds(x, y) and not T.FLOOR[m.t[x, y]] and T.WALK[m.t[x, y]]:
+                if m.in_bounds(x, y) and not T.FLOOR[m.t[x, y]] and T.WALK[m.t[x, y]] \
+                        and m.t[x, y] != T.ID["sandbags"]:
                     m.t[x, y] = ground
         m.t[mk] = T.ID["range_marker"]
         m.walk[mk] = True
@@ -595,6 +636,10 @@ def setup_player(game, sid, notes):
         game.mission = dict(kind="take", stage="take",
                             text="Clear a lane through the minefield and get the party across it.")
         notes.append("Probe, mark, and keep your spacing. The lane is for everyone behind you.")
+    elif sid == "enlist":
+        small_team("rifle", 6, *edge_band_point(game, home, rng, depth=(2, 5)), "the section")
+        from . import enlist
+        enlist.setup(game, notes)
     elif sid == "assault":
         game.mission = dict(kind="take", stage="take",
                             text="Take every objective on this field. The whole army is watching this attack.")
@@ -608,6 +653,10 @@ def setup_player(game, sid, notes):
     elif sid == "armour":
         game.mission = dict(kind="take", stage="take", text="Destroy their armour and take the field.")
     if game.mission:
+        # a battle is rarely one task.  Now and then the briefing has a second act: hold what you took, or
+        # break off if the section is being ground down.
+        if game.mission["kind"] in ("take", "hold") and sid in ("front", "assault", "defence", "armour"):
+            game.mission["arc"] = rng.choice(("hold_then", "withdraw_branch", "hold_then", "none"))
         game.mission["sid"] = sid
         game.mission["start"] = game.turn
         game.mission["_start_sector"] = game.sector
@@ -846,18 +895,47 @@ def update(game):
     elif k == "sniper":
         if len(ms["confirmed_targets"]) >= ms["need"]:
             done(f"You have put {len(ms['confirmed_targets'])} enemy leaders or weapon specialists out of action.", 8)
+    elif k == "enlist":
+        from . import enlist
+        enlist.tick(game, ms, done)
     elif k == "hold":
         objs = mission_objectives(game)
         if evidence.holding(game, ms, objs if here else []):
-            done("Your ordered holding interval is complete. The assigned objectives remain in friendly hands.", 6)
+            if ms.get("arc") == "hold_then" and ms["stage"] == "hold":
+                ms["stage"] = "counter"
+                ms["until"] = game.turn + game.rng.randint(180, 420)
+                ms["text"] = ("They're not done. Hold the ground while they come back at you - "
+                              f"{ms['until'] - game.turn}s.")
+                game.msg("Movement on their side: they're forming up to retake this. Hold on.", "warn")
+                game.update_orders(force=True)
+            else:
+                done("Your ordered holding interval is complete. The assigned objectives remain in friendly hands.", 6)
     elif k == "take":
         objs = mission_objectives(game)
         armour = [evidence.entity(game, vid, vehicles=True) for vid in ms.get("armour_targets", [])]
         defeated = all(v is not None and (v.dead or v.abandoned or v.side == side) for v in armour)
-        if here and objs and all(o.owner == side for o in objs) and defeated:
-            done("The briefed objectives are held by friendly forces." +
-                 (" The identified enemy armour has been put out of action." if armour else ""),
-                 6 if ms["capture_required"] or armour else 0)
+        mine = [a for a in game.actors if a.side == side and a.active]
+        worn = len(mine) <= max(2, (game.initial_strength.get(side, len(mine)) or len(mine)) * 0.45)
+        if ms.get("arc") == "withdraw_branch" and ms["stage"] == "take" and worn and here and not defeated:
+            ms["stage"] = "withdraw"
+            ms["arc_home"] = game.home_edge(side)
+            ms["text"] = "Too few of you left to hold it. Break contact and get back to our line."
+            game.msg(ms["text"], "warn")
+            game.update_orders(force=True)
+        elif ms["stage"] == "withdraw":
+            if friendly_ground:
+                done("The objectives could not be held. What is left of the force is back on friendly ground.", 3)
+        elif here and objs and all(o.owner == side for o in objs) and defeated:
+            if ms.get("arc") == "hold_then":
+                ms["stage"] = "hold"
+                ms["until"] = game.turn + game.rng.randint(180, 360)
+                ms["text"] = "The ground is yours. Now hold it - they will come back for it."
+                game.msg("Take a breather and get your head down. This is where they'll counter-attack.", "warn")
+                game.update_orders(force=True)
+            else:
+                done("The briefed objectives are held by friendly forces." +
+                     (" The identified enemy armour has been put out of action." if armour else ""),
+                     6 if ms["capture_required"] or armour else 0)
 
 
 def _spawn_convoy(game, ms):
@@ -1053,3 +1131,117 @@ def _launch_service(game, sid, notes):
         AB.board_ship(game, ss.player_ship)
         ss.station = "deck"
     game.mission = None
+
+
+# ============================================================================ the approach and the way back
+def _nearest_enemy_objective(game):
+    p = game.player
+    m = game.map
+    best, bd = None, None
+    for o in m.objectives:
+        if o.owner == p.side:
+            continue
+        d = max(abs(o.x - p.x), abs(o.y - p.y))
+        if bd is None or d < bd:
+            best, bd = o, d
+    if best is not None:
+        return best.x, best.y
+    return m.w // 2, m.h // 2
+
+
+def approaches(game, n=3) -> list:
+    """Two or three ways up: behind cover, along the dead ground, by the lane.  Real ground only."""
+    import math
+    from .senses import direction_word
+    p = game.player
+    m = game.map
+    tx, ty = _nearest_enemy_objective(game)
+    dx, dy = tx - p.x, ty - p.y
+    d = max(1.0, math.hypot(dx, dy))
+    ux, uy = dx / d, dy / d
+    cands = []
+    for step in (10, 16, 22, 28):
+        for side in (0, -1, 1):
+            x = int(round(p.x + ux * step - uy * side * 7))
+            y = int(round(p.y + uy * step + ux * side * 7))
+            if not m.in_bounds(x, y) or not m.walk[x, y] or m.water[x, y] >= 1:
+                continue
+            if (x, y) in game.soldier_at or (x, y) in game.vehicle_at or any(
+                    max(abs(o.x - x), abs(o.y - y)) < 4 for o in ()):
+                pass
+            cover = m.pos_cover[x, y]
+            conce = m.conceal[x, y]
+            tile = m.tile(x, y)
+            label = ("dead ground" if conce >= 50 else tile.name.lower() if cover >= 30
+                     else "open" if side == 0 else f"{direction_word(x - p.x, y - p.y)} side")
+            cands.append((cover * 0.7 + conce * 0.5 + (6 if side else 0), (x, y), label))
+    cands.sort(key=lambda c: -c[0])
+    out = []
+    for score, pos, label in cands:
+        if any(max(abs(pos[0] - q[1][0]), abs(pos[1] - q[1][1])) < 6 for q in out):
+            continue
+        out.append((label, pos))
+        if len(out) >= n:
+            break
+    return out
+
+
+def take_approach(game, i):
+    """Move the player and the men with him to the chosen way in - before a shot is fired."""
+    p = game.player
+    opts = game.__dict__.get("approaches") or approaches(game)
+    if not (0 <= i < len(opts)):
+        return False
+    x, y = opts[i][1]
+    m = game.map
+    if not m.in_bounds(x, y) or not m.walk[x, y]:
+        return False
+    m.visible[x, y] = True
+    if hasattr(m, "update_see"):
+        m.update_see()
+    old = (p.x, p.y)
+    from .spawn import place
+    game.remove_actor(p)
+    place(game, p, x, y, 2)
+    p.x, p.y = x, y
+    if p.squad is not None:
+        for j, a in enumerate(p.squad.members):
+            if a is p or not a.active or a.downed:
+                continue
+            ax = x + ((j % 3) - 1)
+            ay = y + 1 + (j // 3) % 2
+            if m.in_bounds(ax, ay) and m.walk[ax, ay] and (ax, ay) not in game.soldier_at:
+                game.remove_actor(a)
+                place(game, a, ax, ay, 1)
+    game.player_fov()
+    game.approach_taken = (opts[i][0], (x, y))
+    return True
+
+
+def briefing_help(game) -> list:
+    """What a section is told before it stands to: where the aid is, which way is back, and the ways up."""
+    p = game.player
+    m = game.map
+    if game.scenario == "drill" or p.squad is None:
+        return []
+    from .medical import aid_posts
+    from .senses import direction_word
+    out = []
+    posts = aid_posts(game, p.side)
+    if posts:
+        x, y, _r = min(posts, key=lambda r: max(abs(r[0] - p.x), abs(r[1] - p.y)))
+        out.append(f"The aid post is {direction_word(x - p.x, y - p.y)}, about "
+                   f"{int(max(abs(x - p.x), abs(y - p.y)) * 2.2 / 10) * 10 or 10} yards. B puts a dressing on; "
+                   f"Y shouts for a medic.")
+    else:
+        out.append("No aid post is marked here. B puts a dressing on; Y shouts for a medic.")
+    home = game.home_edge(p.side)
+    if home:
+        out.append(f"Home is {_edge_word(home)}. If it goes wrong, fall back that way and rally.")
+    opts = approaches(game)
+    game.approaches = opts
+    if opts:
+        out.append("Ways up, before a shot is fired: " + "; ".join(
+            f"{i + 1} the {label}" for i, (label, _pos) in enumerate(opts)) + ".")
+        out.append("Choose one now, or Enter to start where you stand.")
+    return out

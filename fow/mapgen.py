@@ -464,6 +464,9 @@ class Gen:
         self._furnish(x0, y0, bw, bh, furn, inner_cells)
         # the stairs up, and a trapdoor to the cellar (against a wall, where they'd be)
         storeys = STOREYS.get(style, 1)
+        if self.m.biome in ("city_ruins", "town", "factory", "village") and style in ("house", "townhouse"):
+            storeys += self.rng.choice((0, 1, 1, 2, 2, 3))     # the tall streets: four floors and a stairwell
+        storeys = max(1, min(7, storeys))
         inner = [(x, y) for x, y in inner_cells if T.FLOOR[m.t[x, y]] and self._against_wall(x, y)]
         self.rng.shuffle(inner)
         if storeys > 1 and inner:
@@ -477,6 +480,8 @@ class Gen:
             self.ruin_rect(x0, y0, bw, bh, ruin)
         self.m.buildings.append((x0, y0, bw, bh, style))
         self.m.__dict__.setdefault("storeys", {})[(x0, y0, bw, bh)] = storeys
+        from .floors import build as _build_floors
+        _build_floors(self.m, (x0, y0, bw, bh), style, ruin, self.rng, storeys=storeys, furn=furn)
         self.protected[x0 - 1:x0 + bw + 1, y0 - 1:y0 + bh + 1] = True
         return (x0, y0, bw, bh)
 
@@ -1294,7 +1299,7 @@ class Gen:
         self.scatter("rubble_heavy", 0.01)
         self.scatter("wreck", 0.002)
         self.scatter("dead_tree", 0.003)
-        # barricades
+        # barricades, and the wire and wreckage dragged across the streets between them
         for _ in range(self.rng.randint(4, 10)):
             x, y = self.rng.randint(5, self.w - 6), self.rng.randint(5, self.h - 6)
             horiz = self.rng.random() < 0.5
@@ -1302,6 +1307,33 @@ class Gen:
                 xx, yy = (x + k, y) if horiz else (x, y + k)
                 if T.WALK[self.m.t[xx, yy]] and not T.FLOOR[self.m.t[xx, yy]]:
                     self.m.t[xx, yy] = T.ID[self.rng.choice(["sandbags", "rubble_heavy", "hedgehog", "crates"])]
+        for _ in range(self.rng.randint(3, 7)):
+            x, y = self.rng.randint(5, self.w - 6), self.rng.randint(5, self.h - 6)
+            horiz = self.rng.random() < 0.5
+            for k in range(self.rng.randint(4, 9)):
+                xx, yy = (x + k, y) if horiz else (x, y + k)
+                if not (0 <= xx < self.w and 0 <= yy < self.h):
+                    continue
+                if T.WALK[self.m.t[xx, yy]] and not T.FLOOR[self.m.t[xx, yy]] and self.rng.random() < 0.7:
+                    self.m.t[xx, yy] = T.ID["wire"]
+        # tram lines down two long streets, and a burnt tram on one
+        for _ in range(2):
+            if self.rng.random() < 0.5:
+                yy = self.rng.randint(10, self.h - 11)
+                for xx in range(3, self.w - 3):
+                    if self.m.t[xx, yy] in (T.ID["cobble"], T.ID["paved"]):
+                        self.m.t[xx, yy] = T.ID["rail"]
+            else:
+                xx = self.rng.randint(10, self.w - 11)
+                for yy in range(3, self.h - 3):
+                    if self.m.t[xx, yy] in (T.ID["cobble"], T.ID["paved"]):
+                        self.m.t[xx, yy] = T.ID["rail"]
+        # cellars under the courtyards, and the grates the people hid in
+        for b in self.m.buildings[:]:
+            x0, y0, bw, bh = b[:4]
+            if bw >= 6 and bh >= 6 and self.rng.random() < 0.35 and \
+                    -1 in (self.m.__dict__.get("storey_plan") or {}).get(tuple(b[:4]), {}):
+                self.m.t[x0 + bw // 2, y0 + bh // 2] = T.ID["trapdoor"]
 
     def gen_factory(self):
         self.base_ground(tall_amt=0.02, mud_amt=0.3)

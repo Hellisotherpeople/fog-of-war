@@ -158,6 +158,20 @@ EN = {
         "Sieh nach, was da vorne ist. Leise.": "See what's up ahead. Quietly.",
         # P.t_escort
         "Bring die Gefangenen nach hinten.": "Take the prisoners to the rear.",
+        # P.t_evac
+        "Bring ihn zum Verbandsplatz! Trag ihn!": "Get him to the dressing station! Carry him!",
+        # P.t_restock
+        "Füll deine Taschen mit Verbänden auf.": "Fill your pouches with dressings.",
+        # P.t_wire
+        "Durchschneide den Draht!": "Cut that wire!",
+        # P.t_charge
+        "Leg eine Ladung an!": "Put a charge on it!",
+        # P.t_recover
+        "Bring die Kiste wieder zum Laufen!": "Get that vehicle running again!",
+        # P.t_relay
+        "Bring ihnen eine Meldung! Los!": "Take them a message! Go!",
+        # P.t_rally
+        "Fass ihn! Bring ihn zum Schießen!": "Steady him! Get him firing!",
         # P.praise
         "Gut gemacht.": "Well done.",
         "Brav.": "Good lad.",
@@ -2353,3 +2367,29 @@ PART_EN = {
     "ro": {"capul": "head", "pieptul": "chest", "mâna": "arm", "piciorul": "leg"},
     "zh": {"tóu": "head", "xiōng": "chest", "gēbo": "arm", "tuǐ": "leg"},
 }
+
+
+# ------------------------------------------------------------------ battle drills
+# The drill lines are new concepts rather than fixed battle cries; the English rendering of each is the
+# drill's own English line, and every language gets it by sense.  Keeping it here saves 400 literal
+# entries and keeps a corrected drill wording correct in every language at once.
+from .phrases import P as _P
+
+_DRILL_KEYS = ("cover_me", "o_watch", "o_consolidate", "o_probe", "o_break", "o_auftrag",
+               "o_feuerueberfall", "o_schwerpunkt", "o_stoss", "o_maskirovka", "o_echelon",
+               "o_main_attack", "o_recon_fire", "o_fire_move", "o_bite_hold", "o_infiltration",
+               "o_banzai", "o_motti")
+for _lg, _tbl in EN.items():
+    for _key in _DRILL_KEYS:
+        _en = _P.get(_key, {}).get("en") or ["!"]
+        for _i, _line in enumerate(_P.get(_key, {}).get(_lg) or []):
+            _tbl.setdefault(_line, _en[_i % len(_en)])
+
+# The trade orders took the same route: the wording matters, the language is a rendering of it.
+_TRADE_KEYS = ("t_evac", "t_restock", "t_wire", "t_charge", "t_recover", "t_relay", "t_rally",
+               "suggest", "balk")
+for _lg, _tbl in EN.items():
+    for _key in _TRADE_KEYS:
+        _en = _P.get(_key, {}).get("en") or ["!"]
+        for _i, _line in enumerate(_P.get(_key, {}).get(_lg) or []):
+            _tbl.setdefault(_line, _en[_i % len(_en)])

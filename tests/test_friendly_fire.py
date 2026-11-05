@@ -167,9 +167,10 @@ def test_delayed_grenade_keeps_original_aim_and_surviving_witnesses(tmp_path):
     g.save(str(saved))
     g = Game.load(str(saved))
     move(g, g.player, (7, 10))
-    for _ in range(10):
-        g.turn += 1
-        g._tick_explosives()
+    with patch.object(g.rng, 'random', return_value=0.5):     # (not a dud, whatever the RNG's got to)
+        for _ in range(10):
+            g.turn += 1
+            g._tick_explosives()
     assert g.duty.ff_incidents == 1 and not g.renegade
 
 
@@ -256,7 +257,7 @@ def test_one_witnessed_enemy_vehicle_knockout_restores_cooperation():
     g.place_vehicle(v)
     combat.destroy_vehicle(g, v, g.player, 'AP hit')
     assert v.dead and not g.renegade
-    assert recognition.state(g)['claims'][-1]['weight'] == .6
+    assert recognition.state(g)['claims'][-1]['weight'] == 1.2
 
 
 def test_finishing_an_incapacitated_enemy_does_not_restore_trust():

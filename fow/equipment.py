@@ -7,11 +7,11 @@ import math
 def toughness(item):
     t = item.t
     if t.tool in ("papers", "cover_papers", "letter", "photo", "orders", "code"):
-        return 24.
+        return 40.
     if t.tool in ("binoculars", "camera", "wireless", "radio", "handradio", "watch", "compass"):
-        return 75.
-    return {"gun": 260., "melee": 320., "armor": 220., "container": 130., "mag": 160.,
-            "clip": 90., "ammo": 100., "medical": 55., "grenade": 180., "explosive": 120.}.get(t.kind, 100.)
+        return 95.
+    return {"gun": 320., "melee": 400., "armor": 260., "container": 180., "mag": 220.,
+            "clip": 170., "ammo": 190., "medical": 120., "grenade": 240., "explosive": 200.}.get(t.kind, 130.)
 
 
 def repairable(item):
@@ -24,15 +24,23 @@ def damage(game, item, energy, x, y):
     if energy <= 0 or item.t.kind == "corpse":
         return True
     before = item.condition
-    item.condition -= energy / toughness(item)
+    # A blast scatters and dents; it does not usually reduce a sound object to scrap in one hit.
+    loss = min(0.45, energy / toughness(item))
+    if before > 0.9:
+        loss *= 0.75                 # new kit takes the first knock badly but is not instantly old
+    if game.rng.random() < 0.22:
+        loss *= 0.4                  # shielded by the ground, a body, another pack
+    item.condition -= loss
     from .inventory import container_grids
     if item.t.get("grids"):
+        torn = loss >= 0.12 or item.condition < 0.55
         for grid in container_grids(item):
             for child in list(grid.items):
                 survives = damage(game, child, energy * (.18 + .5 * (1 - before)), x, y)
                 if not survives:
                     grid.remove(child)
-                elif not grid.fits(child, *child.gpos, child.rot, ignore=child):
+                elif torn or not grid.fits(child, *child.gpos, child.rot, ignore=child):
+                    # the storage tears: what is in it is on the ground, whatever its own state
                     grid.remove(child)
                     child.where = "ground"
                     game.map.add_item(x, y, child)

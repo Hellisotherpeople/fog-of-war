@@ -108,11 +108,17 @@ def staff(ps):
             lines.append((f"{spec[0]} at {p['point']}: {p['status']}, {min(100, p['work'] / spec[2] * 100):.0f}%", UI_TEXT))
     if len(lines) == 1:
         lines.append(("No work parties assigned here. Select an engineer unit to start works.", UI_DIM))
-    opts = [("HQ debrief, decorations and career / support requests (Q)", "debrief", None, True),
+    from .data.ranks import GENERAL
+    theatre = g.player.rank >= GENERAL and g.__dict__.get("politics") is not None
+    opts = [("Theatre direction...", "politics", None, theatre),
+            ("HQ debrief, decorations and career / support requests (Q)", "debrief", None, True),
             ("Request ammunition, spares and engineer stores", "truck", None, g.command.player_radio(g) or bool(headquarters(g))),
             ("Orders and workshop destinations (T)", "orders", None, True)]
     def pick(k):
-        if k == "debrief":
+        if k == "politics":
+            from .politics import menu as politics_menu
+            politics_menu(ps)
+        elif k == "debrief":
             from .debrief import menu
             menu(ps)
         elif k == "orders":

@@ -381,6 +381,8 @@ def _back_to_duty(game, days):
         sq.members.append(p)
         p.squad = sq
         p.unit = sq.members[0].unit if sq.members and getattr(sq.members[0], "unit", None) else p.unit
+        from . import bonds
+        bonds.new_man(game, p, sq, why="back from hospital", green=False)
     game.command.organise(game)
     from .base import back_in_service
     from .data.roles import service_of

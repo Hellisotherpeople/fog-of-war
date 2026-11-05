@@ -132,6 +132,8 @@ class Body:
                     base = 0.05 if getattr(w, "pressure", False) else 0.2
                     b *= base + (1.0 - base) * min(1.0, (age - DRESS_WEAR) / 1200.0)
             n += b
+        if self.__dict__.get("_diff_bleed") is not None:
+            n *= self.__dict__["_diff_bleed"]
         return n
 
     def infection(self) -> float:
@@ -387,7 +389,7 @@ class Body:
             n += 1
         return n
 
-    def warm(self, turns: int = 600):
+    def set_warm(self, turns: int = 600):
         self.warm = turns
         self.shock = max(0.0, self.__dict__.get("shock", 0.0) - 12)
 

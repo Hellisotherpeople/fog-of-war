@@ -174,8 +174,10 @@ is going.
 **Succession, promotion, medals.** When a leader falls the next man takes over, and sometimes
 that's you: a private can end the day acting in command of a platoon. Official promotion needs
 witnessed and transmitted reports, review, service time, an appropriate vacancy and delivered
-orders. Skill improves independently through practice. Decorations also require reported evidence
-and review. See [command, engineering and information](COMMAND_REALISM.md) for the rules and
+orders. A heavy fight is different: every kill and cleared objective is reported as it happens, the
+review happens in the field, and a good afternoon can carry a man up a rank or two before the day is
+out - which is how it happened, both to the deserving and to the lucky. Skill improves independently
+through practice. Decorations also require reported evidence and review. See [command, engineering and information](COMMAND_REALISM.md) for the rules and
 their historical limitations.
 
 **The war map.** From colonel up, the front map (`m`) becomes a war map. Sectors within your
@@ -521,16 +523,19 @@ at their level. Uphill is slow and hard on the breath. The map is shaded as the 
 contour lines every five metres. Look at a spot with a map in your kit and you're told its height
 (and how far above or below you it is); without one, just whether it's up or down from you.
 
-**Upstairs and down.** Buildings have floors. Walk onto the stairs and press `<` to climb: upstairs
-has the same walls and windows as the ground floor, three metres higher, so from a window you see
-and shoot over the hedges, walls and crops outside. The top of a church tower, a flat roof and a
-barn's hayloft are open, so up there your own building's walls don't block you at all. The stairs
-are the only way down.
+**Upstairs and down.** Every storey of a building is its own floor plan, with its own rooms, walls,
+windows and stairwell. On the stairs press `<` to climb; at a window or a parapet you see and shoot
+over the hedges, walls and crops below and down into the street, while the street cannot see you
+unless it gets an angle. A window sill, a parapet and a floor edge are cover. The tower top, a flat
+roof and a barn hayloft are open, so up there your own walls don't blind you. You can also get out
+of a smashed window and drop, or climb in from the street. On the stairs or at an upper window the
+panel says which floor you are on, and the tiles say what is under you: `▦ ▤ ▩` floor, `▨` a broken
+edge, `○` a hole, `≣ ≢` stairs and stairwell.
 
-A trapdoor (`>`) takes you into a cellar, the safest place in a bombardment: nothing sees in or out,
-and a shell bursting outside is dust and a ringing in the ears. A floor blown out from under you
-drops you into the rubble. Everyone uses the same stairs: defenders put their snipers and some of
-their machine gunners upstairs (the sniper in the church tower), and men go down into the cellars
+Shells and bursts of automatic fire open floors. A man over a hole drops - a storey, or more - and
+a floor that gives way takes the men on it down with it. A trapdoor (`>`) takes you into a cellar:
+nothing sees in or out, and a shell outside is dust and a ringing in the ears. Defenders put snipers
+and machine gunners at upper windows (the sniper in the church tower), and men go into the cellars
 when the shells come.
 
 **The roads behind the line.** Supplies come up to every front along real routes on the war map:
@@ -579,9 +584,102 @@ The punishments are carried out:
 
 Choose an order in the book and Enter gets on with that one.
 
-**Autopilot and succession.** `A` hands your soldier to his training: the same AI every man runs,
-following his orders (a squad you lead takes its orders from above), while you watch; `A` again
-takes over. It's for the land: aboard ship or aircraft your job is your station, and Enter and `Z`
+**Autopilot and succession.** `A` hands your soldier to his training, and his training is his trade:
+the medic triages and works through the worst casualties, carries the ones who can't walk to the aid
+post and draws fresh dressings there; the engineer cuts the wire and takes in charges; the motor
+sergeant walks to the thrown track; a radioman keeps with the commander; a gunner gets on his gun. A
+damaged vehicle pulls out for the motor pool, or calls up the fitters, instead of being overhauled
+where it stands under fire. It is the same AI every man runs, following his orders (a squad you
+lead takes its orders from above), while you watch; the panel names the job. He also looks after himself
+without being told: eats, drinks, dresses his own cuts, rests when he's dead on his feet, draws rations
+at the dump, fills his pouches from a stack, and when there's nothing in hand he goes to a leader for
+orders (or back to your standing orders). `A` again takes over.
+
+**Sleep.** `N` lies down and sleeps: properly, in real seconds, while the war carries on around you. Sleep
+goes from a doze to ordinary sleep to deep sleep; it restores more the deeper it gets, and deep sleep mends
+a little. Where you sleep matters - a bed at the aid station and a blanket are worth far more than wet grass
+- and so does what happens: firing close by, an enemy walking up, being hit, the cold, or a hand on your
+shoulder will bring you round, and waking badly leaves you groggy for a quarter of an hour. Sentries stay
+awake while the rest of a section sleeps and are relieved. Sleep debt builds through the waking day; it
+takes the edge off your speed and aim, and past a point you nod off where you stand. Autopilot gets your
+head down at night, or when you're falling down, if there's cover.
+
+**Your trade is an order.** A leader uses the specialist for what he is: the medic is told to carry a stable
+casualty out, the sapper to cut wire or put a charge in, the motor sergeant to a thrown track, the radioman
+with a message, the section's steady hand to calm a shaken man. The task appears in the orders book with the
+same issuer, clock and consequences as any other, and doing it counts on your trade record and toward
+promotion. The role AI does much of this without being told; the order is the part with a sergeant's eyes on
+it.
+
+**Sections remember.** A squad counts its dead and keeps where they fell. The close ones take it worst and
+the section goes quiet. Replacements come up from the draft, younger and greener, and are new men until they
+have been through something with the section. That lives for the length of the battle; a new game is a new
+world with its own people.
+
+**The enemy has a commander.** Behind the other side is a person with a school, a temper and a memory: how
+hard he pushes, how much he prepares, whether he works at night, whether he relieves a broken company or
+leaves it. He sends standing patrols when the line goes quiet, shoots in an assault, counter-attacks lost
+ground, and talks on his own net. What you hear of that is what your signals can hear.
+
+**A diary.** `J` is the pocket book: the first blood, the ground, the men lost, the promises made to the
+dying, the decorations, the bad mornings, and the photographs you take with a camera. It is read on the death
+screen and copied out beside the saves at the end, so a run leaves an account rather than a score.
+
+**The rear is a place that pays.** Cooks at the dump dish out hot food and fill canteens; a fought-out
+section is relieved by a fresh one when there is one to spare; replacements come up the road the convoys use.
+Rest, food, sleep, pay, mail and the medical chain are the line's endurance, and all of them are finite.
+
+**Orders are received by people.** A leader hears your order over the noise and answers as himself. A poor
+channel and a long range put the reference wrong; a good, trusted leader with latitude finds a better line -
+fire and movement, the covered approach - and tells you so; a frightened one in front of a battalion may
+balk and need telling twice. The game says which it was, so you learn who to trust and how to give an order.
+
+**Your name grows.** Kills that matter, ground taken, men carried out and citations make a reputation inside
+the run. The section starts to talk, then gives you a name; the enemy's observers list you, then work a sniper
+into your stretch of line, then give your front a wider berth. Prisoners who have heard the name are more
+forthcoming. None of it crosses into a new world.
+
+**The lull.** After a fight, if the ground goes quiet, the section consolidates for a few minutes: wounded
+seen to, pouches filled from those who have too much, tags taken, the enemy dead searched, a sentry on the
+front. Autopilot does the chores; a fresh contact ends it at once. The panel counts it down.
+
+**The field manual.** `K` holds the pages the ground has taught you - cover, fire and movement, dead ground,
+shells, armour, stretchers, wire, water, stand-to, prisoners. They appear only after the thing has happened
+once, and each has a diagram and a do and a don't.
+
+**Weather with a warning.** The glass falls, the cloud builds in the west, the birds go quiet, and a front
+arrives with the ground it leaves behind. First and last light bring stand-to: sentries out, the section up,
+the dark watched. Both sides live under the same sky.
+
+**Difficulty.** A run is set to Recruit, Veteran, Realistic or Custom when it starts. The preset moves real
+numbers - enemy training and eyes, enemy resolve, how fast you bleed - and decides whether the coach talks
+you through the first mistakes. Custom exposes each number. Ironman is one life, one rolling file and no
+succession; death ends it. See the Options screen for what each setting does.
+
+**Runs, saves and the report.** Each run has its own slot and a line in Your runs, newest first: a name, a
+rank, the ground, time served, and whether the man is alive. Save and quit writes the run; Save a copy takes
+a snapshot you can return to. Saves are versioned, copied aside before every write in a normal run, and
+recovered from the spare if the first is damaged. At the end, the after-action screen carries the record -
+what was asked, what was done, the cost in names - writes it beside the diary, compares it with earlier runs,
+and offers the run code to fight the same ground again.
+
+**The ground floor upward.** Buildings have separate storeys with their own plans: floorboards, stone flags,
+concrete, upper walls and windows, stairwells, parapets and - after the guns - broken edges and holes through
+to the floor below. The panel names your floor; the glyphs say what you are standing on. Height sees over
+hedges and down into streets, windows and parapets are cover, and a burst of fire or a shell can open the
+floor under a man. Village and city maps raise the houses; Stalingrad's streets are four floors deep, with
+barricades, tram lines and wire between them.
+
+**Joining up.** The main menu offers a first hour with a section - kit at the stores, five rounds on the
+zeroing board, a word with the sergeant, then a patrol that walks into a real fight. It assumes nothing.
+
+**Accessibility and packs.** Options has high contrast, reduced motion, a screen-reader feed to the terminal,
+a longer message pause and full key rebinding. Content packs add theatres, items, vehicles, roles, missions,
+quotes and speech from `assets/packs/` or `~/.fogofwar/packs/` - see [packs](PACKS.md); Options > Content
+packs turns one off, and `tools/packcheck.py` checks one before it ships. Beyond the ordinary settings,
+Options > Unlock experimental settings exposes the simulation and save internals - radius, troop multiplier,
+world margin, autosave interval, compression, build speed, god mode, reveal, frame time and message volume -
+with the warning that these are knobs, not guarantees. It's for the land: aboard ship or aircraft your job is your station, and Enter and `Z`
 cover it. With nobody in sight it runs as fast as the machine can simulate (Options: quiet time goes
 quickly). With succession on (Options, WHEN YOU DIE), death isn't the end of the battle: the war
 goes on on the same field and you're someone else. Who is set by a rule:
@@ -723,6 +821,45 @@ click-to-walk) stops with a warning: what's there and which way it is. Take the 
 anyway. `'` ignores what you can see now; you're warned again if it comes much closer, or about
 anything new. `!` (or Esc > Options) turns safe mode off.
 
+## Doctrine, direction and the camps
+
+**Battle drills** are the vocabulary an army, a unit and a leader actually have. Every army has the
+basics (follow me, cover me, watch that ground, consolidate, probe, break contact). Beyond them the
+national schools differ: German leaders with the training get Auftragstaktik, Feuerüberfall,
+Schwerpunkt and the Stosstrupp; Soviet ones maskirovka, echeloned assault and the main attack; the
+British bite and hold; the Americans reconnaissance by fire; the Japanese infiltration and banzai;
+the Finns the motti. A drill changes only the weights the simulation already uses - cover sought,
+spacing, where the leader puts his fire - and keeps its real costs. Unavailable drills stay in the
+list with what opens them: practice, rank, the right unit, the right ground. The AI uses them too.
+
+**Theatre direction** opens at general rank in the staff screen: priority of supply and air, armour
+to your front, press or stand fast, relieving a failing commander, and telling the head of state the
+plan is wrong. Every directive is paid for in political credit. Repeated defiance, with patience
+gone, gets you relieved of the front for a while; it comes back.
+
+**Camps.** The creator's battle types include a prisoner-of-war camp and a concentration camp.
+Appell, work parties, parcels, the ramp. The choices are a guard's: drive a party, let the weak fall
+out, sign the sick off. Prisoner escapes, civilian deaths, shelled towns and men shot with their
+hands up go on a ledger that the debrief reads. An SS unit's book expects a reprisal; the line
+companies keep arguing about it.
+
+**Bravery and cowardice.** Close kills under fire, going out for a wounded man and leading an assault
+steadie nearby men and cut their suppression; seeing a man break does the reverse. An officer's
+surrender is much worse: it reaches half the line, shakes the leaders, delays orders already in
+transit and costs the side its picture of the ground. The player's own surrender counts the same.
+
+**Interrogation.** A prisoner's value is his papers, his section, where the guns are, a marked map,
+an operation order. Ask, offer a cigarette or a hot drink, take him from his mates, and use a little
+pressure when needed. Fear helps and repeated methods peter out; language skill governs how far you
+get. Frightened men guess, and the game says which answers are sure and which are only "he says".
+Behind the wire the same is done to you, and what you give buys warmth and soup.
+
+**Afterwards.** Death carries a real quotation matched to the way you lived and died, with a line on
+who said it - including the famous attributions that are fake, marked as fake. A long fight also
+gets its own numbers and the world average beside them, and a reason drawn from the men and ground
+you actually have. Death shows the last minute as a timeline of what you did and what answered it,
+what to do next time, and - on Tab - what it may come to for the men and ground you leave.
+
 ## Also deeper
 
 - **Peeking.** Lean out of cover to look and shoot round a corner, over a wall or out of a window.
@@ -743,6 +880,10 @@ anything new. `!` (or Esc > Options) turns safe mode off.
   target, and it takes a moment to settle. Full-power rifles kick hard, and SMG bursts climb.
   Going prone, bracing, or using a bipod or tripod tames it. Your **speed** (moves per second:
   cut by load, wounds and breath) governs everything you do.
+- **Kit wears in the picture as well as the numbers.** A worn rifle shows scratches and chipped
+  edges; cloth frays, paper creases and stains, optics crack; a broken thing lies as an `x` on the
+  ground. Blasts dent and scatter rather than instantly scrapping sound kit, and a torn pack spills
+  what it carried.
 - **Captured kit.** Anything the enemy drops is yours to use, and you're clumsy with it until you
   learn it. An unfamiliar rifle aims slower, shoots looser and reloads with fumbling; bolts and
   jams take longer. Firing it, loading it and clearing it makes it yours. Allied weapons are

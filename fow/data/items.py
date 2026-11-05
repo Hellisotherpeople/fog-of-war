@@ -814,6 +814,8 @@ gear("wirecutters", "wire cutters", "tool", tool="wirecutters", weight=0.7, volu
      desc="Cut a path through barbed wire.")
 gear("binoculars", "binoculars", "tool", tool="binoculars", weight=0.9, volume=0.8,
      desc="Look further and identify what you're looking at.")
+gear("camera", "camera", "tool", tool="camera", weight=0.5, volume=0.6, uses=12,
+     desc="A folding camera. Twelve exposures. Take what you want to remember, or what the intelligence officer wants.")
 gear("radio_scr300", "SCR-300 radio", "tool", tool="radio", weight=17.0, volume=15,
      glyph="&", desc="Backpack radio. Talk to battalion and the guns.")
 gear("radio", "field radio", "tool", tool="radio", weight=14.0, volume=14, glyph="&",
@@ -1017,8 +1019,10 @@ def _round_weight(cal):
     return CALIBERS.get(cal, (cal, 0.02))[1]
 
 
-def _register_mags():
+def _register_mags(only=None):
     for g in list(ITEMS.values()):
+        if only is not None and g.id not in only:
+            continue
         if g.kind != "gun" or not g.cal or g.cat in ("mortar", "flamer", "at_launcher", "at_disposable"):
             continue
         rw = _round_weight(g.cal)

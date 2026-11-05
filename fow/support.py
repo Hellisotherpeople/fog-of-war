@@ -93,10 +93,10 @@ class Support:
         return self.fires.call(self.game, side, x, y, caller=caller, rounds=rounds, delay=delay, silent=silent,
                                smoke=smoke) is not None
 
-    def barrage(self, side, x, y, radius, rounds, delay=0, naval=False):
+    def barrage(self, side, x, y, radius, rounds, delay=0, naval=False, kinds=None):
         """A scheduled bombardment (preparation, harassing fire, or the navy offshore): every battery in range
         that's free takes a share."""
-        return self.fires.barrage(self.game, side, x, y, radius, rounds, delay, naval)
+        return self.fires.barrage(self.game, side, x, y, radius, rounds, delay, naval, kinds=kinds)
 
     def update(self):
         g = self.game
@@ -112,7 +112,12 @@ class Support:
             if g.turn >= self.next_sortie[s]:
                 lvl = self.air_level.get(s, 0.3) * (g.strategic.support_mult(s, "air", g.sector)
                                                      if g.strategic else 1.0)
+                pol = g.__dict__.get("politics") or {}
+                if pol.get("side") == s and pol.get("air"):
+                    lvl *= 1.5              # political priority: the squadrons look to this front
                 gap = int(1400 * (1.2 - lvl)) + rng.randint(200, 900)
+                if pol.get("side") == s and pol.get("air"):
+                    gap = int(gap * 0.65)
                 self.next_sortie[s] = g.turn + gap
                 if rng.random() < lvl and g.weather not in ("fog", "sandstorm") or \
                         (rng.random() < lvl * 0.3):

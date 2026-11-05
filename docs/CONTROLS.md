@@ -52,19 +52,25 @@ works as direction keys.
 | `.` `s` numpad 5, numpad `.` | wait a second |
 | `z` | wait a minute, watching |
 | `Z` | the wait menu: ordinary waits stop for danger or new orders. **Pass time regardless of events...** runs for 15 minutes, 1, 6 or 12 hours, or a day, through combat, wounds, unconsciousness and orders. Every second is simulated as fast as your machine can manage. Any key cancels; death or succession ends the wait |
+| `N` | sleep (on land): lie down and sleep in depth and for real. A bed, a blanket and cover make it better; a wall of fire, an enemy walking up, being hit, the cold or a shake on the shoulder wake you, and a bad waking leaves you groggy. Sentries keep watch while you sleep. `N` or Esc gets up |
 | `c` | crouch (again: stand) |
 | `p` | prone (again: crouch) |
 | `W` | pace: creep / walk / run / sprint |
 | `q` | lean out of cover (then a direction); `q` again, or a step, pulls you back |
-| `D` | dig in, with a shovel (any key stops) |
-| `<` / `>` | on stairs: up a floor / down one (a church tower, a flat roof, a hayloft at the top); on a cellar trapdoor: `>` down into the cellar, `<` up again |
+| `D` | dig: a scrape to lie in, a foxhole, sandbags, or a loophole in an upstairs window. The work is real and any key stops it |
+| `<` / `>` | on stairs or a stairwell: up a floor / down one; on a cellar trapdoor: `>` down into the cellar, `<` up again; at a smashed window: out and down, or in from the street |
+| `O` | squad orders. **Shift+O** queues an order after the current one (`Backspace` cancels the current order and the queue) |
+| `l`/`y` | (with `h j k` movement) step through an upper floor; the panel names your floor, and `▨`/`○` are a broken edge and a hole through to the floor below |
 | `o` | shut an open door beside you (walk through a door to open it) |
 | Enter | carry out your current order: walk there and do it (the panel says what Enter will do) |
 | F7 / Go to objective | repeat ordinary order actions and world turns until danger, contact, combat instructions or a decision; any key cancels |
 | `T` | the orders book: issuer, authority, priority, deadline and consequences. Enter selects a supporting instruction; a deferred order cannot replace your higher orders |
-| `E` | talk to whoever's beside you (a list if there are several; right-click a man for the same). Comrades: where he's from, how he's holding up, what he's seen (he points, and it's marked on your map), the latest rumour, a smoke, ammunition, water, covering fire, a trade. The wounded: where he's hit, keeping him going, his last wishes. Prisoners: name and unit, and - for a cigarette, or when he's frightened enough - where his guns are. |
-| `A` | autopilot (on land): your soldier acts on his training and his orders, the same AI as every man on the field; `A` or Esc takes him back (looking, the map, the books and help still work meanwhile). Aboard ship or aircraft there's none: Enter gets on with your orders, `Z` lets the watch go by |
+| `E` | talk to whoever's beside you (a list if there are several; right-click a man for the same). Comrades: where he's from, how he's holding up, what he's seen (he points, and it's marked on your map), the latest rumour, a smoke, ammunition, water, covering fire, a trade. The wounded: where he's hit, keeping him going, his last wishes. Prisoners: name and unit, and - for a cigarette, or when he's frightened enough - where his guns are. Once searched, "Interrogate him properly" offers cigarettes, a hot drink, separating him from his mates and pressure, for positions, minefields, maps and orders. |
+| `A` | autopilot (on land): your soldier does his trade and sees to himself - the medic goes to the worst wounded and carries him to the aid post, the engineer at the wire, the motor sergeant to the broken track, a damaged tank back to the fitters; he eats, drinks, dresses his own wounds, rests when he's dead on his feet, draws rations at the dump, tops up his pouches and reports to a leader for orders - the same AI and actions as every man on the field; `A` or Esc takes him back (looking, the map, the books and help still work meanwhile). Aboard ship or aircraft there's none: Enter gets on with your orders, `Z` lets the watch go by |
 | F6 | optional real time: everyone moves on a shared clock, including while you stand still. F6 again returns to turn based time |
+| F8 | the order trace: every unit under your hand, its ordered area and the ground its fire covers, shaded over the map; overlapping areas darker. F8 again lifts it |
+| F9 | Follow me: one key, no menu. Your section first, or the nearest men who will take it |
+| Options > Rebind keys | move any battlefield key; the help and the hints print the key you set |
 | `!` | safe mode off / on |
 | `'` | ignore the dangers you can see now (safe mode won't stop you for them) |
 | `X` | select the nearest known intelligence officer, quartermaster, medical staff, fitters or HQ to add a visit to `T` with a direction arrow and Enter action; also clear selected service visits or toggle the terrain overlay |
@@ -134,6 +140,8 @@ decorations, with an explicit notice when their original citation was not record
 | `m` | the war map |
 | `@` | yourself: your body in detail; Tab for your skills, then your service record and chain of command |
 | `P` | the message log |
+| `J` | the diary: what has happened to you this battle, and the photographs you've taken |
+| `K` | the field manual: the pages the ground has taught you so far |
 | `O` | orders for the squad you lead |
 | `C` | command: your chain of command, and every unit whose leader you outrank |
 | `R` | the radio; an agent's wireless set: reports, supply drops, the BBC messages |

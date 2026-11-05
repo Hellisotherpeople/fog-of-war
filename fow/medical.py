@@ -211,7 +211,7 @@ def _first_aid(game, medic, patient, item=None):
             return 220
     # 4c. shock: flat, warm, fluids
     if b.__dict__.get("shock", 0) > 60 and b.blood > 2500 and not b.warm:
-        b.warm(900)
+        b.set_warm(900)
         game.msg_for(medic, patient, f"lay{'s' if not medic.is_player else ''} {who} flat, feet up, "
                                      f"and wrap{'s' if not medic.is_player else ''} {patient.him if not patient.is_player else 'yourself'} up",
                      "good")

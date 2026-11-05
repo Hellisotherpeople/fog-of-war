@@ -13,7 +13,14 @@ import re
 
 from .data.phrases import lang
 
-ACTIVE_SIDE = None          # the player's side while the option is on (the App sets it each frame); None: it's off
+ACTIVE_SIDE = None          # the player's side (the App sets it each frame)
+ACTIVE_MODE = "own"         # all: every foreign line, own: your side and languages you know, off: nobody
+PLAYER = None               # the player, for language knowledge (the App sets it each frame)
+_LUCK: dict = {}
+_UNDERSTOOD: dict = {}
+LANGUAGE_ROLES = {"agent": 4.5, "intel": 4.0, "partisan": 2.0, "officer": 1.0, "squad_leader": 0.5}
+LANGUAGE_UNITS = {"soe": 3.0, "oss": 3.0, "jedburgh": 4.0, "lrdg": 2.5, "razvedka": 3.0,
+                  "brandenburg": 4.0, "chindits": 1.5, "raiders": 1.0, "cichociemni": 3.0}
 
 _CACHE: dict = {}
 _TEMPLATES: dict = {}
@@ -21,8 +28,42 @@ _INDEX: dict = {}
 _FIELD = re.compile(r"\{(\w+)\}")
 
 
+def understands(nation) -> bool:
+    """Does the player get this language: training, role, or the ear of a man who has been about."""
+    p = PLAYER
+    if p is None or lang(nation) == "en":
+        return False
+    from .skills import level
+    skill = level(p, "languages")
+    key = (id(p), nation, int(skill * 2))
+    if key in _UNDERSTOOD:
+        return _UNDERSTOOD[key]
+    import random
+    skill += LANGUAGE_ROLES.get(p.role, 0.0) + LANGUAGE_UNITS.get(p.__dict__.get("unit_type") or "", 0.0)
+    luck = _LUCK.setdefault((id(p), nation), random.random())
+    ok = skill / 9.0 > luck and skill >= 2.0
+    _UNDERSTOOD[key] = ok
+    return ok
+
+
 def active_for(actor) -> bool:
-    return ACTIVE_SIDE is not None and actor.side == ACTIVE_SIDE and lang(actor.nation) != "en"
+    if ACTIVE_MODE == "off" or lang(actor.nation) == "en":
+        return False
+    if ACTIVE_MODE == "all":
+        return True
+    if ACTIVE_SIDE is not None and actor.side == ACTIVE_SIDE:
+        return True
+    return ACTIVE_MODE == "own" and understands(actor.nation)
+
+
+def translating(nation, side) -> bool:
+    if ACTIVE_MODE == "off" or lang(nation) == "en":
+        return False
+    if ACTIVE_MODE == "all":
+        return True
+    if ACTIVE_SIDE is not None and side == ACTIVE_SIDE:
+        return True
+    return ACTIVE_MODE == "own" and understands(nation)
 
 
 def _tables(lg):
@@ -154,16 +195,17 @@ def line(actor, text, voice):
     """What a man on your side says with the option on: (shown, spoken, in English?)."""
     en = english(actor.nation, text) or EXTRA.get(lang(actor.nation), {}).get(text)
     if en is not None:
-        return en, en, True
+        # shown beside the original, spoken in English by his own voice
+        return f"{text} / {en}", en, True
     if not any(c.isalpha() for c in text):
         return text, voice, False          # a hum ("♪ ...") or a pause has no English: read aloud it'd be "symbol"
+    from .game import is_native
+    if is_native(actor.nation, text):
+        return text, voice or text, False    # a native line with no translation: leave it in his language
     if voice is not None:
         # the caller wrote the line in English and had a native line (or silence) for the voice: say the English
         return text, text, True
-    # a line in none of his army's tables is the game's own English (an order the player gives, a tank
-    # commander's fire order): his voice reads it as English too
-    from .game import is_native
-    if not text.strip(".!? ") or is_native(actor.nation, text):
+    if not text.strip(".!? "):
         return text, None, False
     return text, None, True
 

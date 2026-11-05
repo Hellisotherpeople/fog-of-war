@@ -381,6 +381,14 @@ the English sounds his language lacks swapped for its nearest ones (`neural_voic
 
 | module | what it does |
 |---|---|
+| `heroism.py`, `interrogation.py` | bravery and cowardice as witnessed events; prisoner interrogation and its intel |
+| `doctrine.py` | national battle drills by army, rank, training and ground, and the weights the AI reads |
+| `politics.py` | theatre direction at general rank: heads of state, credit, demands, defiance and relieve |
+| `camp.py` | PW and concentration camp duty: compound, prisoners, roll call, work parties, selections |
+| `atrocities.py` | the ugly ledger: prisoners, civilians, shelled towns, reprisals, camp deaths, and unit reactions |
+| `afteraction.py`, `legacy.py`, `rumination.py`, `quotes.py` | the last minute as a timeline with advice, and the hedged consequences after you |
+| `garrison.py` | work on a held position: digging, camouflage, weapon care, pouches, sentries and rest |
+| `commandview.py`, `keybinds.py`, `preload.py`, `coach.py` | the F8 trace, rebinding, background warming, one-time in-voice lessons |
 | `game.py` | the Game: turn loop, sound and fire, sectors and travel, saves |
 | `play.py` | the in-battle state: input, commands, targeting, popups, Enter-to-do-your-orders |
 | `ui.py` | App shell, menus, the creator, options and mixer, help, status, war map |
@@ -408,7 +416,7 @@ the English sounds his language lacks swapped for its nearest ones (`neural_voic
 | `tasks.py` | squad tasks: scavenging, the wounded, prisoners, a hand for the tanks |
 | `medevac.py` | calling stretcher-bearers, the evacuation chain, hospital time, back to duty |
 | `agents.py`, `data/agents.py`, `data/items_special.py` | the secret war: careers, covers, agent and resistance missions, the wireless and direction-finding, supply drops from special-duties squadrons, the special weapons and gadgets |
-| `relief.py`, `floors.py` | the heightmap (generation, viewsheds, crest checks, slope costs, hillshade) and building floors (stairs, cellars, open tops, falls, AI use) |
+| `relief.py`, `floors.py` | the heightmap (generation, viewsheds, crest checks, slope costs, hillshade) and building storeys: a separate plan per floor with walls, windows, stairwells, holes, parapets, cellars, breach and fall, sight and AI use |
 | `quality.py` | how good a gun is and how rare, shown in the kit and the look-it-over box and used by the AI |
 | `drill.py` | the training range: the instructor's lessons, the role trial, and their overlay |
 | `tableaux.py` | battlefield scenes laid before the fighting: a convoy, a dump, a crash, a burning farm |
@@ -422,6 +430,24 @@ the English sounds his language lacks swapped for its nearest ones (`neural_voic
 | `social.py` | the noise of a fight (cries by wound and part, buddies, calls, panic, NCOs) and the life of a quiet hour (smokes, trades, photos, letters, prayers, songs, mourning, souvenirs) - lines in `data/chatter.py`, every army's own language |
 | `data/notable.py` | the famous regular divisions, brigades and battalions of each battle, with their real regiments (designations, the chain of command, the new-game Unit list) |
 | `succession.py` | autopilot, and carrying on as another soldier when you die |
+| `jobs.py` | the trade under autopilot: a medic's sweep and evacuation, an engineer's wire and charges, a fitter's vehicles, a crewman's way back to his tank, the job card in the panel, and the personal survival loop (food, water, dressings, ammunition, reporting for orders, sleep) |
+| `sleep.py` | sleep and rest: depth, quality from bed/blanket/cover, sleep debt and grogginess, the things that wake a man, sentries and relief, and the N key |
+| `trade.py` | trade duties as real orders (carry him out, cut the wire, put a charge in, recover the vehicle, carry the message, steady him), the trade record, and who gets made up |
+| `bonds.py` | what a section remembers: the dead, graves, new men and how long they stay new, and the replacement draft that fills the gaps |
+| `opponent.py` | the enemy commander's persona, memory and standing operations: probes, preparation shoots, relief of broken units, the enemy net |
+| `rear_cycle.py` | the rear keeping the line going: field-kitchen meals and full canteens, and the relief of fought-out sections by fresh ones |
+| `diary.py` | the run's pocket book: entries, photographs, promises and citations, the death-screen page, and the copy written out at the end |
+| `friction.py` | how a player's order is received: misheard references, a better way from a trusted leader, a refusal that needs insisting on |
+| `renown.py` | the player's name in this run: feats, thresholds, nickname, enemy target priority and prisoner reactions |
+| `consolidate.py` | the lull after a fight: wounded, pouches, tags, searching the dead, a sentry, and the end when contact returns |
+| `manual.py` | field-manual pages unlocked by the ground: cover, fire and movement, armour, shells, stretchers, wire, water, stand-to, prisoners |
+| `weather_director.py` | fronts with a warning and stand-to at first and last light |
+| `packs.py` | content packs (theatres, quotes, phrases) from `assets/packs/` and `~/.fogofwar/packs/` (`docs/PACKS.md`) |
+| `contrast.py`, `screenreader.py` | high-contrast rendering and the terminal narration feed for screen readers |
+| `difficulty.py` | the four presets and their real multipliers: enemy training, eyes and resolve, your bleeding, the assistant toggles |
+| `runcode.py`, `runs.py` | shareable battlefield codes, the per-run save registry and slots, ironman discipline |
+| `reportcard.py` | the after-action record, its export and comparison with earlier runs |
+| `enlist.py` | the first hour: stores, zeroing, the sergeant, the patrol and its first contact |
 | `melee.py` | hand to hand: moves, parries, where blows land, clinches, silent kills |
 | `skills.py` | twelve skills per soldier: rolled at birth, floors from role and unit, practice, the helpers the systems use |
 | `fastpath.py` | Dijkstra maps: numba Dial's algorithm, or tcod |

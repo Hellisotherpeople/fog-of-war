@@ -342,6 +342,12 @@ T("trench_snow", "snowy trench", "░", (180, 180, 190), (100, 100, 110), pos_co
   conceal=50, dig=True, into="crater")
 T("foxhole", "foxhole", "o", (130, 100, 62), (52, 40, 24), pos_cover=78, conceal=55, dig=True,
   into="crater", desc="A one-man hole in the ground. Home.")
+T("scrape", "hastily scraped hollow", "⌄", (125, 105, 78), (44, 36, 28), cost=150, pos_cover=22,
+  conceal=25, dig=True, into="crater", desc="A scrape in the dirt: a boot-deep hollow, enough to lie in while "
+  "the bullets go over. Ten minutes with an entrenching tool.")
+T("loophole", "sandbag loophole", "▣", (175, 160, 125), (60, 54, 42), walk=False, cover=75, tall=True,
+  pos_cover=30, hp=180, armor=20, into="sandbags", desc="Sandbags built up in a window to shoot through and "
+  "be shielded by. A little height, a little cover, and somewhere to put your elbows.")
 T("crater", "shell crater", "o", (120, 98, 72), (42, 34, 26), cost=150, pos_cover=48,
   conceal=30, dig=True, into="crater", desc="A shell hole. Two never land in the same place, "
   "the old sweats say.")
@@ -497,11 +503,47 @@ T("bollard", "bollard", "o", (60, 60, 64), (74, 74, 72), walk=False, see=True, c
 EXPLODE = {}   # tile id -> (power, radius, fire)
 
 # ------------------------------------------------------------------ floors (floors.py)
-T("stairs", "stairs", "≡", (200, 170, 120), (70, 52, 34), floor=True, cost=160, flam=30, burnt="burnt",
+T("stairs", "stairs", "≣", (200, 170, 120), (70, 52, 34), floor=True, cost=160, flam=30, burnt="burnt",
   into="rubble_wood", hp=150, armor=10,
   desc="A staircase to the floor above. (< to climb it, > to come down)")
 T("trapdoor", "cellar trapdoor", "▫", (170, 140, 100), (70, 52, 34), floor=True, flam=20, into="rubble_wood",
   hp=120, armor=8, desc="A trapdoor to the cellar - the safest place in a bombardment. (> to go down, < to come up)")
+
+# upper storeys (floors.py).  Each floor is its own plan: the glyphs say which floor you are reading.
+T("floorboards", "bare floorboards", "▦", (170, 128, 82), (74, 54, 34), floor=True, cost=110, flam=45,
+  burnt="burnt", into="rubble_wood", hp=90, armor=6, pos_cover=2,
+  desc="Floorboards. They stop a boot, not a shell; a burst of fire will open them up.")
+T("floor_stone_up", "stone flags", "▤", (172, 166, 154), (80, 76, 68), floor=True, into="rubble_light",
+  hp=260, armor=30, pos_cover=4, desc="Stone flags of an upper floor. Older, heavier, and they break in slabs.")
+T("floor_concrete_up", "concrete slab", "▩", (148, 148, 144), (84, 84, 82), floor=True, into="rubble_light",
+  hp=700, armor=70, pos_cover=6, desc="A concrete floor. It takes a direct hit to put a hole in it.")
+T("floor_broken", "broken floor edge", "▨", (180, 140, 95), (60, 44, 30), floor=True, cost=320,
+  walk=True, cover=8, hp=40, armor=4, into="rubble_wood", conceal=5, pos_cover=8,
+  desc="A cracked edge of floor. Cross it carefully; it may take your weight and it may not.")
+T("floor_hole", "hole in the floor", "○", (120, 100, 80), (30, 24, 18), walk=True, floor=False,
+  cost=140, hp=0, into="floor_hole", desc="A hole through to the floor below. Step in and you drop.")
+T("stairwell", "stairwell", "≢", (200, 170, 120), (62, 46, 30), floor=True, cost=170, flam=20,
+  into="rubble_wood", hp=120, armor=8, desc="The open stairwell: the way down, and a way for a grenade.")
+T("upper_wall", "upper wall", "║", (156, 140, 120), (74, 66, 56), walk=False, tall=True, see=False,
+  cover=100, hp=320, armor=40, into="rubble", crush=2, hard=True,
+  desc="An upper wall. It blocks the floor, the view and most bullets.")
+T("upper_wall_wood", "upper partition", "║", (150, 112, 74), (66, 48, 32), walk=False, tall=True, see=False,
+  cover=100, hp=150, armor=8, into="rubble_wood", flam=55, crush=1,
+  desc="A lath-and-plaster partition. Hides you from the next room and very little from a rifle.")
+T("upper_window", "upper window", "□", (170, 210, 230), (60, 60, 70), walk=False, see=True, cover=55,
+  tall=True, hp=20, armor=2, into="window_broken", window=True, sound=8, pos_cover=10,
+  desc="An upper window: a firing slit with a sill for cover, and a long way down outside.")
+T("upper_window_broken", "smashed upper window", "▭", (150, 170, 180), (48, 44, 44), walk=False, see=True,
+  cover=40, tall=True, hp=200, armor=100, into="rubble", window=True, pos_cover=6,
+  desc="A window frame with the glass gone. Shoot through it, lean out of it, or go through it the hard way.")
+T("parapet", "parapet", "╥", (168, 158, 142), (72, 68, 60), walk=False, tall=True, see=True, cover=88,
+  hp=400, armor=60, into="rubble_heavy", crush=2, hard=True, pos_cover=20,
+  desc="A low parapet at the roof edge. Cover from the street, and the safest place to shoot down from.")
+T("roof_slate", "roof", "▙", (120, 118, 124), (56, 56, 62), floor=True, cost=190, flam=5,
+  into="rubble", hp=90, armor=6, conceal=4, desc="A roof pitch. Walk it slowly; slate gives way.")
+T("ceiling_collapse", "fallen ceiling", "▲", (160, 150, 135), (70, 64, 56), cost=300, cover=60,
+  tall=True, hp=0, into="rubble_heavy", pos_cover=25, conceal=20,
+  desc="A ceiling come down across the floor. Wreckage to crawl over and hide behind.")
 
 # ------------------------------------------------------------------ the country's own (mapgen.regional)
 variant("corn", "vineyard", "vineyard", fg=(120, 140, 70), bg=(70, 60, 35), conceal=40, cost=140,

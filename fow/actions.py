@@ -50,26 +50,40 @@ def climb(game, a, dz: int) -> int | None:
     t = m.tile(a.x, a.y).key
     z = a.z
     b = m.building_at(a.x, a.y)
+    from . import floors as FLOORS
     if a.vehicle is not None or a.carrying is not None:
         return None
+    here = FLOORS.tile_at(m, a.x, a.y, z)
+    at_stair = t == "stairs" or (here is not None and here.key == "stairwell")
     if dz > 0:
         if z < 0 and t == "trapdoor":
             a.z = 0
-        elif z >= 0 and t == "stairs" and b is not None and z < b[1] - 1:
+        elif z >= 0 and at_stair and b is not None and z < b[1] - 1:
             a.z = z + 1
+        elif z == 0 and t in ("window_broken", "window") and b is not None and b[1] > 1 and \
+                FLOORS.walkable(m, a.x, a.y, 1):
+            a.z = 1
         else:
             return None
     else:
-        if z > 0 and t == "stairs":
+        if z > 0 and at_stair:
             a.z = z - 1
+        elif z > 0 and here is not None and here.key in ("upper_window_broken", "upper_window"):
+            a.z = 0
+            a.stance = 2
+            if a.is_player:
+                game.msg("You get out over the sill and drop.", "info")
         elif z == 0 and t == "trapdoor":
             a.z = -1
         else:
             return None
+    game.pop_actor_at(a, a.x, a.y, z)
+    game.set_actor_at(a, a.x, a.y, a.z)
     a.stance = min(a.stance, 1)
     game.note_move(a)
     if a.is_player:
         game.msg(f"You {'climb' if a.z > z else 'go down'} to {floor_word(game, a)}.", "info")
+        game.player_fov()
     return 400 if abs(a.z - z) else 100
 
 
@@ -80,17 +94,20 @@ def move(game, a, dx: int, dy: int, allow_swap=True):
     nx, ny = a.x + dx, a.y + dy
     if not m.in_bounds(nx, ny):
         return None
-    tid = int(m.t[nx, ny])
     z = a.z
+    from . import floors as FLOORS
     if z != 0:
-        # upstairs you can walk the floor (the same plan as below) but not out of the door; in the cellar, nowhere
         b0 = m.building_at(a.x, a.y)
-        if z < 0 or b0 is None or m.building_at(nx, ny) is None or m.building_at(nx, ny)[0] != b0[0] or \
-                not T.FLOOR[tid]:
+        if b0 is None or m.building_at(nx, ny) is None or m.building_at(nx, ny)[0] != b0[0]:
             if a.is_player:
-                game.msg("You're in the cellar: up through the trapdoor first (<)." if z < 0 else
-                         "You're upstairs: the stairs are the way down (>).", "info")
+                game.msg("You're upstairs: the stairwell or the stairs are the way back down (>).", "info")
             return None
+        fd = FLOORS.tile_at(m, nx, ny, z)
+        if fd is None:
+            return None
+        tid = fd.id
+    else:
+        tid = int(m.t[nx, ny])
     # doors open when walked into
     if T.DOOR[tid] == 1:
         m.set(nx, ny, "door_open")
@@ -101,7 +118,7 @@ def move(game, a, dx: int, dy: int, allow_swap=True):
         return None
     if game.vehicle_at.get((nx, ny)) is not None:
         return None
-    other = game.soldier_at.get((nx, ny))
+    other = game.actor_at(nx, ny, z)
     if other is not None and other is not a:
         own_pw = a.is_player and other.state == "surrendered" and other.ai.get("captor") == a.id and not other.downed
         if not own_pw and (not allow_swap or (other.side != a.side and not other.ai.get("civilian")) or other.is_player or (
@@ -114,8 +131,8 @@ def move(game, a, dx: int, dy: int, allow_swap=True):
             return None
         a.ai["swapped"] = game.turn
         other.ai["swapped"] = game.turn
-        game.soldier_at[(a.x, a.y)] = other
-        game.soldier_at[(nx, ny)] = a
+        game.set_actor_at(other, a.x, a.y, z)
+        game.set_actor_at(a, nx, ny, z)
         other.x, other.y = a.x, a.y
         a.x, a.y = nx, ny
         a.moved_turn = game.turn
@@ -147,26 +164,33 @@ def move(game, a, dx: int, dy: int, allow_swap=True):
     if a.carrying is not None:
         cost = int(cost * 1.8)
     old = (a.x, a.y)
-    del_ok = game.soldier_at.get(old) is a
-    if del_ok:
-        del game.soldier_at[old]
+    game.pop_actor_at(a, old[0], old[1], z)
     a.x, a.y = nx, ny
     if dx:
         a.face = 1 if dx > 0 else -1
-    game.soldier_at[(nx, ny)] = a
+    game.set_actor_at(a, nx, ny, z)
     game.note_move(a)
     a.moved_turn = game.turn
     a.deployed = False
     a.aim_turns = 0
+    if z != 0 and T.DEFS[tid].key == "floor_hole":
+        FLOORS.fall(game, a)
+    elif z != 0 and T.DEFS[tid].key == "upper_window_broken" and game.rng.random() < 0.12:
+        a.z = 0
+        a.stance = 2
+        game.note_move(a)
+        if a.is_player:
+            game.msg("You swing out of the window and drop to the street.", "info")
     a.stats["distance"] += 1
     if a.carrying is not None:
         c = a.carrying
         if c.alive and max(abs(c.x - old[0]), abs(c.y - old[1])) > 2:
             put_down(game, a)                     # he isn't with you any more
-        elif c.alive and game.soldier_at.get((c.x, c.y)) is c and game.soldier_at.get(old) is None:
-            del game.soldier_at[(c.x, c.y)]
+        elif c.alive and game.actor_at(c.x, c.y, z) is c and game.actor_at(*old, z) is None:
+            game.pop_actor_at(c, c.x, c.y, z)
             c.x, c.y = old
-            game.soldier_at[old] = c
+            c.z = z
+            game.set_actor_at(c, old[0], old[1], z)
             game.note_move(c)
         elif not c.alive:
             put_down(game, a)
@@ -381,6 +405,13 @@ def _throw(game, a, item, tx, ty, cook=0):
     access = a.access_cost(item)
     thrown = a.remove_item(item, 1) if item.count > 1 else a.remove_item(item)
     thrown.count = 1
+    lz = 0
+    if a.z and m.building_at(a.x, a.y) is not None and m.building_at(*land) is not None and \
+            m.building_at(*land)[0] == m.building_at(a.x, a.y)[0]:
+        from . import floors
+        if floors.tile_at(m, land[0], land[1], a.z) is not None:
+            lz = a.z
+    thrown.data = dict(thrown.data or {}, z=lz)
     a.stats["grenades"] += 1
     if a.is_player:
         game.msg(f"You throw the {t.name}.", "combat")
@@ -404,9 +435,13 @@ def place_charge(game, a, item, x, y) -> int | None:
         return None
     placed = a.remove_item(item, 1) if item.count > 1 else a.remove_item(item)
     placed.count = 1
+    if a.is_player:
+        a.ai["last_charge"] = game.turn
+    if a.z and game.map.building_at(a.x, a.y) is not None:
+        placed.data = dict(placed.data or {}, z=a.z)
     v = game.vehicle_at.get((x, y))
     if v is not None:
-        placed.data = {"on_vehicle": v.id}
+        placed.data = dict(placed.data or {}, on_vehicle=v.id)
     pencil = next((i for i in a.inv if i.t.tool == "time_pencil"), None) if t.charge in (
         "plastic", "block", "magnetic", "satchel") else None
     if pencil is not None:
@@ -775,35 +810,78 @@ def digging_rate(game, a):
     return rate * shovel.condition
 
 
-def digging_seconds(game, a):
+def digging_seconds(game, a, kind="foxhole"):
     import math
-    progress = a.dig_progress if a.ai.get("dig_at") == a.pos else 0
-    return math.ceil(max(0, 7200-progress) / max(.01, digging_rate(game, a)) * 100 / max(1, a.speed(game.turn)))
+    progress = a.dig_progress if a.ai.get("dig_at") == a.pos and a.ai.get("dig_kind", "foxhole") == kind else 0
+    need = DIG_KIND.get(kind, 7200)
+    return math.ceil(max(0, need - progress) / max(.01, digging_rate(game, a)) * 100 / max(1, a.speed(game.turn)))
 
 
-def dig(game, a) -> int | None:
+DIG_KIND = {"scrape": 1200, "foxhole": 7200}
+
+
+def dig(game, a, kind="foxhole") -> int | None:
     m = game.map
     tid = m.t[a.x, a.y]
-    if not T.DIG[tid] or T.DEFS[int(tid)].key in ("foxhole", "trench", "trench_snow"):
+    from . import floors as FLOORS
+    upper = FLOORS.tile_at(m, a.x, a.y, a.z)
+    if kind == "loop":
+        if not a.z or upper is None or upper.key not in ("upper_window", "upper_window_broken"):
+            return None
+        bag = a.has_tool("sandbags")
+        if bag is None:
+            return None
+        if bag.uses <= 1:
+            a.remove_item(bag)
+        else:
+            bag.uses -= 1
+        FLOORS.set_at(m, a.x, a.y, a.z, "loophole")
+        game.emit_sound(a.x, a.y, 18, "digging", "sandbags thumped into place", a.side, a)
+        if a.is_player:
+            game.msg("You pile sandbags into the window up to a firing slit. Better.", "good")
+        return 300
+    if kind == "sandbags":
+        if a.z or not T.WALK[tid] or m.tile(a.x, a.y).key in ("sandbags", "foxhole", "trench", "trench_snow"):
+            return None
+        bag = a.has_tool("sandbags")
+        if bag is None:
+            return None
+        if bag.uses <= 1:
+            a.remove_item(bag)
+        else:
+            bag.uses -= 1
+        m.set(a.x, a.y, "sandbags")
+        m.refresh()
+        game.emit_sound(a.x, a.y, 18, "digging", "sandbags thumped down", a.side, a)
+        if a.is_player:
+            game.msg("You build up the sandbags in front of you, a course at a time.", "good")
+        return 300
+    if a.z:
+        return None
+    if not T.DIG[tid] or T.DEFS[int(tid)].key in ("foxhole", "trench", "trench_snow", "scrape", "loophole"):
         return None
     if not a.has_tool("shovel"):
         return None
-    if a.ai.get("dig_at") != (a.x, a.y):
+    if a.ai.get("dig_at") != (a.x, a.y) or a.ai.get("dig_kind") != kind:
         a.ai["dig_at"] = (a.x, a.y)
+        a.ai["dig_kind"] = kind
         a.dig_progress = 0
     from .skills import use
-    rate = digging_rate(game, a)
+    rate = digging_rate(game, a) * (game.__dict__.get("_prefs") or {}).get("build_speed", 1.0)
     use(game, a, "construction", .015)
     a.dig_progress += rate
     a.ai["dig_work_until"] = game.turn + max(2, math.ceil(100 / max(1, a.speed(game.turn))))
     if a.dig_progress % 10 == 0:
         game.emit_sound(a.x, a.y, 22, "digging", "digging", a.side, a)
-    if a.dig_progress >= 7200:
+    need = DIG_KIND.get(kind, 7200)
+    if a.dig_progress >= need:
         a.dig_progress = 0
-        m.set(a.x, a.y, "foxhole" if m.climate != "winter" else "trench_snow")
+        m.set(a.x, a.y, ("scrape" if kind == "scrape" else
+                         "foxhole" if m.climate != "winter" else "trench_snow"))
         m.refresh()
         if a.is_player:
-            game.msg("You finish your foxhole. It isn't much, but it's home.", "good")
+            game.msg("You have a scrape to lie in." if kind == "scrape" else
+                     "You finish your foxhole. It isn't much, but it's home.", "good")
         return 100
     return 100
 

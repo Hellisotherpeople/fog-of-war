@@ -78,6 +78,10 @@ def unit_row(game, sq, indent=0):
         state = f"{k['state']} ({_age(game.turn - k['turn'])})"
     else:
         state = status_word(sq)
+        from .garrison import routine_word
+        rw = routine_word(sq)
+        if rw:
+            state = f"{state}, {rw}"
     ch = cmd.channel(game, sq)
     chan = CHAN_SHORT.get(ch["kind"], "?") if ch else "-"
     name = ("  " * indent + unit_label(sq))[:16]
@@ -251,7 +255,10 @@ def unit_menu(ps, squads, title, formation=None):
         o = sq0.order
         k0 = cmd.known_of(g, sq0)
         if k0 is not None and g.turn - k0["turn"] <= 15:
-            lines.append((f"{leader_name(sq0)} - {strength_text(sq0)} - {status_word(sq0)}", UI_TEXT))
+            from .garrison import routine_word
+            rw = routine_word(sq0)
+            lines.append((f"{leader_name(sq0)} - {strength_text(sq0)} - {status_word(sq0)}"
+                          + (f", {rw}" if rw else ""), UI_TEXT))
         elif k0 is not None:
             lines.append((f"{k0.get('ld') or '?'} - {strength_text(sq0, k0)} - {k0['state']} (last word)", UI_TEXT))
         else:
@@ -290,7 +297,9 @@ def unit_menu(ps, squads, title, formation=None):
     mounted = any(v.active and v.passengers for sq in squads for v in sq.vehicles)
     near_transport = any(v.side == p.side and v.active and v.vt.seats > 0 and len(v.passengers) < v.vt.seats
                          for v in g.vehicles)
-    opts = [("Standing mission and freedom of action...", "guidance", HEAD, can("mission")),
+    opts = [("Follow me", "drill_follow_me", (245, 225, 140), can("follow")),
+            ("Battle drills...", "drills", (225, 205, 150), True),
+            ("Standing mission and freedom of action...", "guidance", HEAD, can("mission")),
             ("Appoint an acting commander...", "appointment", None, can("appointment")),
             ("Place these units under another command...", "reassign", None, can("reassign")),
             ("Engineer works and construction...", "construction", None, can("build")),
@@ -355,6 +364,9 @@ def proposals(game, kind, squads, origin) -> list:
     """Where an order could go, best first: the next objective, the enemy positions your side knows about,
     the other objectives.  [(label, (x, y), colour)]."""
     from .senses import direction_word
+    from .doctrine import DRILLS
+    if kind in DRILLS:
+        kind = DRILLS[kind]["kind"]
     p = game.player
     side = p.side
     m = game.map
@@ -444,8 +456,46 @@ def choose_target(ps, kind, squads, cb, start, label=None, cmd=False):
                   chosen, cancel=(lambda: open_command(ps)) if cmd else None)
 
 
+def drill_menu(ps, squads, label=None, formation=None):
+    """The drills this army, this unit and this leader have.  Unavailable ones stay in the list with the
+    reason, so the ladder is visible: practice, rank and the right unit open them up."""
+    g = ps.game
+    from .doctrine import DRILLS, menu
+    opts = []
+    for text, key, ok, why in menu(g, squads):
+        d = DRILLS[key]
+        line = d["label"] + (f" - {why}" if not ok else "")
+        opts.append((line, f"drill_{key}", (230, 215, 160) if ok else (130, 126, 112), ok))
+    lines = [("Battle drills taught to this army and this kind of unit.", UI_DIM)]
+    if squads:
+        from .doctrine import leader_skill, grade
+        from .skills import word
+        lines.append((f"{unit_label(squads[0])}: leader {word(leader_skill(g, squads[0]))}, "
+                      f"grade {grade(g, squads[0])}.", UI_DIM))
+    ps.open_popup(Popup("Battle drills", opts, ps._screen_anchor(), lines=lines, width=78,
+                        footer="Enter: give the drill   Esc: back"),
+                  lambda v: _order(ps, squads, v, label, formation), cancel=lambda: open_command(ps))
+
+
+def _drill(ps, squads, key, label=None):
+    from .doctrine import DRILLS
+    g = ps.game
+    d = DRILLS[key]
+    if not d.get("target"):
+        return _send(ps, squads, d["kind"], None, label=label, drill=key)
+    pt = contact_point(squads[0]) if len(squads) == 1 else None
+    start = pt if pt is not None else (g.player.x, g.player.y)
+    ps.cmd_show = True
+    choose_target(ps, key, squads, lambda pos: _send(ps, squads, d["kind"], pos, label=label, drill=key),
+                  start, d["verb"], cmd=True)
+
+
 def _order(ps, squads, what, label=None, formation=None):
     g = ps.game
+    if what == "drills":
+        return drill_menu(ps, squads, label, formation)
+    if what.startswith("drill_"):
+        return _drill(ps, squads, what[6:], label)
     if what in ("guidance", "appointment", "reassign", "construction"):
         from . import command_work_ui as work
         if what == "appointment":
@@ -477,10 +527,10 @@ def _order(ps, squads, what, label=None, formation=None):
     _send(ps, squads, kind, None, roe, label)
 
 
-def _send(ps, squads, kind, pos, roe=None, label=None):
+def _send(ps, squads, kind, pos, roe=None, label=None, drill=None):
     g = ps.game
     cmd = g.command
-    sent, fails = cmd.issue(g, squads, kind, pos, roe=roe, label=label)
+    sent, fails = cmd.issue(g, squads, kind, pos, roe=roe, label=label, drill=drill)
     ps.cmd_show = False
     for sq, why in fails[:3]:
         g.msg(f"{cap(unit_label(sq))}: {why}", "warn")
@@ -515,7 +565,7 @@ def draw_markers(con, ps):
             _dotted(con, cam, x, y, tgt[0], tgt[1], (200, 190, 120))
             if cam.on_screen(*tgt):
                 tx, ty = cam.to_text(*tgt)
-                sym = ORDER_SYM.get(o.kind, "+")
+                sym = ORDER_SYM.get(o.drill or o.kind, "+")
                 put(con, tx, ty, sym, (240, 220, 120), (40, 35, 20))
         if not cam.on_screen(x, y):
             continue
@@ -545,7 +595,8 @@ def draw_markers(con, ps):
 
 
 ORDER_SYM = {"attack": "X", "assault": "X", "suppress": "*", "flank": ">", "defend": "O", "ambush": "!",
-             "move": "+", "hold": "o", "dig": "o", "resupply": "$"}
+             "move": "+", "hold": "o", "dig": "o", "resupply": "$", "follow": "=",
+             "schwerpunkt": "#", "stoss": "!", "motti": "C", "bite_and_hold": "D", "infiltration": "~"}
 
 
 def draw_recent_orders(con, ps, window=120):
@@ -564,7 +615,7 @@ def draw_recent_orders(con, ps, window=120):
         _dotted(con, cam, k["x"], k["y"], o.target[0], o.target[1], (200, 185, 110))
         if cam.on_screen(*o.target):
             tx, ty = cam.to_text(*o.target)
-            put(con, tx, ty, ORDER_SYM.get(o.kind, "+"), (240, 220, 120), (40, 35, 20))
+            put(con, tx, ty, ORDER_SYM.get(o.drill or o.kind, "+"), (240, 220, 120), (40, 35, 20))
     # still on their way
     for job in cmd.pending:
         o = job.get("order")

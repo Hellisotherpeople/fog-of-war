@@ -156,7 +156,9 @@ class Bank:
                                       for x in self.s[k]]
         # loops
         self.loops = {"battle": self._battle_loop(rng), "wind": self._wind_loop(rng), "rain": self._rain_loop(rng),
-                      "tinnitus": self._tinnitus()}
+                      "tinnitus": self._tinnitus(), "hedge": self._hedge_loop(rng), "field": self._field_loop(rng),
+                      "town": self._town_loop(rng), "jungle": self._jungle_loop(rng), "sea": self._sea_loop(rng),
+                      "night": self._night_loop(rng)}
         self._bursts: dict = {}
 
     def _add(self, k, x):
@@ -395,6 +397,61 @@ class Bank:
         x = _filter(_noise(len(t), rng), lo=150, hi=900, circular=True) * (0.6 + 0.4 * np.sin(2 * np.pi * t / dur * 2))
         return _norm(x, 0.4)
 
+    def _chirp(self, rng, x, hz, dur=0.05, gain=0.2):
+        n = int(SR * dur)
+        t = _t(dur)
+        x = x.copy()
+        p = rng.integers(0, max(1, len(x) - n))
+        x[p:p + n] += np.sin(2 * np.pi * hz * t) * np.exp(-t * 30) * gain
+        return x
+
+    def _hedge_loop(self, rng):
+        dur = 7.0
+        n = int(SR * dur)
+        x = _filter(_noise(n, rng), lo=400, hi=2400, circular=True) * 0.06
+        for _ in range(14):
+            x = self._chirp(rng, x, rng.uniform(2400, 5200), gain=rng.uniform(0.03, 0.09))
+        return _norm(x, 0.3)
+
+    def _field_loop(self, rng):
+        dur = 6.0
+        x = _filter(_noise(int(SR * dur), rng), lo=2500, hi=7000, circular=True) * 0.05
+        for _ in range(8):
+            x = self._chirp(rng, x, rng.uniform(4200, 6800), dur=0.03, gain=0.03)
+        return _norm(x, 0.22)
+
+    def _town_loop(self, rng):
+        dur = 8.0
+        n = int(SR * dur)
+        x = _filter(_noise(n, rng), lo=80, hi=600, circular=True) * 0.05
+        for _ in range(4):                        # a door, a cart, a tin sheet in the wind
+            p = rng.integers(0, n - 2000)
+            x[p:p + 2000] += _filter(_noise(2000, rng), lo=300, hi=1800) * \
+                np.exp(-np.arange(2000) / 500) * 0.05
+        return _norm(x, 0.25)
+
+    def _jungle_loop(self, rng):
+        dur = 7.0
+        n = int(SR * dur)
+        x = _filter(_noise(n, rng), lo=1200, hi=5000, circular=True) * 0.06
+        for _ in range(20):
+            x = self._chirp(rng, x, rng.uniform(3000, 6000), dur=rng.uniform(0.02, 0.08), gain=0.05)
+        return _norm(x, 0.3)
+
+    def _sea_loop(self, rng):
+        dur = 9.0
+        t = _t(dur)
+        x = _filter(_noise(len(t), rng), lo=30, hi=900, circular=True) * (0.5 + 0.5 *
+              np.sin(2 * np.pi * t / 4.5) ** 2)
+        return _norm(x, 0.35)
+
+    def _night_loop(self, rng):
+        dur = 6.0
+        x = _filter(_noise(int(SR * dur), rng), lo=3200, hi=5200, circular=True) * 0.04
+        for _ in range(22):
+            x = self._chirp(rng, x, rng.uniform(3800, 4600), dur=0.04, gain=0.045)
+        return _norm(x, 0.25)
+
     def _rain_loop(self, rng):
         dur = 4.0
         n = int(SR * dur)
@@ -481,7 +538,7 @@ ROF = {"mg42": 20, "mg42_tripod": 20, "mg34": 14, "mg34_tripod": 14, "bar": 9, "
 
 
 class Audio:
-    LOOPS = ("battle", "wind", "rain", "tinnitus")
+    LOOPS = ("battle", "wind", "rain", "tinnitus", "hedge", "field", "town", "jungle", "sea", "night")
 
     def __init__(self, settings):
         import tcod.sdl.audio as A
@@ -672,8 +729,7 @@ class Audio:
                  "surrender")
         from . import translate
         for nat in sorted(nations, key=lambda n: n != game.player_nation):
-            ours = translate.ACTIVE_SIDE is not None and NATIONS[nat].get("side") == translate.ACTIVE_SIDE and \
-                R_lang(nat) != "en"
+            ours = translate.translating(nat, NATIONS[nat].get("side"))
             key = (id(game), nat, self.settings.get("voice_engine", "neural"), ours)
             if key in self._warmed:
                 continue
@@ -790,7 +846,7 @@ class Audio:
 
     def _loops(self, game, intensity):
         amb = self.settings.get("ambience", True) and game is not None
-        want = {"battle": 0.0, "wind": 0.0, "rain": 0.0, "tinnitus": 0.0}
+        want = {k: 0.0 for k in self.LOOPS}
         if amb:
             # the distant war: a murmur when it's quiet, a roar when it isn't - and louder with a battle next door
             near = 0.0
@@ -810,17 +866,42 @@ class Audio:
             for k in ("battle", "wind", "rain"):
                 want[k] *= amb_mix
             p = game.player
+            # the ground you're on has its own quiet: a hedge alive with birds, a street, surf, the canopy
+            bed = None
+            if p is not None and getattr(game, "domain", "land") != "land":
+                bed = "sea"
+            elif p is not None and game.map is not None:
+                m = game.map
+                if m.biome in ("jungle", "volcanic") or m.climate == "tropical":
+                    bed = "jungle"
+                elif m.building_at(p.x, p.y) is not None or m.biome in ("town", "city", "city_ruins", "village",
+                                                                        "factory"):
+                    bed = "town"
+                else:
+                    k = m.tile(p.x, p.y).key
+                    bed = "hedge" if k in ("hedge", "hedgerow", "bush", "tall_grass", "wheat", "corn",
+                                           "sunflower", "orchard", "vineyard", "sugarcane", "forest") else "field"
+                if game.is_night and not getattr(p, "vehicle", None):
+                    want["night"] = 0.12 * self.mix("ambience")
+                    want["battle"] *= 0.75
+            if bed:
+                quiet = 0.16 * (1.0 - 0.55 * intensity)          # ducked under gunfire
+                want[bed] = quiet * self.mix("ambience")
             if p is not None and p.body.deaf > 0:
                 want["tinnitus"] = min(0.5, p.body.deaf / 60.0) * self.mix("effects")
                 want["battle"] *= 0.3
                 want["wind"] *= 0.3
                 want["rain"] *= 0.3
+                for k in ("hedge", "field", "town", "jungle", "sea", "night"):
+                    want[k] *= 0.3
         # the mixer glides each loop to its new level (the weather, a blast that leaves your ears ringing)
         for k in self.LOOPS:
             g = want[k] if want[k] > 0.001 else 0.0
             if self._loop_sent.get(k) != round(g, 4):
                 self._loop_sent[k] = round(g, 4)
-                self.mixer.loop(k, self.bank.loops[k], g, 0.9 if k == "wind" else 1.0)
+                loop = self.bank.loops.get(k)
+                if loop is not None:
+                    self.mixer.loop(k, loop, g, 1.6 if k not in ("battle", "tinnitus") else 0.9)
 
     @property
     def _loop_sent(self):

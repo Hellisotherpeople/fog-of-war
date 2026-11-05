@@ -35,7 +35,7 @@ MOVE_KEYS = {
 VI_KEYS = {"h": (-1, 0), "j": (0, 1), "k": (0, -1), "l": (1, 0), "y": (-1, -1), "u": (1, -1),
            "b": (-1, 1), "n": (1, 1)}
 # capitals run - except the ones that are commands (Y shout, B bandage): run those ways with Shift+numpad
-COMMAND_CAPS = {"Y", "B"}
+COMMAND_CAPS = {"Y", "B", "N", "J", "K"}
 WAIT_KEYS = {E.KeySym.KP_5, E.KeySym.KP_PERIOD}
 
 
@@ -67,8 +67,10 @@ class Key:
             (self.sym in MOVE_KEYS and self.shift)
 
 
-def m_tile(g, p):
-    return g.map.tile(p.x, p.y).key
+def m_tile(g, p, z=None):
+    from .floors import tile_at
+    d = tile_at(g.map, p.x, p.y, p.z if z is None else z)
+    return d.key if d is not None else "air"
 
 
 class PlayState:
@@ -79,7 +81,13 @@ class PlayState:
         landscape = ensure(game)
         self._land_origin = landscape.origin if landscape is not None else None
         game.__dict__["_prefs"] = getattr(app, "settings", None) or {}
+        game.__dict__["_play"] = self
         self._autosaved = time.time()
+        try:
+            if getattr(game, "run_id", None):
+                game.save()               # (the slot exists from the first second: a death before one is still a run)
+        except Exception:
+            pass
         self._rt_last = time.monotonic()
         self._rt_elapsed = 0.0
         self.cam = Camera()
@@ -115,6 +123,7 @@ class PlayState:
         self.map_offset = (0.0, 0.0)    # sub-cell pixel shift of the map layers (smooth scrolling, shake)
         self.shake = 0.0
         self.minimap = bool((getattr(app, "settings", None) or {}).get("minimap", False))  # F5: the sector in a corner
+        self.command_view = bool((getattr(app, "settings", None) or {}).get("command_view", False))  # F8: the trace
         self._mini = None
         self._view_pos = None           # where you were when the view was parked
         self._drag = None               # middle-button pan in progress
@@ -226,6 +235,17 @@ class PlayState:
         draw_overlays(top, g, self.cam, self, sprites)
         from .render import draw_player_pointer
         draw_player_pointer(top, g, self.cam)
+        if self.app.settings.get("show_fps"):
+            import time as _t
+            now = _t.perf_counter()
+            last = self.__dict__.get("_frame_at")
+            ms = (now - last) * 1000 if last else 0.0
+            self.__dict__["_frame_at"] = now
+            top.print(2, 0, f"{ms:5.1f} ms  {int(1000 / ms) if ms > 0.01 else 999} fps", fg=(180, 230, 180))
+        if self.command_view and self.inv_screen is None and self.anim == 0:
+            from .commandview import draw as draw_trace, legend
+            draw_trace(top, self)
+            legend(top)
         if self.minimap and self.inv_screen is None:
             self._draw_minimap(top)
         zn = getattr(self, "_zoom_note", None)
@@ -385,7 +405,8 @@ class PlayState:
         fx, fy = self.cam.frac()
         mw, mh = gfx.map_cell
         sh = 0.0
-        if self.shake > 0 and (getattr(self.app, "settings", None) or {}).get("shake", True):
+        stt = getattr(self.app, "settings", None) or {}
+        if self.shake > 0 and stt.get("shake", True) and not stt.get("reduce_motion"):
             import random as _r
             sh = self.shake * mw * 0.35
             self.map_offset = (fx * mw + _r.uniform(-sh, sh), fy * mh + _r.uniform(-sh, sh))
@@ -784,8 +805,18 @@ class PlayState:
                         lines.append(("Thin skin: your rounds will go through it.", (200, 220, 150)))
         else:
             title = None
-            tile = m.tile(x, y) if vis else T.DEFS[int(m.memory()[x, y])]       # (remembered: as it was)
-            desc = m.describe(x, y) if vis else tile.name + " (remembered)"
+            here_b = m.building_at(p.x, p.y) if p.z else None
+            there_b = m.building_at(x, y) if p.z else None
+            up = None
+            if here_b is not None and there_b is not None and here_b[0] == there_b[0]:
+                from .floors import tile_at
+                up = tile_at(m, x, y, p.z)
+            if up is not None:
+                tile = up
+                desc = tile.name + (": " + tile.desc if tile.desc else "")
+            else:
+                tile = m.tile(x, y) if vis else T.DEFS[int(m.memory()[x, y])]      # (remembered: as it was)
+                desc = m.describe(x, y) if vis else tile.name + " (remembered)"
             if tile.key.startswith("ac_"):
                 from .parked import describe as ac_describe
                 desc = ac_describe(m, x, y) or desc
@@ -916,7 +947,8 @@ class PlayState:
         before = sum(g.player.body.hp.values())
         g.world_turn()
         g.player_fov()
-        self.flash_red = sum(g.player.body.hp.values()) < before
+        st_ = getattr(self.app, "settings", None) or {}
+        self.flash_red = sum(g.player.body.hp.values()) < before and not st_.get("reduce_motion")
         if g.effects:
             self._start_anim()
         self.check_over()
@@ -1022,6 +1054,11 @@ class PlayState:
                 self.flash_red = False
             return
         p = g.player
+        prefs = getattr(self.app, "settings", None) or {}
+        if prefs.get("screen_reader") and now - self.__dict__.get("_sr_at", 0) > 8:
+            self._sr_at = now
+            from . import screenreader
+            screenreader.status(g)
         if g.__dict__.get("succession_pending"):
             if not self.popups:
                 self._succession_menu()
@@ -1029,6 +1066,21 @@ class PlayState:
         if self.auto_wait > 0 and (self.__dict__.get("wait") or {}).get("kind") == "forced":
             self._wait_tick()
             self.anim_next = now + 0.005
+            return
+        if p.ai.get("sleeping") is not None and self.__dict__.get("sleeping_auto") and not g.game_over:
+            deadline = time.perf_counter() + (self.WAIT_BUDGET if self._fast_quiet() else 0.0)
+            while True:
+                g.world_turn()
+                g.player_fov()
+                self.check_over()
+                if p.ai.get("sleeping") is None or g.game_over or self.popups or not self._fast_quiet() or \
+                        time.perf_counter() >= deadline:
+                    break
+            if p.ai.get("sleeping") is None:
+                self.__dict__["sleeping_auto"] = False
+            if g.effects:
+                self._start_anim()
+            self.anim_next = now + 0.03
             return
         if g.__dict__.get("autopilot") and not g.game_over:
             from .succession import set_autopilot
@@ -1136,7 +1188,11 @@ class PlayState:
                 return
             m = g.map
             nx0, ny0 = self.travel_path[0]
-            shut = not m.walk[nx0, ny0] and not T.DOOR[m.t[nx0, ny0]] and m.explored[nx0, ny0]
+            if p.z:
+                from .floors import walkable
+                shut = not walkable(m, nx0, ny0, p.z)
+            else:
+                shut = not m.walk[nx0, ny0] and not T.DOOR[m.t[nx0, ny0]] and m.explored[nx0, ny0]
             known = int(m.explored.sum())
             if shut or (known != self.__dict__.get("travel_known", known) and
                         any(m.explored[q] for q in self.__dict__.get("travel_blind", ()))):
@@ -1447,7 +1503,7 @@ class PlayState:
                 self.wait is not None or self.auto_wait > 0:
             g.player_done()                   # a menu action still charges its full simulation time
             self.reset_realtime_clock()
-        if sum(p.body.hp.values()) < hp_before:
+        if sum(p.body.hp.values()) < hp_before and not (getattr(self.app, "settings", None) or {}).get("reduce_motion"):
             self.flash_red = True
         if g.effects:
             px, py = (p.vehicle.x, p.vehicle.y) if p.vehicle is not None else (p.x, p.y)
@@ -1472,7 +1528,11 @@ class PlayState:
     def _maybe_autosave(self):
         st = getattr(self.app, "settings", None) or {}
         g = self.game
-        if not st.get("autosave", True) or g.game_over or time.time() - self.__dict__.get("_autosaved", 0) < 300:
+        mins = st.get("autosave_minutes", 5) if st.get("unlocked") else 5
+        if st.get("unlocked") and not mins:
+            return
+        gap = max(30, int(mins or 5) * 60)
+        if not st.get("autosave", True) or g.game_over or time.time() - self.__dict__.get("_autosaved", 0) < gap:
             return
         if self.travel_path or self.running or self.auto_wait:
             return                       # not in the middle of something
@@ -1529,7 +1589,10 @@ class PlayState:
             ("Y", "Yell", "Call out to nearby soldiers."),
             ("X", "Find nearest person / service", "Add a specialist or HQ visit to T with an arrow and Enter route; terrain passability."),
             ("F7", "Go to objective (stop at contact)", "Carry out routine travel using normal actions and world turns; stop for combat or decisions."),
-            ("A", "Autopilot", "Let your soldier follow orders, or take control again."),
+            ("A", "Autopilot", "Let him get on with his trade and his orders - medic, fitter, gunner, crewman - or take control again."),
+            ("N", "Sleep", "Lie down. The war goes on and wakes you when it matters."),
+            ("J", "Diary", "The pocket book: what has happened to you this battle."),
+            ("K", "Field manual", "The pages the ground has taught you so far."),
             ("?", "Help / controls", "Search every key and learn how to play."),
         ]
         return search_choices(self.app, "Find a command",
@@ -1547,10 +1610,29 @@ class PlayState:
                 g.drill.skip(self)
                 return
             g.drill.key(self, key)
+        if p.ai.get("sleeping") is not None and not self.popups and self.inv_screen is None:
+            if key.char == "N" or key.sym == E.KeySym.ESCAPE:
+                from . import sleep
+                sleep.wake(g, p, "order")
+                self.__dict__["sleeping_auto"] = False
+                return
+            if key.char not in ("/", "?", "m", "x", ";", "T", "@", "P", "+", "-", "="):
+                from . import sleep
+                sleep.wake(g, p, "order")          # (any other key: you're up, and it does what it does)
+                self.__dict__["sleeping_auto"] = False
         if key.sym == E.KeySym.F7 and not self.popups and self.inv_screen is None:
             return self.cmd_objective_travel()
         if key.sym == E.KeySym.F6 and not self.popups and self.inv_screen is None:
             return self.cmd_realtime()
+        if key.sym == E.KeySym.F9 and not self.popups and self.inv_screen is None:
+            return self.cmd_follow_me()
+        if key.sym == E.KeySym.F8 and self.inv_screen is None:
+            self.command_view = not self.command_view
+            if getattr(self.app, "settings", None) is not None:
+                self.app.settings["command_view"] = self.command_view
+                self.app.settings.save()
+            g.msg("The trace is " + ("laid over the ground." if self.command_view else "lifted."), "info")
+            return
         if self.anim > 0:
             self.anim = 0
             self.anim_groups = []
@@ -1638,6 +1720,10 @@ class PlayState:
             self.app.push(EscMenuState(self.app, self))
             return
         c = key.char
+        if key.sym == E.KeySym.BACKSPACE:
+            return self.cmd_cancel_order()
+        if c == "O" and (getattr(key, "lshift", False) or getattr(key, "rshift", False)):
+            return self.cmd_orders(queue=True)
         if c is None:
             if key.sym == E.KeySym.TAB:
                 return self.begin_target()
@@ -1657,6 +1743,7 @@ class PlayState:
             "+": lambda: self.zoom(1), "=": lambda: self.zoom(1), "-": lambda: self.zoom(-1),
             "G": self.cmd_staff, "W": self.cmd_pace, "!": self.cmd_safe_mode, "'": self.cmd_ignore_danger,
             "T": self.cmd_orders_book, "A": self.cmd_autopilot, "E": self.cmd_talk, "X": self.cmd_contacts,
+            "N": self.cmd_sleep, "J": self.cmd_diary, "K": self.cmd_manual,
         }.get(c)
         if handler:
             return handler()
@@ -2174,6 +2261,12 @@ class PlayState:
         g = self.game
         p = g.player
         m = g.map
+        if p.z:
+            from .floors import route_cells
+            pts = route_cells(g, p, tx, ty)
+            if not pts:
+                return None
+            return pts, (tx, ty)
         cost = self._route_costs(tx, ty, stop_short)
         if cost[tx, ty] == 0:
             best = None
@@ -3457,7 +3550,7 @@ class PlayState:
         if what == "auto":
             return self._patch_up(p)
         if what == "warm":
-            b.warm(720)
+            b.set_warm(720)
             if p.stance == 0:
                 p.stance = 2
             g.msg("You lie flat, feet propped, and wrap up against the cold. The grey recedes a little.", "good")
@@ -3926,6 +4019,23 @@ class PlayState:
         """z: wait a minute, watching (Z for longer)."""
         self.begin_wait("time", 60, quick=True)
 
+    def cmd_sleep(self):
+        """N: lie down and sleep (sleep.py) - the war goes on around you and wakes you when it matters."""
+        from . import sleep
+        g = self.game
+        p = g.player
+        if p.ai.get("sleeping") is not None:
+            sleep.wake(g, p, "order")
+            self.__dict__["sleeping_auto"] = False
+            return
+        ok, why = sleep.can(g, p)
+        if not ok:
+            g.msg(f"You can't sleep: {why}.", "info")
+            return
+        if sleep.begin(g, p):
+            self.__dict__["sleeping_auto"] = True
+            self.stop_auto()
+
     def cmd_overmap(self):
         from .ui import OvermapState
         if self.game.__dict__.get("drill"):
@@ -3935,6 +4045,14 @@ class PlayState:
     def cmd_log(self):
         from .ui import LogState
         self.app.push(LogState(self.app, self.game))
+
+    def cmd_diary(self):
+        from .ui import DiaryState
+        self.app.push(DiaryState(self.app, self.game))
+
+    def cmd_manual(self):
+        from .ui import ManualState
+        self.app.push(ManualState(self.app, self.game))
 
     def cmd_help(self):
         """F1 / ?: how to play - opened at "Right now", the keys for where you are this moment."""
@@ -4042,7 +4160,7 @@ class PlayState:
                     veh = g.vehicle_at.get((x, y))
                     if veh is not None and not veh.dead and veh not in [n[1] for n in near if n[0] == "veh"]:
                         near.append(("veh", veh))
-                    a = g.soldier_at.get((x, y))
+                    a = g.actor_at(x, y, p.z)
                     if a is not None and a is not p and a.side == p.side and a.alive:
                         near.append(("man", a))
             head = len(rows)
@@ -4075,7 +4193,7 @@ class PlayState:
             rows += [("k", "f|Tab", "aim and fire"), ("k", "c|p", "get low - prone behind cover is best"),
                      ("k", "q", "lean out of cover to shoot, and back"), ("k", "!|'", "safe mode off / ignore what you see")]
         if v is None and m is not None:
-            t = m.tile(p.x, p.y).key
+            t = m_tile(g, p) if p.z else m.tile(p.x, p.y).key
             if t == "stairs" or t == "trapdoor" or getattr(p, "z", 0):
                 from .actions import floor_word
                 rows.append(("h", f"On {floor_word(g, p)}" if getattr(p, "z", 0) else "Stairs"))
@@ -4100,15 +4218,31 @@ class PlayState:
         if p.vehicle is not None:
             g.msg("Not from in there. Get out first.", "info")
             return
-        c = A.dig(g, p)
+        from . import floors as FLOORS
+        up = FLOORS.tile_at(g.map, p.x, p.y, p.z)
+        opts = [("Scrape a hollow to lie in (quick)", "scrape", "Ten minutes. Enough to get your head down."),
+                ("Dig a foxhole", "foxhole", "Half an hour or more of hard work. Proper cover.")]
+        if p.has_tool("sandbags"):
+            if p.z and up is not None and up.key in ("upper_window", "upper_window_broken"):
+                opts.insert(0, ("Build a loophole in the window", "loop", "Sandbags up to a firing slit."))
+            elif not p.z:
+                opts.insert(0, ("Build up sandbags here", "sandbags", "One bag's worth into a parapet."))
+        self.open_popup(Popup("Dig", [(a, b, c, True) for a, b, c in opts], self._screen_anchor(),
+                              lines=[("Any key stops. Your work stays where you left it." if False else
+                                      "The work is real time: they may not let you finish.", UI_DIM)]),
+                        self._dig_kind)
+
+    def _dig_kind(self, kind):
+        g = self.game
+        p = g.player
+        c = A.dig(g, p, kind)
         if c is None:
-            if not p.has_tool("shovel"):
-                g.msg("You have nothing to dig with.", "info")
-            else:
-                g.msg("You can't dig here.", "info")
+            g.msg("You can't do that here.", "info")
             return
+        if kind in ("sandbags", "loop"):
+            return self.act(c)
         if not self.__dict__.get("digging"):
-            left = max(1, math.ceil(A.digging_seconds(g, p) / 60))
+            left = max(1, math.ceil(A.digging_seconds(g, p, kind) / 60))
             g.msg(f"You start digging in - about {left} minutes of work, if they let you. (any key stops)", "info")
         self.digging = True
         self.mark_interrupt()
@@ -4414,6 +4548,9 @@ class PlayState:
         if what == "surrender":
             from .pow import begin_captivity
             g.msg("You throw down your weapon and raise your hands.", "warn")
+            if p.rank >= 8 or p.command_grade >= 8:
+                from .heroism import officer_surrenders
+                officer_surrenders(g, p)
             p.say(g.shout(p, "surrender"), g.turn, 4)
             res = begin_captivity(g)
             if res == "shot":
@@ -4653,6 +4790,14 @@ class PlayState:
 
         def used_one():
             p.consume_use(it)
+        if tool == "camera":
+            if not p.consume_use(it):
+                g.msg("You're out of exposures.", "warn")
+                return
+            from . import diary
+            text = diary.photo(g, "for the book")
+            g.msg(f"You take a photograph. {text}", "info")
+            return self.act(200)
         if tool == "stimulant":
             used_one()
             last = p.ai.get("stim_turn", -10 ** 9)
@@ -4749,6 +4894,14 @@ class PlayState:
             return self.cmd_binoculars()
         if tool == "radio":
             return self.cmd_radio()
+        if tool == "camera":
+            if not p.consume_use(it):
+                g.msg("You're out of exposures.", "warn")
+                return
+            from . import diary
+            text = diary.photo(g, "for the book")
+            g.msg(f"You take a photograph. {text}", "info")
+            return self.act(200)
         if tool in ("wireless", "sphone", "torch", "camera", "time_pencil", "code", "film", "money", "cover_papers",
                     "papers", "trade"):
             from . import agents as AG
@@ -4764,6 +4917,14 @@ class PlayState:
         if tool == "watch":
             g.msg(f"It's {g.now().strftime('%H:%M')} on {g.now().strftime('%d %B %Y')}.", "info")
             return self.act(20)
+        if tool == "camera":
+            if not p.consume_use(it):
+                g.msg("You're out of exposures.", "warn")
+                return
+            from . import diary
+            text = diary.photo(g, "for the book")
+            g.msg(f"You take a photograph. {text}", "info")
+            return self.act(200)
         if tool == "map":
             return self.cmd_overmap()
         if tool == "orders":
@@ -5356,14 +5517,56 @@ class PlayState:
             self._order_attack((x, y))
 
     # ---------------------------------------------------------------- squad orders
+    def cmd_follow_me(self):
+        """F9: the one order every leader gives.  Your own section first, or the nearest unit you can reach."""
+        g = self.game
+        p = g.player
+        sq = p.squad
+        if sq is None or sq.gone:
+            # alone: the nearest section that will take it from you
+            near = [s for s in g.squads if s.side == p.side and not s.gone
+                    and max(abs((s.anchor() or (999, 999))[0] - p.x), abs((s.anchor() or (999, 999))[1] - p.y)) <= 6
+                    and g.command.authority(g, s)[0]]
+            if not near:
+                return g.msg("There's nobody at hand to follow you.", "info")
+            sq = min(near, key=lambda s: max(abs(s.anchor()[0] - p.x), abs(s.anchor()[1] - p.y)))
+        sq.player_led = True
+        sq.leader = p
+        ok, why = g.command.authority(g, sq)
+        if not ok:
+            return g.msg(why, "warn")
+        sent, fails = g.command.issue(g, [sq], "follow", drill="follow_me")
+        if not sent:
+            g.msg(fails[0][1] if fails else "Nobody hears you.", "warn")
+            return
+        self._following_order = None
+        self.act(60)
+
     def cmd_command(self):
         from .cmdui import open_command
         open_command(self)
 
-    def cmd_orders(self):
+    def cmd_cancel_order(self):
         g = self.game
         p = g.player
         sq = p.squad
+        if sq is None or not sq.player_led or sq.order.kind in ("hold", "follow"):
+            g.msg("No order to cancel.", "info")
+            return
+        from .orders import cancel_current
+        cancel_current(sq)
+        q = len(sq.rep.get("queue") or [])
+        g.msg("Order cancelled - hold where you are." + (f" ({q} queued order(s) dropped)" if q else ""), "info")
+        self.act(60)
+
+    def cmd_orders(self, queue=False):
+        g = self.game
+        p = g.player
+        sq = p.squad
+        self._queue_mode = bool(queue)
+        if queue and (sq is None or not sq.player_led):
+            g.msg("You're not leading anyone to queue orders for.", "info")
+            return
         if sq is None or not sq.player_led:
             from .cmdui import command_units
             chain, others = command_units(g)
@@ -5392,6 +5595,19 @@ class PlayState:
         g = self.game
         p = g.player
         sq = p.squad
+        if self.__dict__.get("_queue_mode") and what in ("move", "attack", "flank", "suppress"):
+            from .cmdui import choose_target
+            from .orders import queue_order
+
+            def put(pos):
+                queue_order(sq, what, pos, 4)
+                p.say("Next, over there!", g.turn)
+                g.msg(f"You point it out: '{what.title()}, there - after this.' ({len(sq.rep['queue'])} queued)",
+                      "shout")
+                self._queue_mode = False
+                self.act(30)
+            return choose_target(self, what, [sq], put, (p.x, p.y), what)
+        self._queue_mode = False
         if what == "follow":
             sq.order = Order("follow", issued=g.turn)
             sq.arrived = False
@@ -5573,6 +5789,8 @@ class PlayState:
     def cmd_radio(self):
         g = self.game
         p = g.player
+        if g.__dict__.get("drill") is not None:
+            g.stats["drill_radio"] = g.stats.get("drill_radio", 0) + 1
         from . import agents as AG
         if AG.has_wireless(p) and not self._can_radio():
             return AG.open_wireless(self)            # an agent's set talks to London, not to the guns
@@ -5597,6 +5815,8 @@ class PlayState:
         ok, why = can_call(g)
         opts.append(("Request medical evacuation - stretcher-bearers" + (f" ({why})" if not ok else ""), "medevac",
                      (240, 170, 170), ok))
+        if self.__dict__.get("last_fire"):
+            opts.append(("Repeat the last fire mission", "repeat", (240, 200, 140), True))
         opts.append(("Ask for a situation report", "sitrep", None, True))
         if AG.has_wireless(p):
             opts.append(("The wireless set: Morse to base (reports, drops)", "wireless", (220, 200, 140), True))
@@ -5629,6 +5849,9 @@ class PlayState:
         elif what == "wireless":
             from . import agents as AG
             AG.open_wireless(self)
+        elif what == "repeat":
+            x, y = self.last_fire
+            self._fire_mission((x, y))
         elif what == "sitrep":
             st = g.strategic.overview()
             mine = st["allies" if p.side == "allies" else "axis"]
@@ -5650,6 +5873,8 @@ class PlayState:
         ok = g.support.request_fire(p.side, x, y, caller=p)
         if ok:
             g.stats["fire_missions"] += 1
+            self.last_fire = (x, y)
+            g.msg("Watch the fall. R on the radio repeats it there if it's worth repeating.", "info")
         self.act(300)
 
     def _smoke_mission(self, pos):

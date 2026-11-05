@@ -111,7 +111,11 @@ def needs_words(v) -> list[str]:
 
 
 def is_supply_truck(v) -> bool:
-    return v.vt.vtype == "truck" and v.ai.get("cargo", 0) > 0 and not v.dead
+    return v.vt.vtype == "truck" and (v.ai.get("cargo", 0) > 0 or v.ai.get("belt_cargo", 0) > 0) and not v.dead
+
+
+def seed_belts(t) -> int:
+    return int(t.ai.get("belt_cargo", 0))
 
 
 # ============================================================================ circumstances
@@ -279,6 +283,7 @@ def tick(game):
         try:
             _repair(game, v)
             _rearm(game, v)
+            _seek_repair(game, v)
             _seek_supply(game, v)
         except Exception:
             import os
@@ -406,7 +411,11 @@ def _rearm(game, v):
     if belts > 0:
         from .sustain import take
         rounds = min(belts, 50 * hands)
-        if take(game.sector_for(v), v.side, "ammo", rounds / 250):
+        if kind == "truck":
+            rounds = min(rounds, seed_belts(s))
+            s.ai["belt_cargo"] = max(0, s.ai.get("belt_cargo", 0) - rounds)
+            v.mg_ammo += rounds
+        elif take(game.sector_for(v), v.side, "ammo", rounds / 250):
             v.mg_ammo += rounds
     if shells_short(v) <= 0 and mg_short(v) <= 0:
         v.ai.pop("rearming", None)
@@ -428,10 +437,80 @@ def _load_rounds(v, n):
             v.he += 1
 
 
+def _pool_for(game, v, limit=140):
+    """The nearest workshop of its own side, if it's worth the drive."""
+    best = None
+    for rec in getattr(game.map, "gen_positions", None) or []:
+        if rec.get("kind") not in ("motor_pool", "factory") or rec.get("side") != v.side or rec.get("destroyed"):
+            continue
+        d = max(abs(rec["x"] - v.x), abs(rec["y"] - v.y))
+        if d > limit:
+            continue
+        if best is None or d < best[0]:
+            best = (d, rec["x"], rec["y"])
+    return None if best is None else best[1:]
+
+
+def _seek_repair(game, v):
+    """A damaged machine goes to the fitters, or asks for them - a hull is no place to overhaul an engine.
+
+    A thrown track is a crew job where the tank stands.  An engine, gun or transmission wants the motor pool
+    or the fitters' truck, and a tank that can still move gets itself there instead of waiting to be shelled
+    while the crew work in the open."""
+    sq = v.squad
+    if v.player_crewed or v.vt.static or not v.mobile or sq is None or sq.player_led or \
+            getattr(sq.order, "src", "ai") == "player" and v.ai.get("to_repair") is None:
+        return
+    todo = [j for j in repairs(v) if JOBS[j][2]]
+    flag = v.ai.get("to_repair")
+    if not todo:
+        if flag is not None:
+            v.ai.pop("to_repair", None)
+            back = v.ai.pop("repair_back", None)
+            from .ai import Order
+            if back is not None:
+                sq.order = Order("move", target=tuple(back), radius=6, issued=game.turn)
+            else:
+                sq.order = Order("hold", target=(v.x, v.y), issued=game.turn)
+            _tell(game, v, f"The {v.vt.name} is fit again and rejoins.", "good")
+        return
+    if at_motor_pool(game, v):
+        from .ai import Order
+        if flag is None:
+            v.ai["to_repair"] = (v.x, v.y)
+            anc = sq.anchor()
+            if anc is not None:
+                v.ai["repair_back"] = anc
+            _tell(game, v, f"The {v.vt.name} is in the motor pool and the fitters take it on.", "info")
+        if sq.order.kind != "hold":
+            sq.order = Order("hold", target=(v.x, v.y), radius=3, issued=game.turn)
+        return
+    pool = _pool_for(game, v)
+    if pool is None:
+        # nowhere to go: ask for the fitters' truck, now and then, and work where it stands if it's quiet
+        if game.turn - v.ai.get("asked_fitters", -9999) > 900:
+            v.ai["asked_fitters"] = game.turn
+            call_truck(game, v.side, target=(v.x, v.y))
+        return
+    if flag is None:
+        v.ai["to_repair"] = pool
+        anc = sq.anchor()
+        if anc is not None:
+            v.ai["repair_back"] = anc
+        _tell(game, v, f"The {v.vt.name} is hit in the works and pulls back to the motor pool.", "warn")
+    from .ai import Order
+    if max(abs(v.x - pool[0]), abs(v.y - pool[1])) > 4:
+        if sq.order.kind != "move" or v.ai.get("to_repair") != pool:
+            sq.order = Order("move", target=tuple(pool), radius=3, issued=game.turn)
+            sq.arrived = False
+
+
 def _seek_supply(game, v):
     """An AI vehicle low on rounds, and a truck about: it goes to the truck when things are quiet."""
     if v.player_crewed or v.vt.static or not v.vt.speed or not v.tracks or not v.engine:
         return
+    if v.ai.get("to_repair") is not None and not at_motor_pool(game, v):
+        return                                     # (the works come first: it's going to the shop)
     sq = v.squad
     if sq is None or sq.player_led or getattr(sq.order, "src", "ai") == "player":
         return
@@ -447,6 +526,8 @@ def _seek_supply(game, v):
     t = min(trucks, key=lambda t: abs(t.x - v.x) + abs(t.y - v.y))
     if abs(t.x - v.x) + abs(t.y - v.y) > 160:
         return
+    if sq.order.kind == "resupply" and v.ai.get("to_truck") == t.id:
+        return                                    # (already on its way: don't reset it every few seconds)
     from .ai import Order
     sq.order = Order("resupply", target=(t.x, t.y), radius=4, issued=game.turn)
     sq.arrived = False
@@ -465,7 +546,7 @@ def call_truck(game, side, target=None, why=None) -> str | None:
         if lp is None or (lp[0], lp[1]) != (t.x, t.y):
             t.ai["run_pos"] = lp = (t.x, t.y, game.turn)
         return game.turn - lp[2] < 600            # (a truck that hasn't moved in ten minutes isn't coming)
-    if any(t.side == side and is_supply_truck(t) and on_its_way(t) for t in game.vehicles):
+    if any(t.side == side and t.ai.get("supply_run") and on_its_way(t) for t in game.vehicles):
         return "There's a truck up here already." if why else None
     if target is None:
         low = [v for v in game.vehicles if v.side == side and not v.dead and not v.abandoned and
@@ -501,7 +582,8 @@ def call_truck(game, side, target=None, why=None) -> str | None:
     materials = min(30., stores(game.sector, side)["materials"])
     take(game.sector, side, "parts", parts)
     take(game.sector, side, "materials", materials)
-    t.ai.update(cargo=load, parts_cargo=parts, material_cargo=materials, delivered=0, fitters=True,
+    t.ai.update(cargo=load, belt_cargo=max(200, load // 3), parts_cargo=parts, material_cargo=materials,
+                delivered=0, fitters=True,
                 supply_run=dict(until=game.turn + 3600, target=tuple(target), edge=edge))
     if why or (game.player is not None and game.player.side == side and game.player.vehicle is not None):
         game.msg("Radio: 'Ammunition truck on its way up to you - fitters aboard.'", "radio")
@@ -519,7 +601,7 @@ def _trucks(game):
         home = run.get("edge")
         busy = any(v is not t and v.side == t.side and v.active and repairs(v) and v.near(t.x, t.y) <= 8
                    for v in game.vehicles)
-        done = (t.ai.get("cargo", 0) <= 0 and t.ai.get("parts_cargo", 0) <= 0 and
+        done = (t.ai.get("cargo", 0) <= 0 and t.ai.get("belt_cargo", 0) <= 0 and t.ai.get("parts_cargo", 0) <= 0 and
                 t.ai.get("material_cargo", 0) <= 0) or (game.turn > run["until"] and not busy)
         if done and not run.get("going"):
             run["going"] = True

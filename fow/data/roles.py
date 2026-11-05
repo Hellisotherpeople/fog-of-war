@@ -282,6 +282,7 @@ def build_kit(rng: random.Random, nation: str, year: float, role: str, *, para: 
         add("whistle")
         add("watch")
         add("binoculars" if role != "platoon_sergeant" or rng.random() < 0.5 else None)
+        add("camera" if rng.random() < 0.25 else None)
         add("map" if role != "platoon_sergeant" else None)
         grenades = rng.randint(1, 3)
     elif role == "squad_leader":

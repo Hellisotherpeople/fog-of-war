@@ -112,6 +112,8 @@ def make_soldier(game, nation: str, role: str, rank: int | None = None, para=Fal
     from .flavor import stamp
     for it in a.inv:
         stamp(game, it, a)             # his rifle's serial, his tags, the letter from home
+    from . import difficulty
+    difficulty.scale_enemy(game, a)    # (the preset's weight on his training and his nerve)
     return a
 
 

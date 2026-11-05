@@ -43,14 +43,14 @@ def draw(app, ps):
                         getattr(ps, "map_offset", None))
 
 
-def run(th, nat, seed, steps, app, verbose=False):
+def run(th, nat, seed, steps, app, verbose=False, scenario=None):
     if app.gfx is not None:
         app.gfx.enable_sprites(seed % 2 == 0)             # half the games in sprites, half in ASCII (as F2 does)
     role = random.Random(seed * 3 + len(th)).choice(ROLE_POOL) if ROLE_POOL else None
     app.settings["succession"] = ("off", "on", "choose")[seed % 3]     # carrying on as someone else, a third each
     app.settings["succession_rule"] = random.Random(seed).choice(("squad", "unit", "nearest", "role", "rank",
                                                                    "random", "killer"))
-    g = Game(th, nat, role=role, seed=seed)
+    g = Game(th, nat, role=role, seed=seed, setup=dict(scenario=scenario) if scenario else None)
     ps = PlayState(app, g)
     app.states = [ps]
     rng = random.Random(seed)
@@ -187,8 +187,10 @@ def run(th, nat, seed, steps, app, verbose=False):
                 book.on_key(Key(sym=rng.choice((E.KeySym.RETURN, E.KeySym.ESCAPE))))
                 if app.states[-1] is book:
                     app.pop()
-        elif r < 0.99:
+        elif r < 0.988:
             key(c='A')                                 # autopilot on / off
+        elif r < 0.991:
+            key(c='N')                                 # sleep / get up
         elif r < 0.993:
             key(sym=E.KeySym.F7)                       # real-action objective travel
         elif r < 0.996:
@@ -224,12 +226,13 @@ seeds = int(sys.argv[2]) if len(sys.argv) > 2 else 1
 steps = int(sys.argv[3]) if len(sys.argv) > 3 else 300
 failures = 0
 for th in ths:
+    theatre, scenario = (th, None) if th in THEATRES else ("bocage44", th)
     for s in range(seeds):
         side = random.Random(s).choice((ALLIES, AXIS)) if len(sys.argv) < 5 else sys.argv[4]
-        nats = THEATRES[th]['sides'][side]
+        nats = THEATRES[theatre]['sides'][side]
         nat = random.Random(s+7).choice(nats)[0]
         try:
-            res = run(th, nat, 1000 + s, steps, app)
+            res = run(theatre, nat, 1000 + s, steps, app, scenario=scenario)
             print(res, flush=True)
         except Exception:
             failures += 1

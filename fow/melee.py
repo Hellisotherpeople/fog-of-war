@@ -144,7 +144,7 @@ def surprised(game, target, attacker) -> bool:
     """He hasn't seen you coming: not properly aware of you (stealth.notice), or asleep, or out cold."""
     if not target.active:
         return False
-    if target.body.unconscious > 0:
+    if target.body.unconscious > 0 or target.ai.get("sleeping") is not None:
         return True
     if target.is_player:
         # you: if you can't see him - behind you, in the dark - you never get your hands up

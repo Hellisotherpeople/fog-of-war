@@ -42,7 +42,8 @@ ROE_NAME = {"free": "fire at will", "return": "return fire only", "hold": "hold 
 
 
 class Order:
-    __slots__ = ("kind", "target", "obj", "radius", "issued", "src", "roe", "until", "world_objective")
+    __slots__ = ("kind", "target", "obj", "radius", "issued", "src", "roe", "until", "world_objective",
+                 "mod", "drill")
 
     def __init__(self, kind: str, target=None, obj=None, radius=6, issued=0, src="ai", roe="free"):
         # attack, assault, defend, move, hold, retreat, follow, suppress, flank, ambush, dig,
@@ -56,6 +57,8 @@ class Order:
         self.src = src            # "ai" (the side's plan) or "player" (your orders stand until changed)
         self.roe = roe            # free / return / hold
         self.until = None
+        self.mod = {}             # the drill's weights (doctrine.py)
+        self.drill = None
 
     def __setstate__(self, state):
         # saves from before orders had a source and rules of engagement
@@ -63,12 +66,17 @@ class Order:
         self.src = "ai"
         self.roe = "free"
         self.until = None
+        self.mod = {}
+        self.drill = None
         for k, v in (slots or {}).items():
             setattr(self, k, v)
         if not hasattr(self, "world_objective"):
             self.world_objective = None
 
     def describe(self, game) -> str:
+        if self.drill:
+            from .doctrine import DRILLS
+            return DRILLS[self.drill]["label"]
         m = game.map
         if self.obj is not None and self.obj < len(m.objectives):
             name = m.objectives[self.obj].name
@@ -264,6 +272,13 @@ def path_step(game, a, tx, ty, margin=10) -> int | None:
     """Follow a short A*-style path to (tx,ty) computed on a cropped window."""
     if (a.x, a.y) == (tx, ty):
         return None
+    if a.z:
+        from .floors import step_path
+        c = step_path(game, a, tx, ty)
+        if c is not None:
+            return c
+        # no way across this floor: the stairs are how the squad's business is reached
+        return None
     m = game.map
     if not m.in_bounds(tx, ty):
         # A destination beyond the simulated frame (a reframe moved it out): head for the nearest point of it.
@@ -391,7 +406,7 @@ def respects_red_cross(shooter, e) -> bool:
     return True
 
 
-def threat_value(e, shooter) -> float:
+def threat_value(e, shooter, game=None) -> float:
     if getattr(e, "vt", None) is not None:
         return 5.0
     if e.state != "ok":
@@ -407,7 +422,9 @@ def threat_value(e, shooter) -> float:
     if e.role == "radioman":
         v = 1.8
     if e.is_player:
-        v *= 1.0
+        if game is not None:
+            from .renown import threat
+            v *= threat(game, e)
     return v
 
 
@@ -494,7 +511,7 @@ def choose_target(game, a, vis):
             if respects_red_cross(a, e) and (w.t.cat == "sniper" or d > 3):
                 continue                          # a man picking his shot doesn't pick the medic
             p = estimate_hit(game, a, w, e)
-            s = threat_value(e, a) * (0.2 + p) / (1 + d / 30)
+            s = threat_value(e, a, game) * (0.2 + p) / (1 + d / 30)
             if e.is_player:
                 s *= 1.05
             if aim is not None and aim == (e.x, e.y):
@@ -600,6 +617,16 @@ def squad_update(game, sq: Squad):
     avg_mor = sum(m.morale for m in act) / max(1, len(act)) if act else 50.0
     lead_bonus = 8 if sq.leader is not None and sq.leader.state == 'ok' and not sq.leader.downed else -10
     sq.morale = avg_mor - cas * 35 - avg_sup * 0.15 + lead_bonus
+    mod = getattr(sq.order, "mod", None) or {}
+    sq.morale += mod.get("morale", 0.0)
+    _o = sq.order
+    if mod.get("volley") and sq.rep.get("volley_set") != _o.issued:
+        sq.rep["volley_set"] = _o.issued
+        _o.roe = "hold"
+    if mod.get("decoy") and sq.rep.get("decoy_issued") != _o.issued:
+        sq.rep["decoy_issued"] = _o.issued
+        from .doctrine import decoys
+        decoys(game, sq, _o.target or sq.anchor() or (game.player.x, game.player.y))
     # enemy tanks nearby with no AT weapon
     if brain.contacts:
         tanks = [c for c in brain.live_contacts(15, False) if c.kind == "tank"]
@@ -618,12 +645,27 @@ def squad_update(game, sq: Squad):
         o.roe = "free"
         sq.arrived = True
         lead = sq.leader if sq.leader is not None and sq.leader.active else None
+        if (getattr(o, "mod", None) or {}).get("volley"):
+            for mm in sq.members:
+                mm.ai["volley"] = t + 8          # the Feuerüberfall: one heavy volley before he can answer
+            if lead is not None:
+                game.emit_sound(lead.x, lead.y, 70, "shout", "the fire ambush", sq.side, lead)
         if lead is not None:
             lead.say(phrase(game.rng, lead.nation, "ambush_fire"), t, 3)
             if lead.has_tool("whistle"):
                 game.emit_sound(lead.x, lead.y, 60, "whistle", "a whistle blast", sq.side, lead)
     collapse = sq.morale < 5 and cas > 0.45 and not sq.player_led
-    if collapse and kind in ("suppress", "ambush", "flank", "dig", "mount", "regroup", "resupply"):
+    if mod.get("banzai") and sq.state not in ("rout",):
+        sq.state = "banzai"
+    elif mod.get("watch"):
+        sq.arrived = True
+        sq.state = "hold"
+    elif mod.get("infiltrate") and o.target is not None and t - sq.last_contact >= 4:
+        sq.flank_target = o.target
+        sq.state = "flank"
+    elif mod.get("hold_on_arrival") and sq.arrived:
+        sq.state = "hold"
+    elif collapse and kind in ("suppress", "ambush", "flank", "dig", "mount", "regroup", "resupply"):
         if sq.state not in ("banzai", "rout"):          # roll once, don't flip every update
             sq.state = "banzai" if doc.get("banzai") and game.rng.random() < 0.7 else "rout"
     elif kind == "suppress":
@@ -692,6 +734,10 @@ def squad_update(game, sq: Squad):
             if not sq.arrived:
                 sq.arrived = True
                 sq.positions = {}
+                if sq.player_led and sq.rep.get("queue"):
+                    from .orders import next_queued
+                    if next_queued(game, sq):
+                        sq.arrived = False
         elif d > o.radius + 12:
             sq.arrived = False
     if seen and t % 4 == 0:
@@ -728,7 +774,13 @@ def designate(game, sq):
             looked.add(id(e))
             if getattr(e, "vt", None) is not None or not e.alive or e.state != "ok" or e.downed:
                 continue                          # (tanks are the anti-tank men's business)
-            sc = threat_value(e, mm) / (1 + math.hypot(e.x - anc[0], e.y - anc[1]) / 40)
+            sc = threat_value(e, mm, game) / (1 + math.hypot(e.x - anc[0], e.y - anc[1]) / 40)
+            mod = getattr(sq.order, "mod", None) or {}
+            if mod.get("schwerpunkt") and sq.order.target is not None:
+                # the point of main effort: a target near it matters more than one that is merely close
+                sc *= 1 + max(0.0, 1 - math.hypot(e.x - sq.order.target[0], e.y - sq.order.target[1]) / 30)
+            if mod.get("fire"):
+                sc *= mod["fire"]
             if sc > bs:
                 bs, best = sc, e
     if best is None:
@@ -947,6 +999,13 @@ def on_state_change(game, sq, old):
             game.emit_sound(leader.x, leader.y, 60, "whistle", "a whistle blast", sq.side, leader)
     if st == "flank" and game.rng.random() < 0.8:
         leader.say(phrase(game.rng, leader.nation, "flank"), game.turn)
+    from .heroism import brave, cowardly
+    if st == "assault":
+        brave(game, leader, "charge", getattr(sq, "focus", None))
+    elif st == "banzai":
+        brave(game, leader, "charge")
+    elif st in ("rout", "retreat") and st != old:
+        cowardly(game, leader, "break")
     if st == "hold" and sq.order.kind in ("attack", "move", "defend") and sq.positions_order is not sq.order:
         sq.positions = {}
 
@@ -1104,6 +1163,9 @@ def soldier_act(game, a) -> int:
     # ---- immediate survival
     if m.water[a.x, a.y] >= 2:
         return swim_act(game, a)
+    if a.ai.get("sleeping") is not None:
+        from .sleep import act as sleep_act
+        return sleep_act(game, a)          # (sleep.act wakes him for fire, water, shells and company)
     if m.fire[a.x, a.y] > 0 or b.burning:
         st = best_step(game, a, [(brain.safety, 0.2)], avoid_fire=True)
         if b.burning and game.rng.random() < 0.5:
@@ -1119,6 +1181,12 @@ def soldier_act(game, a) -> int:
             return evade_explosive(game, a, danger)
     if a.entangled:
         return A.move(game, a, 0, 0) or 100
+    # ---- behind the wire
+    if a.ai.get("camp_prisoner") or a.ai.get("camp_guard"):
+        from .camp import person_act
+        c = person_act(game, a)
+        if c:
+            return c
     # ---- wounded
     if a.downed:
         return downed_act(game, a)
@@ -1260,10 +1328,28 @@ def soldier_act(game, a) -> int:
         c = support_act(game, a, vis)
         if c:
             return c
+    # ---- the lull after a fight
+    if a.ai.get("after") is not None and sq is not None and not a.is_player:
+        from .consolidate import act as lull_act
+        c = lull_act(game, a, vis, sq)
+        if c:
+            return c
+    # ---- the trade (autopilot: your man does his job; jobs.py)
+    if a.is_player and game.__dict__.get("autopilot"):
+        from .jobs import act as job_act
+        c = job_act(game, a, vis, sq, sstate, near_enemy)
+        if c:
+            return c
     # ---- roles
     role_cost = role_act(game, a, vis, sq, sstate, near_enemy)
     if role_cost:
         return role_cost
+    # ---- work on the position when it's quiet
+    if sq is not None and sstate == "hold" and ai.get("chore"):
+        from .garrison import act as garrison_act
+        c = garrison_act(game, a, sq, vis)
+        if c:
+            return c
     # ---- squad behaviour
     if sstate == "banzai":
         return banzai_act(game, a, vis)
@@ -1399,6 +1485,9 @@ def engage_act(game, a, vis, sq, sstate) -> int:
         thresh = 0.02 if suppressor else (0.05 if td < w.t.rng else 0.1)
         if a.suppression > 60:
             thresh *= 2
+        thresh /= (sq.order.mod.get("fire", 1.0) if sq is not None else 1.0)
+        if a.ai.get("volley", 0) > game.turn:
+            thresh = 0.0                          # the first volley goes out whatever the range
         if sq is not None and sstate in ("hold", "engaged") and sq.order.kind in ("defend", "hold") and \
                 not suppressor:
             t = game.turn
@@ -1686,6 +1775,12 @@ def move_with_squad(game, a, sq, sstate) -> int:
         fix_stance(game, a, want_stance(game, a, False, False, False))
         return 100
     kind = sq.order.kind
+    mod = getattr(sq.order, "mod", None) or {}
+    exp_mul = mod.get("exposure", 1.0)
+    spread = max(2, int(round(4 * mod.get("spread", 1.0))))
+    if mod.get("echelon") and sq.leader is not None and a is not sq.leader and a.id % 2 and \
+            max(abs(a.x - sq.leader.x), abs(a.y - sq.leader.y)) <= 12:
+        return 100                                # the second echelon waits for the first to get on with it
     if kind == "resupply":
         c = resupply_act(game, a, sq)
         if c:
@@ -1708,6 +1803,9 @@ def move_with_squad(game, a, sq, sstate) -> int:
         fix_stance(game, a, 1 if a.stance == 0 else a.stance)
         return 100
     # hold: go to the assigned position, dig in
+    if mod.get("consolidate") and a.weapon is not None and a.weapon.t.kind == "gun" and \
+            a.weapon.loaded < a.weapon.t.mag and a.ammo_for(a.weapon) is not None:
+        return A.reload(game, a) or 100
     if sstate == "hold" or (sq.arrived and kind in ("defend", "hold", "attack", "move", "ambush", "dig")):
         if not sq.positions and game.turn - sq.__dict__.get("_pos_try", -99) > 15:
             # (if there was nowhere to go, don't look again for every man, every second)
@@ -1784,10 +1882,11 @@ def move_with_squad(game, a, sq, sstate) -> int:
             # getting nowhere for the crowd and the road: push on, round the others or through them
             st = best_step(game, a, [(mp, 1.0)], exposure_w=0.5, crowd=False, stay_bias=-3.0, swap_cost=0.5)
         else:
-            st = best_step(game, a, [(mp, 1.0)], exposure_w=2.0 if sstate == "advance" else 0.8)
+            st = best_step(game, a, [(mp, 1.0)], exposure_w=(2.0 if sstate == "advance" else 0.8) * exp_mul)
     else:
-        st = best_step(game, a, [(mp, 1.0)], exposure_w=2.0 if not stuck else 0.5, cohesion=anc, spread=4,
-                       crowd=not stuck, stay_bias=-2.0 if stuck else 0.0, swap_cost=0.5 if stuck else 2 * UNIT)
+        st = best_step(game, a, [(mp, 1.0)], exposure_w=(2.0 if not stuck else 0.5) * exp_mul, cohesion=anc,
+                       spread=spread, crowd=not stuck, stay_bias=-2.0 if stuck else 0.0,
+                       swap_cost=0.5 if stuck else 2 * UNIT)
     c = do_step(game, a, st)
     if c:
         fix_stance(game, a, 1 if (game.turn - sq.last_contact < 30 or brain.exposure_at(a.x, a.y) > 0.8) else 0)
@@ -2376,6 +2475,10 @@ def role_act(game, a, vis, sq, sstate, near_enemy=999) -> int | None:
             c = flamer_act(game, a, vis, sq)
             if c:
                 return c
+    if r in ("motor_sergeant", "mechanic"):
+        c = fitter_act(game, a, near_enemy)
+        if c:
+            return c
     if r == "engineer":
         c = engineer_act(game, a, vis, sq)
         if c:
@@ -2393,6 +2496,13 @@ def medic_act(game, a, vis, near_enemy=999) -> int | None:
     from .squadcare import sees, aid_claimed, care_need
     if a.carrying is not None:
         return evacuate_act(game, a, vis)
+    beside = next((o for o in game.near(a.x, a.y, 2, a.side)
+                   if o is not a and o.alive and o.downed and o.z == a.z and
+                   o.ai.get("carried_by") is None and o.ai.get("at_aid") is None and
+                   (MED.needs_care(o.body) < 1.0 or o.body.bleed_rate() < 0.3)), None)
+    if beside is not None and (MED.nearest_aid(game, a) is not None or near_enemy < 15):
+        a.ai["patient"] = beside.id
+        return A.pick_up(game, a, beside)
     if near_enemy <= 10:
         a.ai["med_enemy"] = game.turn
     calm = game.turn - a.ai.get("med_enemy", -99) > 8          # (a few quiet seconds before he goes out again)
@@ -2445,6 +2555,19 @@ def medic_act(game, a, vis, near_enemy=999) -> int | None:
         if s > bs:
             bs, best = s, o
     if best is None:
+        # nobody still needing treatment: a treated man still can't walk, so get him out of the line
+        carried = next((o for o in game.near(a.x, a.y, 4, a.side)
+                        if o is not a and o.alive and o.downed and o.ai.get("carried_by") is None
+                        and o.ai.get("at_aid") is None and o.z == a.z), None)
+        if carried is not None:
+            a.ai["patient"] = carried.id
+            if dist(a, carried) <= 1.5:
+                a.ai.pop("patient", None)
+                if MED.nearest_aid(game, a) is not None or near_enemy < 15:
+                    return A.pick_up(game, a, carried)
+            c = path_step(game, a, carried.x, carried.y)
+            if c:
+                return c
         a.ai.pop("patient", None)
         return None
     a.ai["patient"] = best.id                     # (pace.py: a medic with a patient runs)
@@ -2772,6 +2895,45 @@ def flamer_act(game, a, vis, sq) -> int | None:
                 fix_stance(game, a, 1)
                 return c
     return None
+
+
+def fitter_act(game, a, near_enemy=999) -> int | None:
+    """The motor pool's men go to the broken machine, not the other way round."""
+    if near_enemy < 12:
+        return None
+    from . import maintenance as MT
+    h = a.ai.get("helping")
+    if h is not None:
+        v = next((v for v in game.vehicles if v.id == h), None)
+        if v is not None and v.near(a.x, a.y) <= 2 and MT.repairs(v):
+            return 100
+        a.ai.pop("helping", None)
+    best = None
+    for v in game.vehicles:
+        if v.side != a.side or v.dead or v.abandoned or not MT.repairs(v):
+            continue
+        d = v.near(a.x, a.y)
+        if d > 34:
+            continue
+        if best is None or d < best[0]:
+            best = (d, v)
+    if best is None:
+        return None
+    v = best[1]
+    if v.near(a.x, a.y) <= 1:
+        a.ai["helping"] = v.id
+        return 100
+    cells = set(v.cells())
+    spots = [(cx + dx, cy + dy) for cx, cy in cells for dx in (-1, 0, 1) for dy in (-1, 0, 1)
+             if (cx + dx, cy + dy) not in cells and game.map.in_bounds(cx + dx, cy + dy)
+             and game.map.walk[cx + dx, cy + dy] and (cx + dx, cy + dy) not in game.vehicle_at]
+    if not spots:
+        return None
+    tx, ty = min(spots, key=lambda q: max(abs(q[0] - a.x), abs(q[1] - a.y)))
+    c = path_step(game, a, tx, ty)
+    if c:
+        fix_stance(game, a, 1)
+    return c
 
 
 def engineer_act(game, a, vis, sq) -> int | None:

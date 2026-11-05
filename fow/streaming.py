@@ -113,8 +113,8 @@ class Landscape:
 
     def __init__(self, game):
         self.w, self.h = game.map_w, game.map_h
-        self.radius = max(96, min(640, int(game.setup.get('reality_radius', 240))))
-        self.margin = 64
+        self.radius = max(96, min(2000, int(game.setup.get('reality_radius', 240))))
+        self.margin = max(16, min(256, int(game.setup.get("stream_margin", 64) or 64)))
         self.origin = (game.sector.x * self.w, game.sector.y * self.h)
         mission = game.__dict__.get('mission')
         if mission and mission.get('kind') in ('take','hold'):
@@ -384,7 +384,7 @@ class Landscape:
         ctx.def_edge = OPP.get(edge)
         ctx.rng = random.Random(sec.seed ^ game.seed)
         ctx.actors, ctx.vehicles, ctx.squads = [], [], []
-        ctx.soldier_at, ctx.vehicle_at, ctx.peek_at = {}, {}, {}
+        ctx.soldier_at, ctx.soldier_at_z, ctx.vehicle_at, ctx.peek_at = {}, {}, {}, {}
         ctx._arr_turn, ctx._arr, ctx._enemy_arr = -1, None, {}
         ctx.command = CommandState()
         ctx.messages, ctx.audio_events = deque(maxlen=1), []
@@ -565,6 +565,11 @@ class Landscape:
                                if b[0]+x < size and b[1]+y < size and b[0]+x+b[2]>0 and b[1]+y+b[3]>0)
             m.storeys.update({point(b,x,y):n for b,n in cm.__dict__.get('storeys', {}).items()
                              if b[0]+x<size and b[1]+y<size and b[0]+x+b[2]>0 and b[1]+y+b[3]>0})
+            # the floor plans that go with those buildings (their local arrays are not translated)
+            for rect, levels in (cm.__dict__.get('storey_plan') or {}).items():
+                if rect[0]+x < size and rect[1]+y < size and rect[0]+x+rect[2] > 0 and rect[1]+y+rect[3] > 0:
+                    m.__dict__.setdefault('storey_plan', {})[point(rect, x, y)] = {
+                        z: arr.copy() for z, arr in levels.items()}
             weather = cm.__dict__.get('weather_ground')
             if weather:
                 m.weather_ground['wet'] = max(m.weather_ground['wet'], weather['wet'])
@@ -650,7 +655,7 @@ class Landscape:
         game.strategic.focus = (wx / self.w, wy / self.h)
         m.name, m.biome, m.climate = game.sector.name, game.sector.biome, game.theatre['climate']
         m.refresh()
-        game.soldier_at, game.vehicle_at, game.peek_at = {}, {}, {}
+        game.soldier_at, game.soldier_at_z, game.vehicle_at, game.peek_at = {}, {}, {}, {}
         for a in actors:
             if a.alive and a.vehicle is None and a.ai.get('carried_by') is None:
                 game.place_on_map(a)
@@ -804,7 +809,7 @@ class Landscape:
             # Arrival placement must respect the people already on this ground.
             for a in self.actors.values():
                 wx,wy = self.world_pos(*a.pos) if a.id in self.active_actors else a.pos
-                if a.alive and a.vehicle is None and (wx//self.w,wy//self.h) == key:
+                if a.alive and a.vehicle is None and not a.z and (wx//self.w,wy//self.h) == key:
                     ctx.soldier_at[(wx-key[0]*self.w,wy-key[1]*self.h)] = a
             for v in self.vehicles.values():
                 if v.dead:

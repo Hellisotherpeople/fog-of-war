@@ -53,8 +53,10 @@ by `tools/build_sounds.py` into `assets/sounds/<pack>/`, and recordings with a `
 shouts and radio traffic are spoken through your system's speech engine if it has one: built in on
 macOS, and on Linux or Windows install [espeak-ng](https://github.com/espeak-ng/espeak-ng)
 (`sudo apt install espeak-ng`). Without it the game is the same, just quieter.
-**Esc > Options > Your side speaks English** shows and speaks your own army's words in English, in its own
-voices (a German platoon sounds like the Germans of an old war film); the enemy keeps his language.
+**Esc > Options > Translate speech to English** is on by default for your own side: its words are shown in
+English beside the original and spoken in English, in that army's own voice (a German platoon sounds like the
+Germans of an old war film). Enemy speech stays foreign unless you know the language - intelligence work,
+the languages skill, or luck. `all` translates everyone; `off` keeps every army foreign.
 Speech also appears as readable bubbles over visible soldiers, even with sound off, and stays
 long enough to read while turns advance. Extra captions along the battlefield edge are off by
 default; enable **Esc > Options > UI speech captions** for crew, radio, unseen speakers, and
@@ -93,7 +95,8 @@ Saves, settings and the memorial to the fallen live in `~/.fogofwar/`.
 
 ## Your first minutes
 
-Pick **Quick start** and the war picks everything for you, or **New game** to choose side,
+Pick **Drill first** if this is new: a safe range, an instructor, and twenty minutes that keep you
+alive later. Otherwise **Quick start** throws you in and the war picks everything for you, or **New game** to choose side,
 battle, nation, service, role, rank and kit. **Vehicle** and **Position** guarantee an exact ground
 vehicle and crew seat: for example, an M4 Sherman driver, gunner or commander. Selecting a vehicle
 matches your nation and side to an operating army; a Tiger II selects Germany / Axis. For a foreign
@@ -115,6 +118,8 @@ Then:
 - Move with the arrow keys, numpad or `hjklyubn`; left-click to walk somewhere. `c` crouch, `p`
   go prone. **Get down behind something that stops bullets.**
 - `f` to aim and fire (`a` aims longer), `r` reload, `t` throw, `B` bandage, `Y` shout for a medic.
+  `F9` is Follow me: one key, no menu, they come on your heels. `F8` lays the order trace over the
+  ground. Every key can be rebound in Options > Rebind keys.
 - `i` your kit, `g` pick up, `x` look (or just hover the mouse), `V` everything around you in a list,
   `m` the map, `@` your health.
 - `e` gets you into a vehicle beside you (or up onto a tank's hull to ride), and out again.
@@ -137,7 +142,8 @@ Then:
   away ([the full list](docs/CONTROLS.md)). Esc for the menu (save and quit). F2 switches sprites and
   ASCII, F3 sound.
 
-You will die. The memorial remembers.
+You will die. The memorial remembers, and the after-action report shows what led to it, what to do
+next time, and - on Tab - what it may come to for the men and the ground you leave behind.
 
 ## A look around
 
@@ -238,10 +244,62 @@ name, traits, weapon and kit. Leave any of it to chance.</td>
 - **Command at every level.** Orders travel by voice, hand signal, radio, relay or runner, and
   arrive late or not at all. When your leader falls, the next man takes over, and sometimes that's
   you. Promotion, battlefield commissions, and each nation's medals.
+- **Battle drills by army and training.** A German leader with the skill is taught Schwerpunkt and
+  the Stosstrupp, a Soviet one maskirovka and echeloned assault, a British one bite and hold; the
+  player and the AI both use them. Unavailable drills stay listed with what opens them up: practice,
+  rank, the right unit, the right ground.
+- **The war above the war map.** At general rank the theatre direction is yours: priority of supply
+  and air, armour to your front, press or stand fast, relieve a commander - and the standing option
+  to tell the head of state the plan is wrong, with the political bill that follows.
 - **The roads behind the line** are full of convoys, columns and ambulances, and cutting them starves
   the front they feed, on the war map and in its battles. Orders come several at a time, each with
-  who gave it, when it's due, and the reward and punishment your army really used. Autopilot, and an
-  optional succession mode: die, and carry on as someone else on the same battlefield.
+  who gave it, when it's due, and the reward and punishment your army really used. Autopilot that does
+  your actual trade (a medic to the wounded and back to the aid post, a fitter to the broken track, a
+  damaged tank to the shop), and an optional succession mode: die, and carry on as someone else on the
+  same battlefield.
+- **Every trade has its orders and its record.** Medics are sent to carry casualties out, sappers to the wire,
+  fitters to broken vehicles, signallers with messages; the section's steady hand to a shaken man. Doing the
+  trade counts toward promotion. Sections remember their dead, replacements arrive green and are looked at,
+  and a beaten unit is relieved and made up rather than left to melt.
+- **Orders arrive through people.** A trusted leader with rope finds a better line and says so; a frightened
+  one may balk until insisted on; bad channels put the reference wrong. You learn who to trust.
+- **A name, for as long as the world lasts.** What you do makes a reputation: the section talks, then names
+  you; the enemy lists you, hunts you, and gives your front a wider berth. Prisoners have heard of you.
+- **The lull after a fight**: wounded, pouches, tags, the enemy dead searched, a sentry out - real chores that
+  a fresh contact cuts short. The field manual (`K`) adds pages as the ground teaches them.
+- **Buildings have floors.** Every storey is a separate plan with its own walls, windows and stairwell. You can
+  see over hedges from upstairs and down into the street; windows and parapets are cover; shells and bursts of
+  fire open holes and a man over one falls. City maps stack the houses four floors deep, with cellars, tram
+  lines, wire and barricades. The panel names your floor and the tiles say what you stand on.
+- **Difficulty is a setting, not a mood.** Recruit to Realistic move enemy training and eyes, enemy resolve
+  and your bleeding; Custom exposes the numbers. Ironman is one life and one file. Advanced settings are behind
+  a warning and go all the way down to simulation radius and save internals.
+- **Each run has a name, a slot and a record.** Your runs on the menu; Save a copy; an after-action report
+  written beside the diary, compared with your earlier runs, and a run code to fight the same ground again.
+- **A first hour that assumes nothing**: kit at the stores, five rounds on the zero board, the sergeant, then
+  a patrol into a real fight. Promotions come faster in a hard fight, because witnessed kills and taken
+  ground are reported as they happen.
+- **Squad orders queue** (Shift+O), pin with their distance, and cancel with Backspace. Missions sometimes have
+  a second act - hold what you took, or break off if the section is ground down.
+- **Ambience by ground and hour**: birds in the hedge, tin and doors in the streets, surf, the canopy, and a
+  hush at night. Packs now add items, vehicles, roles and missions, with an in-game Content screen and a
+  checker tool.
+- **Weather with warning**, stand-to at first and last light, high contrast, reduced motion, a screen-reader
+  feed, longer message pauses and content packs ([schema](docs/PACKS.md)). Saves are versioned and kept with a
+  spare copy.
+- **The enemy has a commander with a temperament and a memory.** He patrols quiet ground, shoots in his
+  assaults, counter-attacks what he loses and relieves what he breaks - with real troops and real shells.
+- **A diary and a camera.** The run is written down as it happens and copied out at the end; photographs
+  taken with a camera are described as the man would remember them.
+- **Bravery and its opposite move the men who see it.** A man who stands up and kills at ten yards, or
+  goes out under the gun for a mate, steadies the section - and the player's own acts count. A man who
+  throws his rifle down and runs takes the edge off everyone near him; an officer with his hands up
+  reaches half the line, delays the orders in the air, and is worth more than a private.
+- **Prisoners are worth more than a name and number.** Search them, then take them to one side: a
+  cigarette, a mug of something hot, his mates out of earshot, and - when he is stubborn - a little
+  pressure. A frightened private gives a section; a frightened officer gives a marked map or the hour
+  of the counter-attack. If you are taken, the other side does the same to you, and what you say buys
+  soup and warmth.
 - **Talk to anyone, and listen to the war**: every soldier has a home, a family and an opinion of you;
   ask him how he's holding up, what he's seen, for a smoke or a trade; get a prisoner to talk. In a fight
   the wounded scream in their own language and their buddies shout their names; in a lull men share
@@ -256,6 +314,10 @@ name, traits, weapon and kit. Leave any of it to chance.</td>
   cover; smoke goes down in front of a machine gun; defenders hold their fire until the attack is
   close; tanks keep pace with their infantry and turn their front armour toward the gun that can
   kill them.
+- **Behind the wire**: guard a prisoner-of-war camp or a German concentration camp. Roll calls,
+  work parties, parcels, selections, and the choices a guard actually had. Prisoner escapes, civilian
+  deaths, shelled towns and shot prisoners go on an honest ledger, and the SS book rates them
+  differently from the line.
 - **Kinds of war**: front-line battles, the big push, holding the line, tank battles, street fighting,
   river crossings, counter-attacks, road ambushes, tank hunting, mine clearance, night patrols,
   commando raids, agents behind the lines (SOE, OSS, Jedburghs, the Cichociemni, partisan organisers,
@@ -269,7 +331,8 @@ name, traits, weapon and kit. Leave any of it to chance.</td>
 - **Waiting without mashing keys**: `Z` waits until something happens, for a set time, till dawn or
   till new orders. **Pass time regardless of events...** continues for up to a day despite combat,
   wounds or orders. Every second is simulated for everyone, with drawing batched for speed.
-  Any key cancels; death or succession ends the wait.
+  Any key cancels; death or succession ends the wait. `N` sleeps for real: depth, beds and blankets,
+  sentries and relief, sleep debt, grogginess, and the firing, footsteps, cold and shaking that wake you.
 - **Weather with consequences**: storms, blizzards, wind, rain and snow change visibility, sound,
   exposure, shooting, flying and sailing. Mud, flooded trenches and drifts persist after the sky clears;
   rain, wind and thunder are audible, with shelter and waterproof kit making a difference.
@@ -307,6 +370,10 @@ name, traits, weapon and kit. Leave any of it to chance.</td>
   armed them**, down to the medic who goes unarmed and trusts the red cross.
   Compatible ammunition and magazines are marked green **[P]** for your primary, blue **[S]** for your
   secondary or holstered weapon, and violet **[P/S]** for both.
+- **Quotes with provenance.** The title and the death screen carry real lines from the war, matched
+  to how you lived and died - Patton on the Garand, McAuliffe at Bastogne, the man on the ramp. Each
+  is attributed with a factual line on who he was. The death screen also guesses what it may come to
+  for the men and the ground you leave.
 - **Diegetic.** Menus open from your soldier. Without a watch you don't know the time; without a
   map or compass, sounds are vague and objectives are wherever your sergeant points.
 - **Everything is generated**: the battlefields, the sprites (painted by code, soldiers drawn from

@@ -141,6 +141,25 @@ def finish_review(game):
     from .intelligence import copy_map
     copy_map(game)
     text = f'HQ records your service. {new} additional support allocation(s) authorized; {requests(game)} available.'
+    worth = []
+    st = game.stats
+    if st.get('batteries_silenced'):
+        worth.append(f"{st['batteries_silenced']} enemy batter{'y' if st['batteries_silenced'] == 1 else 'ies'} "
+                     f"silenced - their fronts are quieter for it")
+    if st.get('civilian_deaths'):
+        worth.append(f"{st['civilian_deaths']} civilians killed in the district")
+    if st.get('bandaged'):
+        worth.append(f"{st['bandaged']} wound{'s' if st['bandaged'] != 1 else ''} dressed, "
+                     f"yours or your mates'")
+    if st.get('fire_missions'):
+        worth.append(f"{st['fire_missions']} fire mission{'s' if st['fire_missions'] != 1 else ''} brought down")
+    from .atrocities import summary as _atrocity_summary
+    ugly = _atrocity_summary(game)
+    if ugly:
+        worth.append("on the ugly side: " + ", ".join(ugly))
+    if worth:
+        game.command.__dict__.setdefault('record', []).append(
+            game.datetime_str() + ': effects noted; ' + '; '.join(worth) + '.')
     if s['claims']:
         text += ' Some statements still need surviving witnesses or review.'
     if s['awards']:

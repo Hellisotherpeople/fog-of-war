@@ -57,6 +57,8 @@ def set_autopilot(game, on):
     else:
         keep = game.__dict__.get("autopilot")
         game.autopilot = False
+        from .jobs import clear as clear_job
+        clear_job(game)
         if isinstance(keep, dict):
             sq = p.squad
             if sq is not None and keep.get("led") == sq.id and sq.leader is p:
@@ -179,10 +181,11 @@ def take_over(game, new, why=""):
 
 def on_death(game, settings, killer=None) -> bool:
     """Called as the player dies.  True if someone carries on (and the game isn't over)."""
-    if not enabled(settings):
-        return False
+    if not enabled(settings) or game.__dict__.get("ironman"):
+        return False                          # (ironman: one life; the difficulty's lives are for the rest)
     lives = len(game.__dict__.get("lives", []))
-    cap = int(settings.get("succession_lives", 0) or 0)
+    from .difficulty import assist as _assist
+    cap = int(settings.get("succession_lives", 0) or 0) or int(_assist(game, "lives", 0) or 0)
     if cap and lives >= cap:
         return False
     dead = game.player

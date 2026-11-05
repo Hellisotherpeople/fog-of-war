@@ -150,24 +150,41 @@ class MenuState:
 
 class MainMenuState(MenuState):
     def __init__(self, app):
+        first = not app.settings.get("seen_intro", False)
         opts = [("Quick start (everything random)", "quick",
                  "Thrown into a random battle of the war, on a random side, in a random role. "
                  "The war does not care whether you are ready.", None),
+                ("Drill first - learn on the range", "drill",
+                 "START HERE. A safe range behind the line with an instructor: movement, cover, fire, a dressing, "
+                 "smoke and the kit. Nothing there shoots back. The front can wait twenty minutes.",
+                 UI_HI if first else None),
+                ("Join up - your first hour with a section", "enlist",
+                 "Draw kit, zero a rifle, report to the sergeant and walk your first patrol. A quiet start that "
+                 "becomes a real fight. No prior knowledge assumed.", UI_HI if first else None),
                 ("New game", "new", "The character and battle creator: side, battle, nation, battle type (front line, "
                                     "tank battle, night patrol, commando raid, agent behind the lines, partisans...), "
                                     "role, rank up to five stars, name, traits, weapon and kit. Leave any of it to chance.",
                  None)]
         from .game import SAVE_DIR
-        if os.path.exists(os.path.join(SAVE_DIR, "save.pkl")):
+        from . import runs as _runs
+        _live = _runs.listing()
+        if os.path.exists(os.path.join(SAVE_DIR, "save.pkl")) or any(r.get("alive") and not r.get("dead")
+                                                                     for r in _live):
             opts.insert(0, ("Continue", "continue", "Return to your war.", UI_HI))
-        opts += [("Drill (learn on the range)", "drill",
-                  "A safe range behind the line with an instructor: movement, looking, cover, fire, a dressing "
-                  "and the kit - or a trial of the job you pick. Nothing there shoots back.", None),
-                 ("How to play", "help", "Keys, mouse and a few hard-won lessons.", None),
+        if len(_live) > 1:
+            opts.insert(1 if opts and opts[0][1] == "continue" else 0,
+                        ("Your runs...", "runs", "Every run saved on this machine, newest first.", None))
+        if not first:
+            opts.insert(2, ("Drill (learn on the range)", "drill",
+                            "A safe range behind the line with an instructor: movement, cover, fire, smoke and a "
+                            "dressing. Nothing there shoots back.", None))
+        opts += [("How to play", "help", "Keys, mouse and a few hard-won lessons.", None),
                  ("Options", "options", "The sound mixer, display, safe mode, battlefield size, autosave.", None),
                  ("Memorial", "memorial", "The fallen.", None),
                  ("Quit", "quit", "Go home.", None)]
         super().__init__(app, "", opts, self.choose, searchable=False)
+        if first:
+            self.sel = next((i for i, o in enumerate(opts) if o[1] == "enlist"), 0)
 
     def render(self, con):
         con.clear()
@@ -181,6 +198,11 @@ class MainMenuState(MenuState):
                        "+": (170, 170, 160), "≡": (200, 180, 120), "▒": (90, 90, 90), "▲": (130, 120, 110),
                        "o": (110, 90, 70)}.get(ch, (60, 60, 60))
                 con.print(x + j, 11 + i, ch, fg=col)
+        from . import quotes
+        if not hasattr(self, "_quote"):
+            self._quote = quotes.pick(None, context=False)
+        con.print(10, 33, "─" * 100, fg=(60, 56, 44))
+        quotes.render(con, 12, 34, 96, self._quote, max_rows=8)
         y = 16
         self.item_rows = {}
         for i, (label, value, desc, col) in enumerate(self.options):
@@ -230,6 +252,8 @@ class MainMenuState(MenuState):
                 app.push(TextState(app, "Could not load", [f"The save could not be read: {e}"]))
                 return
             app.push(PlayState(app, g))
+        elif v == "runs":
+            app.push(RunsState(app))
         elif v == "quick":
             rng = random.Random()
             th = rng.choice(list(THEATRES))
@@ -241,8 +265,59 @@ class MainMenuState(MenuState):
             app.start_game(th, nat, None, dict(scenario="random", service=service))
         elif v == "drill":
             app.push(DrillMenuState(app))
+        elif v == "enlist":
+            app.start_game("bocage44", "usa", "rifleman",
+                           dict(scenario="enlist", service="army", battlefield="standard", difficulty="recruit"))
         elif v == "new":
             app.push(CreatorState(app))
+
+
+class RunsState(MenuState):
+    """The wars saved on this machine.  Enter carries on; D deletes after a second press."""
+
+    def __init__(self, app):
+        self._confirm = None
+        super().__init__(app, "YOUR RUNS", [], self.choose,
+                         subtitle="Newest first. A dead run can be read but not carried on.", width=78)
+        self._rebuild()
+
+    def _rebuild(self):
+        from . import runs
+        self.options = []
+        for r in runs.listing()[:40]:
+            label = runs.describe(r)
+            if self._confirm == r["id"]:
+                label += "   - press D again to delete"
+            self.options.append((label, r["id"], "", UI_HI if r.get("alive") and not r.get("dead") else None))
+        if not self.options:
+            self.options.append(("No runs saved.", None, "", None))
+        self.options.append(("Back", "__back__", "", None))
+        self.sel = min(self.sel, len(self.options) - 1)
+
+    def choose(self, run_id):
+        app = self.app
+        if run_id == "__back__" or run_id is None:
+            return app.pop()
+        from . import runs
+        from .game import Game
+        try:
+            g = Game.load(runs.slot_path(run_id))
+        except Exception as e:
+            return app.push(TextState(app, "Could not load", [f"The run could not be read: {e}"]))
+        app.push(PlayState(app, g))
+
+    def on_key(self, key):
+        if key.char in ("d", "D") and self.options[self.sel][1] not in (None, "__back__"):
+            rid = self.options[self.sel][1]
+            if self._confirm == rid:
+                from . import runs
+                runs.forget(rid)
+                self._confirm = None
+            else:
+                self._confirm = rid
+            self._rebuild()
+            return
+        return super().on_key(key)
 
 
 DRILL_NATIONS = [("American", "usa"), ("British", "uk"), ("German", "germany"), ("Soviet", "ussr")]
@@ -278,7 +353,8 @@ class DrillMenuState(MenuState):
 
     def _start(self, nat, role, mode):
         self.app.start_game("bocage44", nat, role,
-                            dict(scenario="drill", drill=mode, service="army", battlefield="standard"))
+                            dict(scenario="drill", drill=mode, service="army", battlefield="standard",
+                                 seamless=False))
 
 
 # ====================================================================== the character & scenario creator
@@ -341,13 +417,17 @@ class CreatorState:
             ("role", "Role"), ("vehicle", "Vehicle"), ("station", "Position"), ("captured_vehicle", "Vehicle use"),
             ("unit", "Unit"), ("rank", "Rank"), ("name", "Name"), ("traits", "Traits"),
             ("weapon", "Weapon"),
-            ("kit", "Extra kit"), ("fair", "Opening"), ("start", "")]
+            ("kit", "Extra kit"), ("fair", "Opening"),
+            ("difficulty", "Difficulty"), ("ironman", "Ironman"),
+            ("seed", "Seed"), ("code", "Run code"), ("start", "")]
 
     def __init__(self, app):
         self.app = app
         self.v = dict(side="random", theatre="random", nation="random", service="army", scenario="random",
                       role="default", unit=None, vehicle=None, station=None, captured_vehicle=False,
-                      rank=None, name="", traits=None, weapon=None, kit={}, fair=False)
+                      rank=None, name="", traits=None, weapon=None, kit={}, fair=False,
+                      difficulty=app.settings.get("difficulty", "veteran"),
+                      ironman=bool(app.settings.get("ironman")), seed="", code="")
         self.sel = 0
         self.rows = {}
         self.notice = ""
@@ -365,6 +445,13 @@ class CreatorState:
     def options(self, key):
         from .scenarios import SCENARIOS, eligible
         v = self.v
+        if key == "difficulty":
+            from .difficulty import LABELS
+            return [(LABELS[k], k, "Set for this run.") for k in ("recruit", "veteran", "realistic", "custom")]
+        if key == "seed":
+            return []
+        if key == "code":
+            return []
         if key == "side":
             return [("Leave it to chance", "random", "Conscription doesn't ask either.")] + \
                 [("The Allies", ALLIES, "The United Nations at war."), ("The Axis", AXIS, "Germany and her allies.")]
@@ -537,6 +624,15 @@ class CreatorState:
             return ", ".join(ITEMS[t].name for t in v) or "nothing extra"
         if key == "fair":
             return "a fair start" if v else "whatever the war deals (wounded, jammed, lost...)"
+        if key == "difficulty":
+            from .difficulty import title as _dt
+            return _dt(v)
+        if key == "ironman":
+            return "on - one life, no fallback" if v else "off"
+        if key == "seed":
+            return v or "(chance)"
+        if key == "code":
+            return v or "(type a code to replay a battlefield)"
         if key == "start":
             return ">>> START <<<"
         for lab, val, _ in self.options(key):
@@ -662,6 +758,26 @@ class CreatorState:
         if self.v["rank"] is not None and self.v["rank"] not in [o[1] for o in self.options("rank")]:
             self.v["rank"] = None
 
+    def _apply_code(self):
+        from .runcode import parse
+        d = parse(self.v["code"])
+        if not d:
+            self.notice = "Run code not read yet." if self.v["code"] else ""
+            return
+        self.v["seed"] = str(d["seed"])
+        if d.get("theatre") in THEATRES:
+            self.v["theatre"] = d["theatre"]
+        if d.get("nation") in NATIONS:
+            self.v["nation"] = d["nation"]
+            self.v["side"] = NATIONS[d["nation"]]["side"]
+        if d.get("role"):
+            self.v["role"] = d["role"]
+        s = d.get("setup") or {}
+        for k in ("scenario", "difficulty", "fair"):
+            if s.get(k) is not None:
+                self.v[k] = s[k]
+        self.notice = f"Run code read. Seed {d['seed']}."
+
     def _special_fix(self):
         """A special unit means its army, and a battle it fought in."""
         u = self.v.get("unit")
@@ -684,7 +800,10 @@ class CreatorState:
         if key == "fair":
             self.v["fair"] = not self.v["fair"]
             return
-        if key == "name":
+        if key == "ironman":
+            self.v["ironman"] = not self.v["ironman"]
+            return
+        if key in ("name", "seed", "code"):
             return
         if key == "traits":
             from .spawn import TRAITS
@@ -725,8 +844,10 @@ class CreatorState:
             self._open(k)
         elif key.sym == E.KeySym.ESCAPE:
             self.app.pop()
-        elif key.sym == E.KeySym.BACKSPACE and k == "name":
-            self.v["name"] = self.v["name"][:-1]
+        elif key.sym == E.KeySym.BACKSPACE and k in ("name", "seed", "code"):
+            self.v[k] = self.v[k][:-1]
+            if k == "code":
+                self._apply_code()
         elif key.sym == E.KeySym.SPACE and k == "name":
             if self.v["name"] and len(self.v["name"]) < 30:
                 self.v["name"] += " "
@@ -735,6 +856,13 @@ class CreatorState:
         elif key.char and k == "name":
             if len(self.v["name"]) < 30:
                 self.v["name"] += key.char
+        elif key.char and k == "seed":
+            if key.char.isdigit() and len(self.v["seed"]) < 10:
+                self.v["seed"] += key.char
+        elif key.char and k == "code":
+            if key.char.upper() in "0123456789ABCDEFGHJKMNPQRSTVWXYZ-" and len(self.v["code"]) < 90:
+                self.v["code"] += key.char.upper()
+                self._apply_code()
         elif key.char == " " and k != "name":
             self._open(k)
 
@@ -783,7 +911,10 @@ class CreatorState:
         setup = dict(scenario=v["scenario"], service=v["service"], rank=v["rank"], name=v["name"] or None,
                      traits=v["traits"], unit=v["unit"], vehicle=v["vehicle"], station=v["station"],
                      captured_vehicle=v["captured_vehicle"],
-                     weapon=v["weapon"], kit=dict(v["kit"]), fair=v["fair"], role_random=v["role"] == "random")
+                     weapon=v["weapon"], kit=dict(v["kit"]), fair=v["fair"], role_random=v["role"] == "random",
+                     difficulty=v["difficulty"], ironman=bool(v["ironman"]),
+                     seed=int(v["seed"]) if v["seed"].isdigit() else None,
+                     run_code=v["code"] or None)
         self.app.start_game(th, nat, role, setup)
 
 
@@ -801,6 +932,10 @@ class BriefingState:
     def __init__(self, app, game):
         self.app = app
         self.game = game
+        # the briefing is written before the moving world places the player: take the ways up from where he is
+        if game.scenario not in ("pow",) and not game.scenario.startswith(("air:", "sea:")):
+            from .scenarios import approaches
+            game.approaches = approaches(game)
 
     def render(self, con):
         con.clear()
@@ -812,11 +947,24 @@ class BriefingState:
             for i, w in enumerate(textwrap.wrap(l, SCREEN_W - 16)):
                 col = UI_HI if l is self.game.briefing[0] else UI_TEXT
                 lines.append((w, col))
-        draw_center_box(con, "Briefing", lines, width=SCREEN_W - 10, footer="Enter: begin   ?: how to play")
+        opts = self.game.__dict__.get("approaches") or []
+        foot = ("1-3: choose a way up   " if opts else "") + "Enter: begin   ?: how to play"
+        draw_center_box(con, "Briefing", lines, width=SCREEN_W - 10, footer=foot)
+        if opts and not any("Way up: " in l for l, _c in lines):
+            chosen = self.game.__dict__.get("approach_taken")
+            if chosen:
+                con.print(6, SCREEN_H - 4, f"Approach: the {chosen[0]}.".ljust(50), fg=UI_HI)
 
     def on_key(self, key):
         if key.sym in (E.KeySym.RETURN, E.KeySym.KP_ENTER, E.KeySym.SPACE, E.KeySym.ESCAPE):
             self.app.replace(PlayState(self.app, self.game))
+        elif key.char in ("1", "2", "3"):
+            from .scenarios import take_approach
+            i = int(key.char) - 1
+            if take_approach(self.game, i):
+                ch = self.game.__dict__.get("approach_taken")
+                if ch:
+                    self.game.msg(f"You take the way up: the {ch[0]}.", "info")
         elif key.char == "?":
             self.app.push(HelpState(self.app))
 
@@ -824,18 +972,39 @@ class BriefingState:
         self.app.replace(PlayState(self.app, self.game))
 
 
+def p_dead(game) -> bool:
+    return game.player is not None and not game.player.alive
+
+
 class GameOverState:
     def __init__(self, app, game):
         self.app = app
         self.game = game
         self.award_page = 0
+        self.page = 0
+        self._quote = None
         from .game import Game
         Game.delete_save()
+        from . import diary, reportcard, runs
+        self.diary_path = diary.export(game)
+        self.report_path = reportcard.export(game)
+        self._compare = False
+        if getattr(game, "run_id", None):
+            try:
+                runs.note(game.run_id, game, dead=bool(p_dead(game)))
+            except Exception:
+                pass
 
     def render(self, con):
         con.clear()
         g = self.game
         p = g.player
+        if self.page == 1:
+            return self._render_aftermath(con, g)
+        if self.page == 2:
+            return self._render_diary(con, g)
+        if self.page == 3:
+            return self._render_report(con, g)
         lines = []
         for w in textwrap.wrap(g.death_text or g.victory_text or "The war goes on without you.", 49):
             lines.append((w, (230, 200, 160)))
@@ -846,6 +1015,10 @@ class GameOverState:
         lines.append((f"Enemy killed by your hand: {g.stats['kills']}.   Vehicles destroyed: {g.stats['vehicles_killed']}.", UI_TEXT))
         lines.append((f"Times wounded: {g.stats['wounds']}.   Shots fired: {p.stats['shots']}, hits: {p.stats['hits']}.", UI_TEXT))
         lines.append((f"Sectors fought over: {len(g.sector_log)}.   Objectives taken with your squad: {g.stats['objectives']}.", UI_TEXT))
+        from . import trade as _trade
+        tr = _trade.summary(g)
+        if tr:
+            lines.append(("Trade: " + ", ".join(tr) + ".", (200, 205, 175)))
         if g.stats["desertions"]:
             lines.append(("You left your post under fire.", (220, 120, 80)))
         lines.append(("", None))
@@ -869,16 +1042,155 @@ class GameOverState:
                     break
                 con.print(4, y, wrapped, fg=col or UI_TEXT, bg=UI_BG)
                 y += 1
+        timeline = getattr(g, "death_timeline", None) or []
+        if timeline and y < SCREEN_H - 9:
+            y += 1
+            con.print(4, y, "WHAT LED TO IT", fg=(200, 175, 130), bg=UI_BG)
+            y += 1
+            from .afteraction import render as draw_timeline, remark
+            y = draw_timeline(con, 4, y, 49, timeline) + 1
+            advice = getattr(g, "death_advice", ()) or ()
+            if advice and y < SCREEN_H - 6:
+                con.print(4, y, "NEXT TIME", fg=(170, 205, 165), bg=UI_BG)
+                y += 1
+                from . import textfit as _tf
+                for tip in advice:
+                    for w in _tf.clip(tip, 49, max(1, SCREEN_H - 5 - y)):
+                        if y >= SCREEN_H - 4:
+                            break
+                        con.print(4, y, _tf.fit(w, 49), fg=(195, 210, 185), bg=UI_BG)
+                        y += 1
+            if y < SCREEN_H - 5:
+                y += 1
+                from . import textfit as _tf
+                for w in _tf.clip(remark(g), 49, max(1, SCREEN_H - 6 - y)):
+                    con.print(4, y, _tf.fit(w, 49), fg=(150, 145, 125), bg=UI_BG)
+                    y += 1
+            if y < SCREEN_H - 9:
+                y += 1
+                from . import quotes
+                if self._quote is None:
+                    self._quote = quotes.pick(g)
+                quotes.render(con, 4, y, 49, self._quote, max_rows=6)
         con.print(58, 4, f"DECORATIONS & CITATIONS   {len(awards)} awarded", fg=(235, 209, 139), bg=UI_BG)
         if not awards:
             con.print(60, 8, "No decorations awarded.", fg=UI_DIM, bg=UI_BG)
         for i, award in enumerate(awards[self.award_page * 3:self.award_page * 3 + 3]):
             draw_card(con, award, 58, 6 + i * 13, SCREEN_W - 61)
-        con.print(4, SCREEN_H - 3, "Enter / Esc: main menu", fg=UI_DIM, bg=UI_BG)
+        con.print(4, SCREEN_H - 3, "Enter / Esc: main menu   Tab: consequences, diary, report   "
+                  + ("R: fight this ground again   " if getattr(g, "run_code", None) else "")
+                  + "H: earlier runs", fg=UI_DIM, bg=UI_BG)
         if pages > 1:
             con.print(59, SCREEN_H - 3, f"Left / Right: awards   {self.award_page + 1}/{pages}", fg=UI_HI, bg=UI_BG)
 
+    def _render_aftermath(self, con, g):
+        from .legacy import project
+        con.draw_frame(4, 2, SCREEN_W - 8, SCREEN_H - 7, fg=UI_FRAME, bg=UI_BG, clear=True)
+        con.print(6, 3, "WHAT IT MAY COME TO", fg=(205, 185, 135), bg=UI_BG)
+        con.print(6, 4, "None of this is certain. It is what the record makes likely.", fg=UI_DIM, bg=UI_BG)
+        y = 6
+        cols = {"good": (190, 215, 170), "bad": (230, 170, 140), "mixed": (215, 200, 160), "flat": (185, 182, 165)}
+        from . import textfit as _tf
+        for text, tone in project(g):
+            for w in _tf.clip(text, SCREEN_W - 16, max(1, SCREEN_H - 8 - y)):
+                if y >= SCREEN_H - 8:
+                    break
+                con.print(6, y, _tf.fit(w, SCREEN_W - 16), fg=cols.get(tone, UI_TEXT), bg=UI_BG)
+                y += 1
+            y += 1
+            if y >= SCREEN_H - 8:
+                break
+        from .rumination import numbers, why
+        nums = numbers(g)
+        if nums and y < SCREEN_H - 7:
+            con.print(6, y, "BY THE NUMBERS", fg=(200, 185, 150), bg=UI_BG)
+            y += 1
+            for line in nums:
+                for w in _tf.clip(line, SCREEN_W - 16, max(1, SCREEN_H - 5 - y)):
+                    if y >= SCREEN_H - 5:
+                        break
+                    con.print(6, y, _tf.fit(w, SCREEN_W - 16), fg=(205, 195, 170), bg=UI_BG)
+                    y += 1
+        if y < SCREEN_H - 5:
+            y += 1
+            for w in _tf.clip(why(g), SCREEN_W - 16, max(1, SCREEN_H - 4 - y)):
+                con.print(6, y, _tf.fit(w, SCREEN_W - 16), fg=(225, 205, 155), bg=UI_BG)
+                y += 1
+        con.print(6, SCREEN_H - 3, "Tab: back to the report   Enter / Esc: main menu", fg=UI_DIM, bg=UI_BG)
+
+    def _render_diary(self, con, g):
+        con.draw_frame(4, 2, SCREEN_W - 8, SCREEN_H - 7, fg=UI_FRAME, bg=UI_BG, clear=True)
+        con.print(6, 3, f"THE DIARY OF {g.player.name.upper()}", fg=(215, 200, 160), bg=UI_BG)
+        y = 4
+        from . import textfit as _tf
+        entries = list(g.__dict__.get("diary", []))[-18:]
+        for e in entries:
+            if y >= SCREEN_H - 6:
+                break
+            con.print(6, y, f"{e['stamp']}  {e['where']}"[:SCREEN_W - 14], fg=(175, 160, 135), bg=UI_BG)
+            y += 1
+            for w in _tf.clip(e["text"], SCREEN_W - 16, max(1, SCREEN_H - 7 - y)):
+                if y >= SCREEN_H - 7:
+                    break
+                con.print(8, y, _tf.fit(w, SCREEN_W - 16), fg=(212, 205, 184), bg=UI_BG)
+                y += 1
+            y += 1
+        if self.diary_path:
+            con.print(6, SCREEN_H - 3, f"Copied out to {self.diary_path}"[:SCREEN_W - 12], fg=UI_DIM, bg=UI_BG)
+        con.print(6, SCREEN_H - 3 if not self.diary_path else SCREEN_H - 4,
+                  "Tab: report / what it may come to   Enter / Esc: main menu", fg=UI_DIM, bg=UI_BG)
+
+    def _render_report(self, con, g):
+        con.draw_frame(4, 2, SCREEN_W - 8, SCREEN_H - 7, fg=UI_FRAME, bg=UI_BG, clear=True)
+        con.print(6, 3, "AFTER ACTION REPORT", fg=(205, 185, 135), bg=UI_BG)
+        con.print(6, 4, "Kept with the diary and in the reports folder.", fg=UI_DIM, bg=UI_BG)
+        y = 6
+        from . import textfit as _tf
+        if self._compare:
+            from . import reportcard
+            for line in reportcard.compare(g):
+                for w in _tf.clip(line, SCREEN_W - 16, max(1, SCREEN_H - 7 - y)):
+                    if y >= SCREEN_H - 7:
+                        break
+                    con.print(6, y, _tf.fit(w, SCREEN_W - 16), fg=(205, 195, 170), bg=UI_BG)
+                    y += 1
+        else:
+            from . import reportcard
+            cols = {"dim": (155, 150, 130), "": UI_TEXT}
+            for text, tone in reportcard.lines(g):
+                for w in _tf.clip(text, SCREEN_W - 16, max(1, SCREEN_H - 7 - y)):
+                    if y >= SCREEN_H - 7:
+                        break
+                    con.print(6, y, _tf.fit(w, SCREEN_W - 16), fg=cols.get(tone, UI_TEXT), bg=UI_BG)
+                    y += 1
+        if self.report_path:
+            con.print(6, SCREEN_H - 4, f"Written to {self.report_path}"[:SCREEN_W - 12], fg=UI_DIM, bg=UI_BG)
+        con.print(6, SCREEN_H - 3, "Tab: back to the report   H: earlier runs   Enter / Esc: main menu",
+                  fg=UI_DIM, bg=UI_BG)
+
+    def _replay(self):
+        g = self.game
+        d = {}
+        from .runcode import parse
+        got = parse(g.run_code or "")
+        if got:
+            d = dict(got)
+        self.app.start_game(d.get("theatre") or g.theatre_id, d.get("nation") or g.player_nation,
+                            d.get("role"), dict(d.get("setup") or {}, run_code=g.run_code))
+
     def on_key(self, key):
+        if key.char in ("r", "R") and getattr(self.game, "run_code", None):
+            return self._replay()
+        if key.char in ("h", "H"):
+            self._compare = not self._compare
+            self.page = 3
+            return
+        if key.sym == E.KeySym.TAB:
+            self.page = (self.page + 1) % 4
+            return
+        if self.page in (1, 2, 3) and key.sym in (E.KeySym.RETURN, E.KeySym.KP_ENTER, E.KeySym.ESCAPE):
+            self.app.reset_to_menu()
+            return
         if key.sym in (E.KeySym.RIGHT, E.KeySym.DOWN, E.KeySym.PAGEDOWN):
             from .awards import records
             pages = max(1, (len(records(self.game.command, self.game.player.nation)) + 2) // 3)
@@ -1108,7 +1420,8 @@ class HelpState:
                 seg = text[pos:mt.start()]
                 segs.append((cx, seg, fg, None))
                 cx += len(seg)
-            k = mt.group(1)
+            from . import keybinds
+            k = keybinds.label(self.app.settings, mt.group(1))
             segs.append((cx, bold(k), (255, 232, 150), None))
             cx += len(k)
             pos = mt.end()
@@ -1301,17 +1614,69 @@ class HelpState:
             self.app.pop()
 
 
-class MemorialState(TextState):
+class MemorialState:
+    """The roll of the fallen: every name the player has lost, newest first, with the battle and the man."""
+
     def __init__(self, app):
         from .game import SAVE_DIR
+        self.app = app
+        self.scroll = 0
+        self.records = []
         path = os.path.join(SAVE_DIR, "memorial.txt")
-        lines = []
         try:
             with open(path, encoding="utf-8") as f:
-                lines = [l.rstrip("\n") for l in f.readlines()][-200:]
+                raw = f.read()
         except OSError:
-            lines = ["No names yet."]
-        super().__init__(app, "Memorial", lines or ["No names yet."])
+            raw = ""
+        for block in raw.split("=" * 70):
+            rows = [r.strip() for r in block.splitlines() if r.strip()]
+            if not rows:
+                continue
+            name = rows[0]
+            where = next((r for r in rows[1:] if ":" in r), "")
+            rest = next((r for r in rows[1:] if r.startswith("Role:")), "")
+            self.records.append((name, where, rest))
+        self.records.reverse()
+
+    def render(self, con):
+        con.clear()
+        out = []
+        if not self.records:
+            out = [("No names yet. The roll is kept in the orderly room.", UI_DIM),
+                   ("", None),
+                   ("You will add some. Nobody gets out of this one.", (170, 170, 150))]
+        else:
+            out.append((f"{len(self.records)} name{'s' if len(self.records) != 1 else ''} on the roll.", UI_HI))
+            out.append(("", None))
+            for name, where, rest in self.records:
+                out.append((" " + name, (230, 215, 175)))
+                if where:
+                    out.append(("   " + where, (170, 160, 130)))
+                if rest:
+                    for line in textwrap.wrap("   " + rest, SCREEN_W - 12):
+                        out.append((line, UI_DIM))
+                out.append(("   ─", (90, 85, 70)))
+        self.scroll = min(self.scroll, max(0, len(out) - (SCREEN_H - 6)))
+        vis = out[self.scroll:self.scroll + SCREEN_H - 6]
+        draw_center_box(con, "THE ROLL OF THE FALLEN", vis, width=SCREEN_W - 6, footer="Esc close  ↑↓ scroll", top=1)
+
+    def on_key(self, key):
+        if key.sym in (E.KeySym.ESCAPE, E.KeySym.RETURN, E.KeySym.KP_ENTER) or key.char == "q":
+            self.app.pop()
+        elif key.sym in (E.KeySym.DOWN, E.KeySym.KP_2):
+            self.scroll += 1
+        elif key.sym in (E.KeySym.UP, E.KeySym.KP_8):
+            self.scroll = max(0, self.scroll - 1)
+        elif key.sym == E.KeySym.PAGEDOWN:
+            self.scroll += 20
+        elif key.sym == E.KeySym.PAGEUP:
+            self.scroll = max(0, self.scroll - 20)
+
+    def on_wheel(self, dy):
+        self.scroll = max(0, self.scroll - dy)
+
+    def on_click(self, tx, ty, b):
+        self.app.pop()
 
 
 class LogState(TextState):
@@ -1343,6 +1708,41 @@ class LogState(TextState):
         for i, cat in enumerate(self.cats[self.scroll:self.scroll + SCREEN_H - 6]):
             if cat is not None and cat not in ("info", "system"):
                 icons.pic(5, 3 + i, 2, 1, f"log:x|{cat}")
+
+
+class ManualState(TextState):
+    """The field manual, only the pages earned so far."""
+
+    def __init__(self, app, game):
+        from . import manual
+        lines = []
+        for key in manual.unlocked(game):
+            p = manual.PAGES[key]
+            lines.append((p["title"].upper(), (230, 215, 170)))
+            for row in p["art"]:
+                lines.append(("   " + row, (150, 160, 130)))
+            for row in p["lines"]:
+                for w in textwrap.wrap(row, SCREEN_W - 15):
+                    lines.append(("   " + w, UI_TEXT))
+            lines.append((f"   DO: {p['do']}    DON'T: {p['dont']}", (190, 210, 170)))
+            lines.append(("", None))
+        super().__init__(app, "Field manual", lines)
+
+
+class DiaryState(TextState):
+    """The pocket book: the run, as it happened, in the player's own hand."""
+
+    def __init__(self, app, game):
+        lines = []
+        for e in game.__dict__.get("diary", []):
+            lines.append((f"{e['stamp']}  {e['where']}", (180, 165, 135)))
+            for w in textwrap.wrap(e["text"], SCREEN_W - 15):
+                lines.append(("   " + w, (215, 208, 185) if e["kind"] != "death" else (235, 180, 150)))
+            lines.append(("", None))
+        if not lines:
+            lines = [("Nothing yet. Get through something worth writing down.", UI_DIM)]
+        super().__init__(app, "The diary", lines)
+        self.scroll = max(0, len(lines) - (SCREEN_H - 6))
 
 
 def chain_text(game, a):
@@ -1774,6 +2174,142 @@ def _build() -> str:
         return "unknown"
 
 
+class KeybindState:
+    """Move a key.  Enter on a row, then press the key; Esc cancels.  A key already in use is swapped."""
+
+    def __init__(self, app):
+        self.app = app
+        self.sel = 0
+        self.waiting = None
+        self.rows = {}
+        from . import keybinds
+        self.lines = []
+        for g in keybinds.GROUPS:
+            self.lines.append((None, keybinds.GROUP_NAME[g]))
+            for a, (_d, lab, grp) in keybinds.BINDS.items():
+                if grp == g:
+                    self.lines.append((a, lab))
+
+    def _act(self):
+        return self.lines[self.sel][0]
+
+    def _move(self, d):
+        n = len(self.lines)
+        for _ in range(n):
+            self.sel = (self.sel + d) % n
+            if self.lines[self.sel][0] is not None:
+                return
+
+    def on_key(self, key):
+        from . import keybinds
+        if self.waiting is not None:
+            if key.sym == E.KeySym.ESCAPE:
+                self.waiting = None
+                return
+            ch = key.char
+            if ch:
+                keybinds.bind(self.app.settings, self.waiting, ch)
+                self.app.settings.save()
+                self.waiting = None
+            return
+        if key.sym == E.KeySym.ESCAPE:
+            self.app.pop()
+        elif key.sym in (E.KeySym.UP, E.KeySym.KP_8):
+            self._move(-1)
+        elif key.sym in (E.KeySym.DOWN, E.KeySym.KP_2):
+            self._move(1)
+        elif key.char == "r":
+            keybinds.reset(self.app.settings)
+            self.app.settings.save()
+        elif key.sym in (E.KeySym.RETURN, E.KeySym.KP_ENTER):
+            if self._act() == "follow_me" or self._act() == "trace":
+                self.app.settings and None
+                self.waiting = None
+            else:
+                self.waiting = self._act()
+
+    def render(self, con):
+        from . import keybinds
+        w, h = 62, min(SCREEN_H - 2, 24)
+        x, y = (SCREEN_W - w) // 2, 2
+        con.draw_frame(x, y, w, h, clear=True, fg=UI_FRAME, bg=UI_BG)
+        con.print(x + 2, y, self.waiting and " Press a key... " or " Keys ", fg=UI_HI, bg=UI_BG)
+        self.rows = {}
+        top = max(0, min(self.sel - (h - 6) // 2, len(self.lines) - (h - 5)))
+        yy = y + 2
+        for i, (a, lab) in enumerate(self.lines[top:], start=top):
+            if yy >= y + h - 4:
+                break
+            self.rows[yy] = i
+            if a is None:
+                con.print(x + 2, yy, lab.upper(), fg=(190, 170, 130), bg=UI_BG)
+            else:
+                k = keybinds.key_for(self.app.settings, a)
+                col = (250, 240, 190) if i == self.sel else UI_TEXT
+                if self.waiting == a:
+                    con.print(x + 2, yy, "▸" + lab[:34], fg=(255, 240, 160), bg=(60, 52, 30))
+                    con.print(x + w - 9, yy, "press...", fg=(255, 240, 160), bg=(60, 52, 30))
+                else:
+                    con.print(x + 2, yy, ("▸" if i == self.sel else " ") + lab[:34], fg=col, bg=UI_BG)
+                    con.print(x + w - 8, yy, f"{k:^7}", fg=(20, 20, 15), bg=(215, 205, 165))
+            yy += 1
+        con.print(x + 2, y + h - 3, "Enter: rebind   r: defaults   Esc: back", fg=UI_DIM, bg=UI_BG)
+        if self.waiting:
+            con.print(x + 2, y + h - 2, "F8 and F9 are fixed function keys.", fg=UI_DIM, bg=UI_BG)
+
+    def on_click(self, tx, ty, b):
+        if ty in self.rows and self.lines[self.rows[ty]][0] is not None:
+            self.sel = self.rows[ty]
+            a = self._act()
+            if a in ("follow_me", "trace"):
+                self.waiting = None
+            else:
+                self.waiting = a
+
+
+class ContentState(MenuState):
+    """Installed content packs: see what there is, turn one off, read what broke."""
+
+    def __init__(self, app):
+        super().__init__(app, "CONTENT PACKS", [], self.choose, width=86,
+                         subtitle="Off takes effect at the next start. A pack that will not parse is listed here "
+                                  "with its error.")
+        self._rebuild()
+
+    def _rebuild(self):
+        from . import packs
+        off = packs.disabled()
+        opts = []
+        for root in (packs.SHIPPED, packs.USER):
+            try:
+                files = sorted(root.glob("*.json"))
+            except OSError:
+                files = []
+            for p in files:
+                on = p.name not in off and p.stem not in off
+                opts.append((f"[{'x' if on else ' '}] {p.name}" + ("  (yours)" if root is packs.USER else ""),
+                             p.name, "", UI_HI if on else UI_DIM))
+        if not opts:
+            opts.append(("No packs installed.", None, "", None))
+        for e in packs.ERRORS[:8]:
+            opts.append((("error: " + e)[:80], None, "", (230, 140, 110)))
+        opts.append(("Back", "__back__", "", None))
+        self.options = opts
+        self.sel = min(self.sel, len(opts) - 1)
+
+    def choose(self, name):
+        if name == "__back__" or name is None:
+            return
+        from . import packs
+        off = packs.disabled()
+        if name in off:
+            off.remove(name)
+        else:
+            off.add(name)
+        packs.set_disabled(off)
+        self._rebuild()
+
+
 class OptionsState:
     """Every setting in one place, grouped, each with a word on what it does.  ←/→ change a value,
     Enter toggles or cycles it, Esc goes back."""
@@ -1789,8 +2325,53 @@ class OptionsState:
     # (label, key, kind, description, extra)
     def _spec(self):
         app = self.app
-        sizes = ("standard", "large", "huge")
-        return [
+        sizes = ("standard", "large", "huge", "massive")
+        adv = [("CONTENT", None, "head", "", None),
+               ("Content packs...", "content", "action",
+                "The packs installed here: theatres, items, vehicles, roles, missions, quotes and speech. Turning "
+                "one off takes effect next start. The folder and the schema are in docs/PACKS.md.", None),
+               ("ADVANCED", None, "head", "", None),
+               ("Unlock experimental settings", "unlocked", "toggle",
+                "Show every setting, including the simulation and save internals. These are real knobs, not "
+                "guarantees: a large radius, a strange troop density, god mode or a hand-edited save can slow a "
+                "machine to a crawl, starve a save, or break a run. Nothing here touches a run already in "
+                "progress unless it says so. Turning this on asks once.", None)]
+        if app.settings.get("unlocked"):
+            adv += [
+                ("Force density (new games)", "battlefield", "cycle",
+                 "standard: normal force density; large: twice the troops per generation cell; huge: three times; "
+                 "massive: five times, for a corps-sized field. Terrain cells grow with these settings. New game.",
+                 sizes),
+                ("Simulation radius (new games)", "reality_radius", "cycle",
+                 "Full tactical simulation follows you in every direction. Every active tile and man costs CPU and "
+                 "memory. 96 is a phone-sized window, 2000 a whole battlefield. The world continues beyond the "
+                 "circle either way.", (96, 120, 180, 240, 360, 480, 640, 800, 1200, 1600, 2000)),
+                ("Troop multiplier (new games)", "sim_scale", "cycle",
+                 "An extra multiplier on the force density above, without changing the map size. 1 is the "
+                 "battlefield's own density. Above 2 the spawning alone takes seconds.", (0.5, 1, 1.5, 2, 3, 5)),
+                ("World margin kept ready (tiles)", "stream_margin", "cycle",
+                 "How much of the world beyond the active radius is kept generated. More is smoother and heavier.",
+                 (16, 32, 64, 96, 128, 192, 256)),
+                ("Autosave interval (minutes)", "autosave_minutes", "cycle",
+                 "0 turns autosave off. A short interval is safer and hitches more.", (0, 1, 2, 5, 10, 20, 30)),
+                ("Save compression", "save_compression", "cycle",
+                 "gzip level: 0 is the fastest write and the biggest file; 9 the smallest and slowest. A long war "
+                 "is a large pickle.", (0, 1, 3, 6, 9)),
+                ("Digging and building speed", "build_speed", "cycle",
+                 "Multiplier on every field work, yours and the AI's. 1 is honest shovel work; 10 is a toy.",
+                 (0.5, 1, 2, 4, 8, 20)),
+                ("God mode", "god_mode", "toggle",
+                 "Your soldier cannot die. Wounds, bleeding and suppression still happen. Death screens and the "
+                 "memorial are skipped; succession is moot.", None),
+                ("Reveal the ground", "reveal_map", "toggle",
+                 "Mark all terrain explored as you go, without revealing enemy units. A development convenience; it "
+                 "also hides how much the ground is meant to be learned.", None),
+                ("Frame time", "show_fps", "toggle", "A small frame-time readout in the corner.", None),
+                ("Message volume", "log_level", "cycle",
+                 "quiet: only what matters. normal: the war's talk. loud: also the simulation's own lines (a "
+                 "debugging firehose).", ("quiet", "normal", "loud")),
+            ]
+        return adv + [
             ("SOUND", None, "head", "", None),
             ("Sound", "sound", "toggle", "All sound on or off (F3).", None),
             ("Master volume", "volume", "slider", "Everything together.", None),
@@ -1812,10 +2393,11 @@ class OptionsState:
              "out the fighting you're actually in.", None),
             ("Voices", "vol_voices", "slider", "Shouts, orders and the radio, in each army's language.", None),
             ("Spoken voices", "voices", "toggle", "Voices at all: off saves the time it takes to render them.", None),
-            ("Your side speaks English", "translate_own", "toggle",
-             "Your own army's shouts, orders, talk and radio shown and spoken in English - still in their own "
-             "voices, so a German platoon sounds like the Germans of an old war film. The enemy keeps his "
-             "language. Off: everyone speaks his own.", None),
+            ("Translate speech to English", "translate", "cycle",
+             "own: your own side is translated beside the original and spoken in English, in its own voice."
+             "Enemy speech stays foreign unless you know the language (languages training, an intelligence "
+             "role, or luck). all: translate everyone. off: everyone in his own language.",
+             ("own", "all", "off")),
             ("Voice engine", "voice_engine", "cycle", _voice_engine_desc(), ("neural", "system")),
             ("Footsteps, engines and the rest", "vol_effects", "slider",
              "Footsteps, engines and tracks, doors, digging, the ringing in your ears after a blast.", None),
@@ -1832,14 +2414,27 @@ class OptionsState:
             ("Animations", "anim_speed", "cycle", "How long shots and blasts stay on screen: slow ones play "
              "second by second in the order they happened.", ("fast", "normal", "slow", "very slow")),
             ("Screen shake", "shake", "toggle", "The view jolts when shells land close.", None),
+            ("Bright shot effects", "bright_shots", "toggle", "Muzzle stars, longer tracer streaks and impact crosses, so it is easier to read who is firing at what. Off keeps the plainer effect.", None),
             ("Centre on me when I move", "auto_center", "toggle", "The view glides back to you when you move.", None),
             ("Scroll at the screen edge", "edge_scroll", "toggle", "The mouse at the edge of the battlefield "
              "scrolls it.", None),
             ("Minimap open at the start", "minimap", "toggle", "F5 shows or hides it in play.", None),
+            ("Order trace at the start", "command_view", "toggle", "F8 lays every unit's orders and beaten ground over the map, and lifts it again.", None),
+            ("Colour-blind-safe colours", "colorsafe", "toggle", "Move reds and greens apart toward amber and blue. Applies to the interface text.", None),
+            ("High contrast", "high_contrast", "toggle", "White text on near-black ground throughout, for sunlight or low vision.", None),
+            ("Reduce motion", "reduce_motion", "toggle", "Shorter shot and blast effects, no red flash, no screen shake.", None),
+            ("Screen reader", "screen_reader", "toggle", "Narrate messages, your state and screen changes to the terminal for a screen reader.", None),
+            ("Message pause", "message_pause", "slider2", "How long a message stays before it fades. Longer is easier to read.", (0.5, 3.0)),
             ("Hit chances as numbers", "show_numbers", "toggle", "Percentages instead of words when aiming.", None),
             ("Pictures in the interface", "pictures", "toggle", "Your kit, your body, your watch and the sky, the "
              "map sheet: drawn as well as named. Off: words only, as in a terminal.", None),
+            ("CONTROLS", None, "head", "", None),
+            ("Rebind keys...", "keys", "action", "Move the keys for anything on the battlefield. The help and the "
+             "hints print the key you set.", None),
             ("PLAY", None, "head", "", None),
+            ("Preload for speed", "preload", "cycle", "startup: build the sprite sizes and fonts a normal game uses in "
+             "the background at start. everything: also every zoom size and picture - hundreds of megabytes, and "
+             "the smoothest. off: build as they are needed.", ("off", "startup", "everything")),
             ("Real time", "realtime", "toggle", "F6: the world moves while you stand still. Everyone shares one "
              "clock and normal action costs. Menus and an unfocused window pause; aiming does not. "
              "z/Z still deliberately pass time quickly.", None),
@@ -1851,6 +2446,9 @@ class OptionsState:
              None),
             ("Safe mode", "safe_mode", "toggle", "With the enemy in sight or rounds coming in, a step stops with a "
              "warning; step again to go anyway. (! in play; ' ignores what you can see.)", None),
+            ("Autopilot narrates", "autopilot_narrate", "toggle", "On autopilot, a line under the job saying what "
+             "he's doing it for and what he's watching - the way a good corporal would talk a new man through it.",
+             None),
             ("Quiet time goes quickly", "fast_quiet", "toggle", "Walking somewhere, or on autopilot, with no "
              "enemy in sight: the seconds run as fast as your machine can simulate them, the view drawn a few times "
              "a second. Every second is still simulated, for everyone. (Waiting with z or Z always goes quickly.)",
@@ -1858,16 +2456,26 @@ class OptionsState:
             ("Read the ground", "going", "toggle", "Tint the battlefield by the going: red where there's no way "
              "through (for you on foot, or the vehicle you're in), amber where it's slow - the deeper the amber, "
              "the slower. X → Read the ground in play.", None),
-            ("Force density (new games)", "battlefield", "cycle",
-             "standard: normal force density; large: twice the troops per generation cell (default); "
-             "huge: three times the troops. Terrain cells also grow with these settings. The world is seamless. New "
-             "game.", sizes),
-            ("Simulation radius (new games)", "reality_radius", "cycle",
-             "Full tactical simulation follows you in every direction. 240 tiles by default; "
-             "larger values keep more soldiers and terrain active and need more CPU and memory. "
-             "The world continues beyond this circle.", (180, 240, 360, 480, 640)),
-            ("Autosave", "autosave", "toggle", "Save every five minutes of real time, as well as when you quit. "
+            ("Autosave", "autosave", "toggle", "Save every few minutes of real time, as well as when you quit. "
              "There's still only one life - unless succession is on.", None),
+            ("DIFFICULTY (new games)", None, "head", "", None),
+            ("Difficulty", "difficulty", "cycle",
+             "The number of the war: your enemy's training and eyes, how fast you bleed, whether the game "
+             "coaches you. Custom exposes each number below. Set when a run begins.", ("recruit", "veteran",
+                                                                                     "realistic", "custom")),
+            ("Ironman", "ironman", "toggle",
+             "One life, one rolling save, no fallback copy and no succession. Death ends the run for good. Set "
+             "when a run begins.", None),
+        ] + ([
+            ("Enemy training", "enemy_skill", "slider2", "Multiplier on the enemy's skills. 1.0 is as written.",
+             (0.25, 2.5)),
+            ("Enemy eyes", "enemy_spot", "slider2", "Multiplier on how far the enemy sees and how hard he looks.",
+             (0.25, 2.5)),
+            ("Enemy resolve", "enemy_morale", "slider2", "Multiplier on enemy morale: how long he stays in it.",
+             (0.25, 2.5)),
+            ("Your bleeding", "player_bleed", "slider2", "Multiplier on your own blood loss. 1.0 is as written.",
+             (0.25, 2.5)),
+        ] if app.settings.get("difficulty") == "custom" else []) + [
             ("WHEN YOU DIE", None, "head", "", None),
             ("Succession", "succession", "cycle", "off: death is the end.  on: the battle goes on and you're someone "
              "else, chosen by the rule below - the same field, the same men, the dead where they fell.  choose: a "
@@ -1889,6 +2497,8 @@ class OptionsState:
         from .settings import DEFAULTS
         if key == "show_numbers":
             return bool(app.show_numbers)
+        if key in ("enemy_skill", "enemy_spot", "enemy_morale", "player_bleed"):
+            return float((st.get("difficulty_custom") or {}).get(key, 1.0))
         return st.get(key, DEFAULTS.get(key))
 
     def _build(self):
@@ -1902,6 +2512,8 @@ class OptionsState:
         if kind == "toggle":
             if key == "sprites":
                 return f"{lab}: {'sprites' if v else 'ASCII'}"
+            if key == "unlocked" and self.__dict__.get("_unlock_armed") and not v:
+                return f"{lab}: press again to accept the warning"
             return f"{lab}: {'on' if v else 'off'}"
         if kind == "slider":
             return f"{lab:34} {_bar(float(v if v is not None else 1.0))}"
@@ -1915,6 +2527,11 @@ class OptionsState:
                      "synth": "synthesised"}.get(v, v)
             if key == "music":
                 shown = {"all": "menus and quiet hours", "title": "menus only", "off": "off"}.get(v, v)
+            if key == "difficulty":
+                from .difficulty import title as _dtitle
+                shown = _dtitle(v)
+            if key == "autosave_minutes" and not v:
+                shown = "off"
             return f"{lab}: {shown}"
         return lab
 
@@ -1999,6 +2616,8 @@ class OptionsState:
         if kind == "action":
             if key == "__back__":
                 app.pop()
+            elif key == "content":
+                app.push(ContentState(app))
             return
         if kind == "toggle":
             if key == "realtime" and self.play is not None:
@@ -2009,11 +2628,25 @@ class OptionsState:
                 app.toggle_sprites()
             elif key == "show_numbers":
                 app.show_numbers = not app.show_numbers
+            elif key == "unlocked" and not st.get("unlocked"):
+                # (the warning is the point: a second press means you meant it)
+                if not self.__dict__.get("_unlock_armed"):
+                    self._unlock_armed = True
+                    return
+                self._unlock_armed = False
+                st["unlocked"] = True
+                self._build()
+            elif key == "unlocked":
+                st["unlocked"] = False
+                self._unlock_armed = False
+                self._build()
             else:
                 from .settings import DEFAULTS
                 st[key] = not st.get(key, DEFAULTS.get(key))
                 if key == "minimap" and self.play is not None:
                     self.play.minimap = st[key]
+                if key == "command_view" and self.play is not None:
+                    self.play.command_view = st[key]
         elif kind == "slider":
             v = float(st.get(key, 0.8))
             st[key] = round(max(0.0, min(1.0, v + 0.1 * d)), 2)
@@ -2026,8 +2659,14 @@ class OptionsState:
                     pass
         elif kind == "slider2":
             lo, hi = extra
-            v = float(st.get(key, 1.0))
-            st[key] = round(max(lo, min(hi, v + 0.1 * d)), 1)
+            if key in ("enemy_skill", "enemy_spot", "enemy_morale", "player_bleed"):
+                cur = st.setdefault("difficulty_custom", {})
+                v = float(cur.get(key, 1.0))
+                cur[key] = round(max(lo, min(hi, v + 0.05 * d)), 2)
+                v = cur[key]
+            else:
+                v = float(st.get(key, 1.0))
+                st[key] = round(max(lo, min(hi, v + 0.1 * d)), 1)
             if app.gfx is not None:
                 app.gfx.check_resize(force=True)
         elif kind == "cycle":
@@ -2039,6 +2678,9 @@ class OptionsState:
                 app.gfx.check_resize(force=True)
             if key == "sound_pack" and app.audio is not None:
                 app.audio.set_pack(st[key])
+            if key == "preload" and st[key] != "off":
+                from .preload import start as _preload
+                _preload(st)
         try:
             st.save()
         except Exception:
@@ -2056,7 +2698,12 @@ class EscMenuState:
     def _build(self):
         app = self.app
         st = app.settings
-        self.opts = [("Resume", "resume"), ("Save and quit to menu", "save"), ("How to play", "help"),
+        self.opts = [("Resume", "resume"), ("The diary", "diary"), ("Field manual", "manual"),
+                     ("Save and quit to menu", "save"),
+                     ("Save a copy of this run", "copy"),
+                     ("Ironman: " + ("on - one life, one file" if getattr(self.play.game, "ironman", False)
+                                     else "off"), "ironman"),
+                     ("How to play", "help"),
                      ("Options: sound mixer, display, safe mode...", "options"),
                      ("Graphics: " + ("sprites" if st.get("sprites") else "ASCII") + "   (F2)", "sprites"),
                      ("Sound: " + ("on" if st.get("sound") else "off") + "   (F3)", "sound"),
@@ -2117,6 +2764,10 @@ class EscMenuState:
         app = self.app
         if v == "resume":
             app.pop()
+        elif v == "diary":
+            app.push(DiaryState(app, self.play.game))
+        elif v == "manual":
+            app.push(ManualState(app, self.play.game))
         elif v == "save":
             try:
                 self.play.game.save()
@@ -2125,8 +2776,27 @@ class EscMenuState:
                 self.play.game.msg(f"Save failed: {e}", "warn")
                 return
             app.reset_to_menu()
+        elif v == "copy":
+            import time
+            g = self.play.game
+            try:
+                g.save_as(f"{g.player.name} copy")
+                g.msg("A copy of the run is saved under Your runs.", "good")
+            except Exception as e:
+                g.msg(f"Could not save a copy: {e}", "warn")
+            app.pop()
+        elif v == "ironman":
+            g = self.play.game
+            if g.ironman:
+                g.msg("Ironman is fixed for a run; start a new one to change it.", "info")
+            else:
+                g.ironman = True
+                g.msg("Ironman from here: one rolling file from now on. Death ends the run.", "warn")
+            app.pop()
         elif v == "help":
             app.push(HelpState(app))
+        elif v == "keys":
+            app.push(KeybindState(app))
         elif v == "options":
             app.push(OptionsState(app, self.play))
         elif v == "numbers":
@@ -2139,8 +2809,9 @@ class EscMenuState:
             app.settings["voices"] = not app.settings.get("voices", True)
             app.settings.save()
             self._build()
-        elif v in ("center", "edge", "shake", "safe"):
-            k = {"center": "auto_center", "edge": "edge_scroll", "shake": "shake", "safe": "safe_mode"}[v]
+        elif v in ("center", "edge", "shake", "safe", "bright_shots", "colorsafe"):
+            k = {"center": "auto_center", "edge": "edge_scroll", "shake": "shake", "safe": "safe_mode",
+                 "bright_shots": "bright_shots", "colorsafe": "colorsafe"}[v]
             app.settings[k] = not app.settings.get(k, v != "edge")
             app.settings.save()
             self._build()
@@ -2207,7 +2878,7 @@ class POWState:
                 rows.append((line, col))
         for i, (line, col) in enumerate(rows[-(SCREEN_H - 11):]):
             con.print(4, 6 + i, line, fg=col or UI_DIM)
-        foot = "Enter: another day   w: a week   e: try to escape   Esc: menu"
+        foot = "Enter: another day   w: a week   i: interrogation   e: try to escape   Esc: menu"
         if self.done:
             foot = "Enter to continue."
         con.print(3, SCREEN_H - 2, foot, fg=UI_DIM)
@@ -2247,6 +2918,8 @@ class POWState:
             self._days(1)
         elif key.char == "w":
             self._days(7)
+        elif key.char == "i":
+            self._interrogation()
         elif key.char == "e":
             from .pow import try_escape
             r = try_escape(g)
@@ -2264,6 +2937,51 @@ class POWState:
             else:
                 self.log.append(("Caught at the wire. Two weeks in the cooler on bread and water.", (230, 170, 90)))
                 self._days(14)
+
+    def _interrogation(self):
+        """Taken to the intelligence hut: what a prisoner chooses to say, and what it buys him."""
+        g = self.game
+        pw = g.pow
+        if pw is None:
+            return
+        from .skills import level
+        opts = [("Name, rank and number. Nothing else.", "name", None, True),
+                ("Tell him what he can already see from his own wire.", "local", None, True),
+                ("Give him your old unit's positions.", "unit", (220, 210, 170), True),
+                ("Give him the lot... and hope it's worth a parcel.", "all", (240, 200, 130), True),
+                ("Mislead him.", "lie", (220, 190, 160), True)]
+        lines = [("The intelligence officer has a map, a pencil and all afternoon. "
+                  + ("You can follow some of what he says." if level(g.player, "languages") > 5 else
+                     "His words are only shapes to you."), UI_DIM)]
+        menu_opts = [(label, key, None, col) for label, key, col, _ok in opts]
+        sub = lines[0][0]
+        self.app.push(MenuState(self.app, "Interrogation", menu_opts,
+                                lambda v: (self._answered(v), self.app.pop()), subtitle=sub, width=66))
+
+    def _answered(self, v):
+        g = self.game
+        pw = g.pow
+        if pw is None or v is None:
+            return
+        p = g.player
+        if v == "name":
+            txt, food = "You give your name, rank and number. He writes it, and that is that.", 0
+        elif v == "local":
+            txt, food = "You point to the road and the church you can both see. He is not impressed, but he notes it.", 2
+        elif v == "unit":
+            txt, food = "You give your old unit's line. He is pleased, and you get a mug of soup and ten minutes by the stove.", 5
+        elif v == "all":
+            txt, food = "You give the lot: the brigade, the guns, the scheme. He buys you a cigarette - and a second bowl.", 9
+            pw["cooperated"] = pw.get("cooperated", 0) + 1
+        else:
+            from .skills import level
+            lie = level(p, "languages") < 5 or g.rng.random() < 0.5
+            txt = ("You invent a brigade that does not exist. He writes it all down." if lie else
+                   "You mix true and false until even you are not sure. He writes it all down.")
+            food = 3
+        pw["food"] = min(100.0, pw["food"] + food)
+        pw["interrogated"] = g.turn
+        self.log.append((f"Day {pw['day']}: {txt}", (200, 200, 175)))
 
     def _finish(self):
         from .pow import return_to_war
@@ -2770,6 +3488,9 @@ class GeneratingState:
             tb = traceback.format_exc()
             self.app.replace(TextState(self.app, "Something broke", tb.splitlines()))
             return
+        from . import runcode, runs
+        g.run_code = runcode.make(g.seed, self.args[0], self.args[1], self.args[2], self.setup)
+        runs.note(g.run_id, g, code=g.run_code, started=True)
         self.app.replace(BriefingState(self.app, g))
 
     def on_key(self, key):
@@ -2781,6 +3502,9 @@ class GeneratingState:
 class App:
     def __init__(self, font=None):
         from .settings import Settings
+        from .packs import load_all as _load_packs, ERRORS as _pack_errors
+        _load_packs()
+        self.pack_errors = list(_pack_errors)
         self.settings = Settings()
         if font:
             self.settings["font"] = "bitmap"
@@ -2796,6 +3520,8 @@ class App:
         from . import fonts
         self.tileset = fonts.make_tileset(self.settings["font"], 10, 20) if self.settings["font"] == "ttf" \
             else fonts.bitmap_tileset()
+        from .preload import start as _preload
+        self._preload_thread = _preload(self.settings)
 
     @property
     def show_numbers(self):
@@ -2808,6 +3534,11 @@ class App:
 
     def push(self, st):
         self.states.append(st)
+        if self.settings.get("screen_reader"):
+            from . import screenreader
+            name = type(st).__name__.replace("State", "")
+            title = getattr(st, "title", None) or name
+            screenreader.screen(str(title))
 
     def pop(self):
         if self.states:
@@ -2832,6 +3563,22 @@ class App:
         setup = dict(setup or {})
         setup.setdefault("battlefield", self.settings.get("battlefield", "large"))
         setup.setdefault("reality_radius", self.settings.get("reality_radius", 240))
+        setup.setdefault("sim_scale", self.settings.get("sim_scale", 1))
+        setup.setdefault("stream_margin", self.settings.get("stream_margin", 64))
+        setup.setdefault("difficulty", self.settings.get("difficulty", "veteran"))
+        setup.setdefault("difficulty_custom", dict(self.settings.get("difficulty_custom") or {}))
+        setup.setdefault("ironman", bool(self.settings.get("ironman")))
+        from . import runs as _runs
+        setup.setdefault("run_id", _runs.new_id())
+        if setup.get("run_code"):
+            from .runcode import parse as _parse_code
+            parsed = _parse_code(setup["run_code"]) or {}
+            for k, v in parsed.items():
+                setup.setdefault(k, v)
+            setup.pop("run_code", None)
+        if not self.settings.get("seen_intro", False):
+            self.settings["seen_intro"] = True
+            self.settings.save()
         self.push(GeneratingState(self, theatre, nation, role, setup))
 
     def current_game(self):
@@ -2905,6 +3652,12 @@ class App:
                 st = self.states[-1]
                 try:
                     st.render(self.console)
+                    if self.settings.get("colorsafe"):
+                        from .colorsafe import apply as _colorsafe
+                        _colorsafe(self.console)
+                    if self.settings.get("high_contrast"):
+                        from .contrast import apply as _contrast
+                        _contrast(self.console)
                     layers = getattr(st, "layers", None)
                     overlay = getattr(st, "overlay", None)
                 except Exception:
@@ -2917,8 +3670,9 @@ class App:
                 self.gfx.present(self.console, layers, overlay, getattr(st, "map_offset", None))
                 g = self.current_game()
                 from . import translate
-                translate.ACTIVE_SIDE = g.player.side if g is not None and g.player is not None and \
-                    self.settings.get("translate_own") else None
+                translate.ACTIVE_SIDE = g.player.side if g is not None and g.player is not None else None
+                translate.ACTIVE_MODE = self.settings.get("translate", "own")
+                translate.PLAYER = g.player if g is not None else None
                 if self.audio is not None:
                     try:
                         self.audio.update(g)
@@ -3042,6 +3796,9 @@ class App:
                         continue
                     if ch == "." and time.time() - self._last_kp_period < 0.2:
                         continue
+                    if isinstance(st, PlayState) and not typing_in(st) and hasattr(self, "settings"):
+                        from . import keybinds
+                        ch = keybinds.remap(self.settings, ch)
                     st.on_key(Key(char=ch))
             elif isinstance(event, E.MouseMotion):
                 if hasattr(st, "on_mouse_motion"):

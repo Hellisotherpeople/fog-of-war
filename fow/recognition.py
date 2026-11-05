@@ -86,7 +86,10 @@ def process(game):
         cmd.__dict__.setdefault("record", []).append(
             f"{game.datetime_str()}: report by {c['by']} - {c['why']}.")
         ledger["claims"].remove(c)
-    if game.turn - ledger["last_review"] >= 60 and channel(game):
+        if c["kind"] in ("kills", "objectives"):
+            from .career import consider as _promote
+            _promote(game)                     # (a good afternoon does not wait for a desk)
+    if game.turn - ledger["last_review"] >= 20 and channel(game):
         ledger["last_review"] = game.turn
         cmd._battle_awards(game)
     for award in list(ledger["awards"]):

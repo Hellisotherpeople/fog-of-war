@@ -69,6 +69,8 @@ def alertness(game, viewer) -> float:
         a *= 0.7
     if getattr(viewer, "suppression", 0) > 40:
         a *= 0.5
+    if getattr(viewer, "ai", {}).get("sleeping") is not None:
+        a *= 0.25
     if getattr(viewer, "vt", None) is not None:
         a *= 0.8 if getattr(viewer, "buttoned", False) else 1.1
     return a

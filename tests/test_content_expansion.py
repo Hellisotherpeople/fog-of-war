@@ -55,12 +55,17 @@ def test_drill_runs_its_lessons():
              setup={"battlefield": "standard", "scenario": "drill", "drill": "basic", "service": "army"})
     ps = PlayState(FakeApp(), g)
     p, d = g.player, g.drill
+    assert g.setup.get("seamless") is False
     assert len([a for a in g.actors if a.ai.get("drill_target")]) == 3
-    p.x, p.y = d.marker
-    d.update(ps)
-    ps.mode = "look"
-    d.update(ps)
+    assert len([a for a in g.actors if a.side != p.side]) == 3
+    g.map.pos_cover[p.x, p.y] = 60
     p.stance = 1
+    d.update(ps)                       # on the bags, crouched
+    p.peek = (1, 0)
+    d.update(ps)
+    p.x, p.y = d.marker
+    d.update(ps)                       # at the marker
+    ps.mode = "look"
     d.update(ps)
     p.weapon = Item("m1_garand")
     d.update(ps)
@@ -68,15 +73,24 @@ def test_drill_runs_its_lessons():
     d.update(ps)
     g.stats["drill_reloads"] = 1
     d.update(ps)
+    p.stance = 2
+    d.update(ps)                       # the crawl step remembers where it started
+    p.x += 2
+    d.update(ps)
     assert p.body.wounds
     g.stats["drill_bandages"] = 1
+    d.update(ps)
+    g.stats["drill_buddy"] = 1
+    d.update(ps)
+    g.stats["drill_smokes"] = 1
     d.update(ps)
     ps.inv_screen = object()
     d.update(ps)
     ps.inv_screen = None
     g.drill_map = True
     d.update(ps)
-    g.stats["drill_shots"] = 8
+    target = next(a for a in g.actors if a.ai.get("drill_target"))
+    p.x, p.y = target.x, target.y
     d.update(ps)
     assert d.done and ps.popups
 

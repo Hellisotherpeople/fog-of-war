@@ -66,14 +66,18 @@ def on() -> bool:
 def oriented(key, w, h) -> str:
     """The key turned a quarter if the picture is long one way and its rectangle the other (a rifle stood
     on end in a pack)."""
+    wear = ""
+    if "#" in key:
+        key, _h, code = key.rpartition("#")
+        wear = "#" + code
     base, bar, arg = key.partition("|")
     ent = PAINTERS.get(base) or PAINTERS.get(base.split(":")[0] + ":*")
     if ent is None or callable(ent[0]):
-        return key
+        return key + wear
     box = (w * 0.55) / max(0.1, h)                   # (a text cell is about 0.55 as wide as it is tall)
     if (ent[0] > 1.3 and box < 0.8) or (ent[0] < 0.75 and box > 1.4):
-        return base + "@r" + bar + arg
-    return key
+        return base + "@r" + bar + arg + wear
+    return key + wear
 
 
 def badge(x, y, text, layer="over", tone="dim"):
@@ -218,6 +222,11 @@ def paint(key: str, pw: int, ph: int) -> np.ndarray | None:
     """RGBA (ph, pw, 4) for a key, or None if nothing paints it."""
     if pw < 2 or ph < 2:
         return None
+    wear = None
+    if "#" in key:
+        key, _h, code = key.rpartition("#")
+        if len(code) == 3 and code[1:].isdigit():
+            wear = (code[0], int(code[1:]))
     if key.startswith("~"):
         a = paint(key[1:], pw, ph)                  # a ghost: the place something goes, faintly
         if a is None:
@@ -226,6 +235,9 @@ def paint(key: str, pw: int, ph: int) -> np.ndarray | None:
         g = a[..., :3].mean(axis=2, keepdims=True)
         a[..., :3] = (g * 0.6 + 60).astype(np.uint8)
         a[..., 3] = (a[..., 3] * 0.22).astype(np.uint8)
+        if wear is not None:
+            a = a.copy()
+            _wear(a, wear[0], wear[1], key)
         return a
     base, _, arg = key.partition("|")
     rot = base.endswith("@r")
@@ -246,7 +258,74 @@ def paint(key: str, pw: int, ph: int) -> np.ndarray | None:
     a = c.out(pw, ph)
     if rot:
         a = np.ascontiguousarray(np.rot90(a, 1))
+    if wear is not None:
+        a = a.copy()
+        _wear(a, wear[0], wear[1], key)
     return a
+
+
+def _wear(a, style, loss, key):
+    """Knock the picture about in proportion to condition.  A mark, not a different object."""
+    sev = max(0.0, min(1.0, loss / 99.0))
+    if sev <= 0.02:
+        return
+    h, w = a.shape[:2]
+    rng = np.random.default_rng(abs(hash((key, int(loss)))) & 0xFFFFFFFF)
+    dark = np.array([40, 34, 26, 255], dtype=np.uint8)
+
+    def mark(x, y, col=dark):
+        if 0 <= x < w and 0 <= y < h:
+            a[y, x, :3] = col[:3]
+            a[y, x, 3] = max(a[y, x, 3], 210)
+
+    if style == "m":
+        for _ in range(1 + int(sev * 7)):
+            x, y = rng.integers(1, max(2, w - 1)), rng.integers(1, max(2, h - 1))
+            n = rng.integers(2, max(3, int(w * 0.35)))
+            for i in range(int(n)):
+                mark(x + i, y + (i % 3 == 1), (70, 62, 50, 255))
+        if sev > 0.6:
+            for _ in range(int(sev * 4)):
+                x, y = rng.integers(0, w), rng.integers(0, h)
+                a[y, x, 3] = 0                    # a chipped-out speck
+    elif style == "c":
+        for y in range(h):
+            for x in (0, w - 1):
+                if rng.random() < sev * 0.9:
+                    a[y, x, 3] = 0
+        for _ in range(int(sev * 10)):
+            x, y = rng.integers(0, w), rng.integers(0, h)
+            a[y, x, :3] = np.clip(a[y, x, :3].astype(np.int16) * 0.72, 0, 255).astype(np.uint8)
+        if sev > 0.5:
+            x0 = int(w * 0.2)
+            for y in range(int(h * 0.3), int(h * 0.45)):
+                mark(x0, y, (90, 82, 70, 255))
+    elif style == "p":
+        for _ in range(1 + int(sev * 5)):
+            x, y = rng.integers(0, w), 0
+            while y < h:
+                mark(x, y, (120, 108, 88, 255))
+                y += 1
+                x = min(w - 1, max(0, x + int(rng.integers(-1, 2))))
+        for _ in range(int(sev * 14)):
+            x, y = rng.integers(0, w), rng.integers(0, h)
+            a[y, x, :3] = np.clip(a[y, x, :3].astype(np.int16) * np.array([0.85, 0.75, 0.55]), 0, 255).astype(np.uint8)
+        if sev > 0.5:
+            for y in range(0, max(1, int(h * sev * 0.5))):
+                for x in range(0, max(1, int(w * sev * 0.5))):
+                    a[y, x, 3] = 0
+    elif style == "g":
+        x, y = int(rng.integers(1, max(2, w - 1))), int(rng.integers(1, max(2, h - 1)))
+        for _ in range(int(6 + sev * 16)):
+            mark(x, y, (210, 210, 200, 255))
+            x = min(w - 1, max(0, x + int(rng.integers(-1, 2))))
+            y = min(h - 1, max(0, y + int(rng.integers(-1, 2))))
+    else:
+        for _ in range(int(2 + sev * 16)):
+            x, y = rng.integers(0, w), rng.integers(0, h)
+            a[y, x, :3] = np.clip(a[y, x, :3].astype(np.int16) * 0.7, 0, 255).astype(np.uint8)
+    if sev >= 0.92:
+        a[..., :3] = ((a[..., :3].astype(np.uint16) * 2 + 70) // 3).astype(np.uint8)   # greyed out
 
 
 # ============================================================================ guns
@@ -975,7 +1054,23 @@ MED = {"bandage": "bandage", "morphine": "morphine", "tourniquet": "tourniquet",
 
 
 def item_key(it) -> str | None:
-    """The picture for an item (its family, and the variant), or None."""
+    """The picture for an item (its family, variant and how knocked about it is), or None."""
+    base = _item_key(it)
+    if not base:
+        return None
+    c = it.condition
+    if c >= 0.9:
+        return base
+    k = it.t.kind
+    style = ("p" if it.t.tool in ("papers", "cover_papers", "letter", "photo", "orders", "code") else
+             "g" if it.t.tool in ("binoculars", "camera", "watch", "compass", "radio", "wireless") else
+             "c" if k in ("container", "armor") and (it.t.get("slot") != "head") else
+             "d" if k in ("medical", "ammo", "clip", "mag", "grenade", "explosive") else "m")
+    return f"{base}#{style}{min(99, int((1 - c) * 100)):02d}"
+
+
+def _item_key(it) -> str | None:
+    """The undamaged picture for an item, before its condition is applied."""
     t = it.t
     k = t.kind
     i = t.id

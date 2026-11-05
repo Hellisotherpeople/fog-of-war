@@ -38,7 +38,10 @@ ROLE_ECHELON = {"company_commander": "company", "battalion_commander": "battalio
 REACH = {R.COLONEL: 1, R.BRIGADIER: 1, R.MAJ_GEN: 2, R.LT_GEN: 3, R.GENERAL: 5, R.MARSHAL: 99}
 
 # orders that can be passed by hand signal
-SIGNAL_OK = {"move", "attack", "assault", "hold", "retreat", "regroup", "come", "dig", "flank"}
+SIGNAL_OK = {"move", "attack", "assault", "hold", "retreat", "regroup", "come", "dig", "flank", "follow"}
+# drills that a hand can wave across the noise (the rest need a voice, a set or a runner)
+SIGNAL_DRILLS = {"follow_me", "cover_me", "watch", "consolidate", "probe", "break_contact", "banzai",
+                 "fire_and_movement", "stoss"}
 STATE_WORD = {"idle": "waiting", "hold": "holding", "advance": "advancing", "bound": "bounding forward",
               "assault": "assaulting", "flank": "flanking", "engaged": "in contact", "retreat": "falling back",
               "rout": "routing", "banzai": "charging", "follow": "following", "suppress": "suppressing",
@@ -836,6 +839,9 @@ class CommandState:
         rank = current(p)
         if rank and rank.branch == "Viceroy's commission" and sq.nation != 'india':
             return False, "A Viceroy's commission confers authority within Indian units."
+        pol = game.__dict__.get("politics") or {}
+        if pol.get("sacked", 0) > game.turn and sq is not p.squad:
+            return False, "You are relieved of the front; the chain answers to someone else for now."
         if self.in_chain(game, sq):
             return True, "chain"
         if sq is p.squad and sq.player_led:
@@ -891,7 +897,7 @@ class CommandState:
         out.sort(key=lambda m: (m.role not in ("rifleman", "smg_gunner"), -m.skill))
         return out
 
-    def channel(self, game, sq, kind=None):
+    def channel(self, game, sq, kind=None, drill=None):
         """How an order would reach this squad: dict(kind, delay, note) or None."""
         p = game.player
         if sq is p.squad and sq.player_led:
@@ -912,7 +918,7 @@ class CommandState:
             return dict(kind="voice", delay=2, note=note)
         m = game.map
         seen = m.in_bounds(*pt) and m.visible[pt[0], pt[1]]
-        if not buttoned and seen and d <= 32 and (kind is None or kind in SIGNAL_OK):
+        if not buttoned and seen and d <= 32 and (kind is None or kind in SIGNAL_OK or drill in SIGNAL_DRILLS):
             return dict(kind="signal", delay=4, note="hand signals - they can see you")
         if self.player_radio(game) and squad_has_radio(game, sq):
             return dict(kind="radio", delay=int(8 + d / 12), note="radio")
@@ -954,7 +960,8 @@ class CommandState:
                     break
         return o
 
-    def issue(self, game, squads, kind, target=None, roe=None, say=True, forced_channel=None, label=None):
+    def issue(self, game, squads, kind, target=None, roe=None, say=True, forced_channel=None, label=None,
+              drill=None):
         """Send an order to one or more squads.  Returns (sent, failures)."""
         p = game.player
         self._last_roe = roe or "free"
@@ -962,16 +969,20 @@ class CommandState:
         fails = []
         runner_jobs = {}
         chans_used = set()
-        for sq in squads:
+        from . import doctrine
+        ring = doctrine.ring_points(target, squads) if drill == "motti" and target is not None else None
+        for i, sq in enumerate(squads):
             ok, why = self.authority(game, sq)
             if not ok:
                 fails.append((sq, why))
                 continue
-            ch = forced_channel or self.channel(game, sq, kind)
+            ch = forced_channel or self.channel(game, sq, kind, drill)
             if ch is None:
                 fails.append((sq, "no way to reach them"))
                 continue
-            if kind in ("roe", "release", "report", "attach", "mission", "appointment", "reassign", "build", "cancel_build") or kind.startswith("task_"):
+            if drill is not None:
+                order = doctrine.make(game, drill, ring[i] if ring else target, sq, roe)
+            elif kind in ("roe", "release", "report", "attach", "mission", "appointment", "reassign", "build", "cancel_build") or kind.startswith("task_"):
                 order = None
             elif kind in ("hold", "dig") and target is None:
                 order = self.make_order(game, kind, contact_point(sq), sq)
@@ -986,7 +997,7 @@ class CommandState:
             else:
                 order = self.make_order(game, kind, target, sq, roe)
             job = dict(sq=sq.id, kind=kind, order=order, roe=roe, channel=ch["kind"], issued=game.turn,
-                       due=game.turn + ch["delay"], runner=None, payload=target)
+                       due=game.turn + ch["delay"], runner=None, payload=target, drill=drill)
             chans_used.add(ch["kind"])
             if ch["kind"] == "direct":
                 self.deliver(game, sq, job, quiet=True)
@@ -1013,15 +1024,20 @@ class CommandState:
             self.pending.append(job)
             sent.append(sq)
         if sent and say:
-            self._announce(game, sent, kind, None if isinstance(target, dict) else target, label, chans_used)
+            self._announce(game, sent, kind, None if isinstance(target, dict) else target, label, chans_used,
+                           drill)
         if sent:
             self.battle["orders"] += 1
         return sent, fails
 
-    def _announce(self, game, sent, kind, target, label=None, chans=None):
+    def _announce(self, game, sent, kind, target, label=None, chans=None, drill=None):
         p = game.player
         chans = chans or set()
-        what = ORDER_TEXT.get(kind, kind)
+        if drill is not None:
+            from .doctrine import DRILLS, phrase_key
+            what = DRILLS[drill]["verb"]
+        else:
+            what = ORDER_TEXT.get(kind, kind)
         if target is not None and not isinstance(target, dict):
             d = math.hypot(target[0] - p.x, target[1] - p.y)
             where = f" {direction_word(target[0] - p.x, target[1] - p.y)}, {int(d * 2.2 / 10) * 10 or 10} yards" \
@@ -1036,7 +1052,8 @@ class CommandState:
             p.stance = p.stance
         if chans & {"voice", "direct"}:
             text = f"{who}! {cap(what)}{where}!" if kind != "roe" else f"{who}! {cap(what)}!"
-            key = ORDER_PHRASE.get(kind if kind != "roe" else f"roe_{self._last_roe}")
+            key = phrase_key(drill) if drill else ORDER_PHRASE.get(
+                kind if kind != "roe" else f"roe_{self._last_roe}")
             spoken = None
             if lang(p.nation) != "en":
                 spoken = (phrase(game.rng, p.nation, key) if key else
@@ -1161,6 +1178,18 @@ class CommandState:
             if not quiet and (chan in ("voice", "signal") or rng.random() < 0.5):
                 game.msg(f"{unit_label(sq)} is running. Nobody's listening.", "warn")
             return False
+        # how the leader hears it: a shifted reference, a better way, or an argument (friction.py)
+        from .friction import receive as _receive
+        if not _receive(game, sq, job):
+            line = job.get("friction")
+            self._reply(game, sq, speaker, line, chan)
+            if not quiet:
+                game.msg("(Give the order again to insist.)", "system")
+            return False
+        if job.get("misheard"):
+            game.msg(f"({unit_label(sq)} has the reference wrong - they'll go where they think you said.)", "system")
+        if job.get("improvised"):
+            game.msg(f"({unit_label(sq)} is doing it their own way.)", "system")
         # a suicidal order to broken men: they may refuse - once
         if kind in ("attack", "assault", "flank") and sq.morale < 14 and not sq.player_led:
             last = self.refused.get(sq.id, -999)
@@ -1226,8 +1255,9 @@ class CommandState:
         if not self.in_chain(game, sq) and kind not in ("release",):
             self.attached.add(sq.id)
         self.known[sq.id] = self._snapshot(game, sq)
-        if not quiet:
-            line = rng.choice(R.ACK.get(sq.nation, R.ACK["usa"])).format(rank=R.address(sq.nation, p.rank))
+        if not quiet or job.get("friction"):
+            line = job.get("friction") or rng.choice(R.ACK.get(sq.nation, R.ACK["usa"])).format(
+                rank=R.address(sq.nation, p.rank))
             if kind == "attach" or (job.get("rank_attach") and rng.random() < 0.5):
                 line = rng.choice(["Who the hell are you? ...Yes, sir.", "About time somebody took charge.",
                                    line])
@@ -1250,8 +1280,31 @@ class CommandState:
         sq.arrived = False
         sq.positions = {}
         sq.state_turn = game.turn
+        mod = getattr(o, "mod", None) or {}
+        if o.drill:
+            sq.rep["drill"] = o.drill
+        else:
+            sq.rep.pop("drill", None)
+        if mod.get("cover_me"):
+            for m in sq.members:
+                if m.active and not m.downed:
+                    m.ai["cover_for"] = game.turn + 90
+        if mod.get("decoy"):
+            from . import doctrine
+            doctrine.decoys(game, sq, o.target or sq.anchor() or (game.player.x, game.player.y))
         k = o.kind
-        if k == "assault":
+        if mod.get("banzai"):
+            sq.state = "banzai"
+        elif mod.get("infiltrate") and o.target is not None:
+            sq.flank_target = o.target
+            sq.state = "flank"
+        elif mod.get("watch"):
+            sq.arrived = True
+            sq.state = "hold"
+        elif mod.get("volley"):
+            o.roe = "hold"
+            sq.state = "hold" if o.target is None else "advance"
+        elif k == "assault":
             sq.state = "assault"
         elif k == "flank":
             sq.flank_target = o.target
@@ -1476,7 +1529,7 @@ class CommandState:
         if p.vehicle is not None and p.vehicle.player_station == "driver":
             skill = "driving"
         use(game, p, skill, 2 if tank else .8)
-        claim(game, "kills", .6 if tank else .15,
+        claim(game, "kills", 1.2 if tank else .3,
               f"knocking out the {victim.vt.name}" if tank else "your part in the fighting", victim.pos,
               restore_trust=not victim.ai.get('incapacitated_before_fatal_hit', False))
 
@@ -1491,7 +1544,7 @@ class CommandState:
             self.career["objectives"] += 1
             from .recognition import claim
             from .skills import use
-            claim(game, "objectives", 3, f"taking {ob.name}", ob.pos)
+            claim(game, "objectives", 6, f"taking {ob.name}", ob.pos)
             use(game, p, "leadership" if mine else "observation", 4)
 
     def on_wounded(self, game):
@@ -1503,7 +1556,7 @@ class CommandState:
             return
         self.career["sectors"] += 1
         from .recognition import claim
-        claim(game, "objectives", 3, f"the fighting for {game.sector.name}")
+        claim(game, "objectives", 9, f"the fighting for {game.sector.name}")
         self.consider_promotion(game, "the fighting for " + game.sector.name)
 
     def on_new_battle(self, game):
@@ -1559,13 +1612,15 @@ class CommandState:
         return name
 
     def promotion_need(self, grade):
+        """Reviewed service for the next step.  A hard fight can carry a good soldier up a rank or two in
+        an afternoon; the arithmetic below is deliberately cheap at the bottom, where the gaps are."""
         if grade < R.SERGEANT:
-            return 5 + grade * 2
+            return 4 + grade
         if grade < R.LT2:
-            return 10 + (grade - R.SERGEANT) * 3
+            return 8 + (grade - R.SERGEANT) * 2
         if grade < R.COLONEL:
-            return 14 + (grade - R.LT2) * 5
-        return 30 + (grade - R.COLONEL) * 10
+            return 12 + (grade - R.LT2) * 4
+        return 26 + (grade - R.COLONEL) * 8
 
     def consider_promotion(self, game, why=""):
         from .recognition import consider

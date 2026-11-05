@@ -249,6 +249,16 @@ class SkySeaState:
             line(f"REAL TIME {speed} - {state} (F6)", (140, 205, 210))
         me = ss.player_plane
         ship = ss.player_ship
+        mission = ss.mission or {}
+        if mission.get("text"):
+            line("TASK: " + mission["text"], (250, 225, 150))
+            tp = mission.get("target_pt")
+            here = me or ship
+            if tp and here is not None:
+                brg = bearing(here.x, here.y, tp[0], tp[1])
+                dist = math.hypot(tp[0] - here.x, tp[1] - here.y) * (SEC if me is not None else 1) / 1000
+                line(f"  {int(brg):03d}° {compass(brg)}, {dist:.1f} km   (t: next target)", UI_DIM)
+            y += 1
         if me is not None:
             line(f"{me.name} - {ss.station}", (220, 200, 140))
             vs = "↑" if me.pitch > 0 else "↓" if me.pitch < 0 else "-"

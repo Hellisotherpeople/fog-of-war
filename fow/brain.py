@@ -35,7 +35,7 @@ RANGE_BY_KIND = {"inf": 40, "mg": 65, "hmg": 75, "sniper": 90, "tank": 70, "atgu
 
 
 class Contact:
-    __slots__ = ("id", "x", "y", "turn", "kind", "threat", "ref", "sound")
+    __slots__ = ("id", "x", "y", "turn", "kind", "threat", "ref", "sound", "decoy")
 
     def __init__(self, id, x, y, turn, kind, ref=None, sound=False):
         self.id = id
@@ -46,6 +46,7 @@ class Contact:
         self.threat = THREAT_BY_KIND.get(kind, 1.0)
         self.ref = ref
         self.sound = sound
+        self.decoy = 0
 
 
 def contact_kind(e) -> str:

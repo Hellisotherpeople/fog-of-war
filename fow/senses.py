@@ -112,6 +112,9 @@ def base_view_range(game) -> float:
 
 def viewer_range(game, viewer) -> float:
     r = game.view_range_cache
+    if getattr(viewer, "is_player", False) is False and getattr(viewer, "side", None) != game.player_side:
+        from .difficulty import get as _diff
+        r *= _diff(game, "enemy_spot")          # the enemy looks as hard as the preset says
     if getattr(viewer, "vt", None) is not None:
         return r * vehicle_eye(viewer)
     if not viewer.body.conscious:
@@ -356,12 +359,14 @@ def _high(e) -> bool:
 
 
 def can_detect(game, viewer, target, dist=None, r=None, conceal=None) -> bool:
-    if viewer.z < 0 or target.z < 0:
+    if (viewer.z < 0) != (target.z < 0):
         return False                                  # nobody in a cellar sees out, or is seen from outside
     if dist is None:
         dist = math.hypot(target.x - viewer.x, target.y - viewer.y)
     if r is None:
         r = viewer_range(game, viewer)
+    from .floors import height_advantage, los_clear as _floor_los
+    r *= height_advantage(viewer, target)              # a man upstairs sees further down than up
     if r <= 0:
         return False
     if conceal is None:
@@ -380,6 +385,9 @@ def can_detect(game, viewer, target, dist=None, r=None, conceal=None) -> bool:
             return False
     elif dist <= 1.5 or _sight_line(game, viewer, target):
         return True
+    if viewer.z or target.z:
+        if not _floor_los(game, viewer, target):
+            return False
     if pk is not None:
         # only a head and a shoulder round the corner: harder to spot
         pd = math.hypot(pk[0] - viewer.x, pk[1] - viewer.y)
@@ -388,8 +396,12 @@ def can_detect(game, viewer, target, dist=None, r=None, conceal=None) -> bool:
 
 
 def _sight_line(game, viewer, target) -> bool:
-    """The line between two men, for seeing: the terrain, the crests, and - for a man up in an open belfry or
-    on a roof - not the walls of his own building."""
+    """The line between two men, for seeing: the terrain, the crests, and the floor plans when either is
+    upstairs.  A man at a window or over a parapet is not blinded by the house he stands in."""
+    if viewer.z or target.z:
+        from .floors import los_clear as _floor_los
+        if not _floor_los(game, viewer, target):
+            return False
     tops = [r for r in (_open_top(game, viewer), _open_top(game, target)) if r is not None]
     if not tops:
         return los_clear(game, viewer.x, viewer.y, target.x, target.y, _high(viewer) or _high(target),
@@ -435,7 +447,7 @@ def update_actor_vision(game, a):
         a.visible = vis                               # (down in the cellar, or nobody within reach)
         return vis
     m = game.map
-    batch = FP.lines_ready() and _open_top(game, a) is None
+    batch = FP.lines_ready() and _open_top(game, a) is None and not a.z
     seen = []                                         # (e, distance, concealment), nearest first
     wait = []                                         # ... the ones whose line of sight is still to be drawn
     if batch:
@@ -517,14 +529,25 @@ def player_fov(game):
     r = int(max(R * top, 8, lit_r * top)) + 2
     from .relief import viewshed
     eye_h = eye_height(p)
-    up = p.vehicle is not None or eye_h >= 2.5 or _on_a_rise(m, ox, oy)
+    up = p.vehicle is not None or eye_h >= 2.5 or _on_a_rise(m, ox, oy) or p.z > 0
     see = m.high() if up else m.see              # up in a vehicle, a window or on a rise you see over the corn
-    from .floors import open_top
+    from .floors import open_top, tile_at as _ftile
     top = open_top(game, p)
     if top is not None:
         see = see.copy()                          # up in the belfry, on the roof: all round, over the walls
         tx0, ty0, tbw, tbh = top
         see[tx0:tx0 + tbw, ty0:ty0 + tbh] = True
+    if p.z > 0:
+        # the storey's own walls and windows, over the elevated view of the ground
+        b = m.building_at(ox, oy)
+        if b is not None:
+            x0b, y0b, bw, bh = b[0]
+            see = see.copy()
+            for x in range(max(0, x0b), min(m.w, x0b + bw)):
+                for y in range(max(0, y0b), min(m.h, y0b + bh)):
+                    d = _ftile(m, x, y, p.z)
+                    see[x, y] = bool(d is None or d.see or d.window)
+            r = min(r, 26)
     fov = tcod.map.compute_fov(see, (ox, oy), radius=r, light_walls=True,
                                algorithm=tcod.constants.FOV_SYMMETRIC_SHADOWCAST)
     vs = viewshed(m, ox, oy, r, eye_h, 1.2)       # and not over the crest of a hill (relief.py)
@@ -579,6 +602,9 @@ def player_can_see_actor(game, a) -> bool:
         return False
     m = game.map
     if not m.in_bounds(a.x, a.y) or not m.visible[a.x, a.y]:
+        return False
+    az, pz = getattr(a, "z", 0), getattr(p, "z", 0)
+    if (az < 0) != (pz < 0) or (az != pz and (az < 0 or pz < 0)):
         return False
     if a.side == p.side:
         return True

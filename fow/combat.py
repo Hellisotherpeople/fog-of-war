@@ -181,10 +181,16 @@ def estimate_hit(game, shooter, weapon, target) -> float:
     p_vert = VERTICAL.get(stance, 0.9) if not hasattr(target, "vt") else 1.0
     m = game.map
     if not hasattr(target, "vt"):
-        cov = m.cover_toward(target.x, target.y, shooter.x, shooter.y) / 100.0
-        pos = m.pos_cover[target.x, target.y] / 100.0
+        from .floors import cover_from as _fcover
+        cov = max(m.cover_toward(target.x, target.y, shooter.x, shooter.y), _fcover(game, target, shooter)) / 100.0
+        pos = max(m.pos_cover[target.x, target.y] / 100.0, _fcover(game, target, shooter) / 100.0)
         p_vert *= (1 - pos * {0: 0.4, 1: 0.75, 2: 0.95}[stance])
         p_cover = 1 - cov * LOW_COVER_STANCE[stance]
+        dz = (getattr(target, "z", 0) or 0) - (getattr(shooter, "z", 0) or 0)
+        if dz:
+            # shooting up at a window is awkward; shooting down is easy - and the angle exposes him
+            p_cover *= 0.82 if dz > 0 else 1.08
+            p_vert *= 1.05 if dz < 0 else 0.95
     else:
         p_cover = 1.0
     rng_pen = 1.0
@@ -757,6 +763,8 @@ def destroy_vehicle(game, v, attacker, source, catastrophic=False):
         if attacker is game.player or (pv is not None and attacker is pv):
             game.stats["vehicles_killed"] += 1
             game.command.on_kill(game, v)
+            from . import renown
+            renown.event(game, "vehicle")
     if v.ai.get("convoy"):
         from .rear import convoy_hit
         convoy_hit(game, v, attacker)             # a cut in the road on the war map
@@ -833,21 +841,24 @@ def damage_tile(game, x: int, y: int, dmg: float) -> bool:
 def explode(game, x: int, y: int, power: float, radius: int, *, frags: int = 0,
             frag_dmg: float = 20, pen: float = 0, attacker=None, source="an explosion",
             crater=True, fire: int = 0, smoke: float = 0, self_vehicle=None, air_burst=False,
-            contact=False):
+            contact=False, z: int = 0):
     from .conduct import attack
     with attack(game, attacker, (x, y), collateral=True):
         return _explode(game, x, y, power, radius, frags=frags, frag_dmg=frag_dmg, pen=pen,
                         attacker=attacker, source=source, crater=crater, fire=fire, smoke=smoke,
-                        self_vehicle=self_vehicle, air_burst=air_burst, contact=contact)
+                        self_vehicle=self_vehicle, air_burst=air_burst, contact=contact, z=z)
 
 
 def _explode(game, x, y, power, radius, *, frags=0, frag_dmg=20, pen=0, attacker=None,
              source="an explosion", crater=True, fire=0, smoke=0, self_vehicle=None, air_burst=False,
-             contact=False):
+             contact=False, z=0):
     m = game.map
     rng = game.rng
     if not m.in_bounds(x, y):
         return
+    from . import floors as FLOORS
+    if power >= 12:
+        FLOORS.breach(game, x, y, power, z)     # the floor over the blast, and under it
     game.effect_explosion(x, y, radius)
     loud = min(120, 80 + power / 12)
     game.emit_sound(x, y, loud, "explosion", source, None, None, power=power)
@@ -885,6 +896,9 @@ def _explode(game, x, y, power, radius, *, frags=0, frag_dmg=20, pen=0, attacker
             if a.z < 0:
                 dmg *= 0.08                          # in the cellar: dust, a ringing in the ears, and alive
                 f *= 0.3
+            elif a.z != z:
+                dmg *= 0.35 if a.z > 0 else 0.5      # a floor between you and it: breaks the blast, not the shrapnel
+                f *= 0.6
             st = 2 if a.downed else a.stance
             if dist >= 1:
                 dmg *= {0: 1.0, 1: 0.8, 2: 0.55}[st]

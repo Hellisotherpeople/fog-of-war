@@ -104,6 +104,11 @@ def aim_penalty(game, a) -> float:
     f = a.fatigue
     if f > 50:
         p += (f - 50) / 60.0
+    d = a.ai.get("sleep_debt", 0.0)
+    if d > 40:
+        p += (d - 40) / 120.0
+    if a.ai.get("groggy_until", 0) > 0:
+        p += 1.2
     return p
 
 
@@ -120,4 +125,5 @@ def fatigue_word(a):
 
 def speed_mult(a) -> float:
     f = a.fatigue
-    return 1.0 - max(0.0, f - 60) / 200.0
+    d = a.ai.get("sleep_debt", 0.0)
+    return 1.0 - max(0.0, f - 60) / 200.0 - max(0.0, d - 55) / 400.0 - (0.08 if a.ai.get("groggy_until", 0) > 0 else 0.0)

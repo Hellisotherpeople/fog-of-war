@@ -208,6 +208,10 @@ def draw_map(con, game, cam, frame=0, going=False):
     fg = T.FG[t].astype(np.float32) + jit * 1.6
     bg = T.BG[t].astype(np.float32) + jit * 0.6
     from .relief import shade
+    pz = getattr(game.player, "z", 0)
+    if pz:
+        from . import floors
+        floors.overlay(game, None, glyph, fg, bg, x0, y0, w, h, pz)
     sh = shade(m)
     if sh is not None:
         # the lie of the land: slopes lit from the north-west, contour lines, the tops a touch lighter
@@ -306,12 +310,18 @@ def draw_entities(con, game, cam, frame=0):
     p = game.player
     # items
     for (x, y), items in m.items.items():
-        if not items or not cam.on_screen(x, y) or not m.visible[x, y]:
+        if p.z or not items or not cam.on_screen(x, y) or not m.visible[x, y]:
             continue
         top = min(items, key=lambda i: ITEM_PRIORITY.get(i.t.kind, 9))
         sx, sy = cam.to_screen(x, y)
         col = top.t.color
         glyph = top.t.glyph
+        c = top.condition
+        if c < 0.98:
+            col = tuple(int(v * (0.55 + 0.45 * c)) for v in col)
+        if not top.functional:
+            glyph = "x"                          # a knocked-about thing, not a different one
+            col = (110, 105, 95)
         if top.data and top.data.get("live") is not None and (frame // 2) % 2 == 0:
             col = (255, 60, 60)
             glyph = "*"
@@ -603,6 +613,7 @@ def draw_order_pointer(con, game, cam):
 
 def draw_effects(con, game, cam, frame):
     """Animate the shots and blasts of the last turn(s)."""
+    bright = (game.__dict__.get("_prefs") or {}).get("bright_shots", True)
     for e in game.effects:
         k = e["kind"]
         if k == "tracer":
@@ -612,7 +623,7 @@ def draw_effects(con, game, cam, frame):
                 continue
             # a moving streak
             head = int(min(n - 1, (frame + 1) * max(3, n // 3)))
-            tail = max(1, head - (4 if not e["mg"] else 6))
+            tail = max(1, head - ((9 if bright else 4) if not e["mg"] else (14 if bright else 6)))
             dx, dy = e["x1"] - e["x0"], e["y1"] - e["y0"]
             ang = math.atan2(dy, dx)
             ch = "-" if abs(dx) > 2 * abs(dy) else "|" if abs(dy) > 2 * abs(dx) else ("\\" if dx * dy > 0 else "/")
@@ -623,11 +634,22 @@ def draw_effects(con, game, cam, frame):
                 x, y = int(pts[i][0]), int(pts[i][1])
                 if game.map.in_bounds(x, y) and game.map.visible[x, y]:
                     sx, sy = cam.to_screen(x, y)
-                    put(con, sx, sy, ch if not e.get("rocket") or i == head else "·", col)
+                    mark = ch if not e.get("rocket") or i == head else "·"
+                    if bright and i == head and not e.get("rocket"):
+                        mark = "✳"
+                    put(con, sx, sy, mark, col)
+            if bright:
+                x, y = int(pts[-1][0]), int(pts[-1][1])
+                if game.map.in_bounds(x, y) and game.map.visible[x, y] and not e.get("rocket"):
+                    sx, sy = cam.to_screen(x, y)
+                    put(con, sx, sy, "×", (255, 225, 160))
         elif k == "flash":
             if frame == 0:
                 sx, sy = cam.to_screen(e["x"], e["y"])
                 put(con, sx, sy, "*", (255, 255, 200))
+                if bright:
+                    for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                        put(con, sx + dx, sy + dy, "+", (255, 240, 170))
         elif k == "explosion":
             r = e["r"]
             rr = min(r, frame + 1) if r else 0
@@ -731,13 +753,22 @@ def draw_panel(con, game):
     y += 1
     from .data.ranks import STARS
     st_ = STARS.get(p.rank, "")
-    con.print(x, y, p.role_name[:wdt - len(st_) - 1], fg=UI_DIM, bg=UI_BG)
+    from . import renown
+    nick = renown.title(game)
+    role_line = p.role_name + (f" - {nick}" if nick else "")
+    con.print(x, y, role_line[:wdt - len(st_) - 1], fg=UI_DIM, bg=UI_BG)
     if st_:
         con.print(x0 + PANEL_W - 1 - len(st_), y, "★" * len(st_), fg=(240, 210, 110), bg=UI_BG)
     y += 1
     nat = NATIONS[p.nation]["adj"]
     con.print(x, y, f"{nat}"[:wdt], fg=UI_DIM, bg=UI_BG)
-    y += 2
+    y += 1
+    if p.z:
+        from .actions import floor_word
+        word = "cellar" if p.z < 0 else f"{p.z}F"
+        con.print(x, y, f"{word}: {floor_word(game, p)}"[:wdt], fg=(200, 180, 130), bg=UI_BG)
+        y += 1
+    y += 1
     # body doll
     b = p.body
     from . import icons
@@ -785,6 +816,13 @@ def draw_panel(con, game):
     y += 1
     # stance and nerves
     st = {0: "Standing", 1: "Crouching", 2: "Prone"}[p.stance]
+    if p.ai.get("sleeping") is not None:
+        from .sleep import STAGE_WORD
+        sl = p.ai["sleeping"]
+        mins, secs = divmod(max(0, game.turn - sl["since"]), 60)
+        st = f"{STAGE_WORD[sl['stage']].capitalize()}  {mins}m{secs:02d}"
+    elif p.ai.get("groggy_until", 0) > 0:
+        st += ", groggy"
     if p.vehicle is not None:
         st = "Inside " + p.vehicle.vt.name
     elif getattr(p, "z", 0):
@@ -1014,6 +1052,42 @@ def draw_panel(con, game):
         for line in textwrap.wrap(rt, wdt)[:2]:
             con.print(x, y, line, fg=(140, 205, 210), bg=UI_BG)
             y += 1
+    job = game.__dict__.get("player_job") if game.__dict__.get("autopilot") else None
+    if job:
+        con.print(x, y, "The job  (A: take over)"[:wdt], fg=UI_FRAME, bg=UI_BG)
+        y += 1
+        for line in textwrap.wrap(job.get("text", ""), wdt)[:2]:
+            con.print(x, y, line, fg=(210, 210, 160), bg=UI_BG)
+            y += 1
+        if not job.get("target"):
+            con.print(x, y, "(where you're standing)"[:wdt], fg=UI_DIM, bg=UI_BG)
+            y += 1
+    if p.squad is not None:
+        from .consolidate import line as _lull_line
+        lull = _lull_line(game, p.squad)
+        if lull:
+            con.print(x, y, lull[:wdt], fg=(200, 190, 150), bg=UI_BG)
+            y += 1
+    mem = (p.squad.rep.get("memory") if p.squad is not None else None)
+    if mem and (mem.get("lost") or mem.get("new")):
+        bits = []
+        if mem.get("lost"):
+            bits.append(f"{len(mem['lost'])} lost")
+        if mem.get("new"):
+            bits.append(f"{len(mem['new'])} new")
+        con.print(x, y, ("Section: " + ", ".join(bits))[:wdt], fg=(210, 185, 150), bg=UI_BG)
+        y += 1
+    # the section's own order, pinned: what they are doing, and how far there is to go
+    sq = p.squad
+    if sq is not None and sq.player_led:
+        q = sq.order
+        dist = (f"{max(abs(q.target[0] - p.x), abs(q.target[1] - p.y))} m"
+                if q.target is not None else "")
+        queued = len(sq.rep.get("queue") or [])
+        pin = f"Section: {q.kind}" + (f" {dist}" if dist else "") + \
+              (f"  +{queued} queued" if queued else "") + ("  [Bksp: cancel]" if q.kind != "hold" else "")
+        con.print(x, y, pin[:wdt], fg=(220, 205, 150), bg=(42, 38, 24))
+        y += 1
     # orders: the one you're on, and the others you hold (T: the orders book)
     book = _book(game)
     from .orders import summary as order_summary
@@ -1132,7 +1206,8 @@ def draw_log(con, game, scroll=0):
     for mm in msgs[-40:]:
         txt = mm.text + (f" (x{mm.count})" if mm.count > 1 else "")
         col = MSG_COLORS.get(mm.cat, UI_TEXT)
-        age = game.turn - mm.turn
+        pause = max(0.5, float((game.__dict__.get("_prefs") or {}).get("message_pause", 1.0)))
+        age = (game.turn - mm.turn) / pause
         fade = 1.0 if age < 2 else 0.8 if age < 10 else 0.6
         col = tuple(int(c * fade) for c in col)
         for i, line in enumerate(textwrap.wrap(txt, VIEW_W - 1 - lx) or [""]):

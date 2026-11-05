@@ -50,6 +50,12 @@ Add `--profile /tmp/world.prof` for a separate cProfile run. Profiled timings in
 overhead and must not be compared directly with ordinary runs. See [native-core estimates](PERFORMANCE.md).
 `--digest` adds a hash of core simulation results after timing, useful when comparing optimizations
 at the same seed and turn count. It includes random-generator state, but is not an exhaustive replay verifier.
+`--budget-ms 250` exits 3 if p95 exceeds the budget; CI runs this. Budget against a quiet machine, and only
+raise it with a measured reason.
+
+Saves carry `SAVE_VERSION` and are written to a temp file, fsynced, then swapped in behind a `.bak` copy;
+`Game.load` falls back to the `.bak`. Add a migration in `Game._migrate_save` and bump the version when a new
+field must exist in old saves. Content packs and their schema are in [PACKS.md](PACKS.md).
 
 `FOW_DEBUG=1` makes an exception inside one soldier's AI stop the game instead of being logged
 and skipped. Errors in a normal run go to `~/.fogofwar/error.log`.
@@ -63,6 +69,7 @@ in any script that plays the game.
 
 ```sh
 .venv/bin/python -m pytest tests          # or: .venv/bin/python tests/test_smoke.py
+.venv/bin/python tools/longplay.py 3000   # long headless run with invariants checked every turn
 .venv/bin/python tests/test_expansion.py  # weather, civilians, security, supply, air and sea additions
 .venv/bin/python tests/test_orders_time_awards.py  # authority, real-time pacing and persistent citations
 .venv/bin/python tests/test_identity_loot_ballistics.py  # dialogue, leads, physical loot, condition and ricochets
@@ -70,6 +77,7 @@ in any script that plays the game.
 .venv/bin/python tests/test_vehicle_figures.py  # visible occupants, gun traverse, casualties and fog of war
 .venv/bin/python -m pytest tests/test_command_realism.py tests/test_vehicle_start.py
 .venv/bin/python -m pytest tests/test_staff_career.py tests/test_ui_search.py
+.venv/bin/python -m pytest tests/test_doctrine_politics.py  # drills, politics, trace, camps, quotes, binding
 ```
 
 `pytest.ini` runs test files across all cores by default (`pytest-xdist`, from
@@ -94,6 +102,15 @@ own `~/.fogofwar/settings.json`. A scenario is capped at 2,000 world turns by de
 (`FOW_FUZZ_TURN_LIMIT` overrides it), and long automatic waits yield to the next fuzz input after
 60 world turns. This bounds random overnight-wait commands without changing simulation speed.
 The result reports inputs and whether the turn cap was reached; any crash exits nonzero.
+
+**Content packs** are checked before shipping:
+
+```sh
+.venv/bin/python tools/packcheck.py path/to/pack.json   # exit 1 on any malformed or duplicate entry
+```
+
+Packs can add theatres, items, vehicles, roles, missions, quotes and phrases. The schema is in
+[PACKS.md](PACKS.md); they never contain code and are switched off in Options > Content packs.
 
 ## The GIFs in the README
 
@@ -141,11 +158,21 @@ Most content is data, declared with small helper functions:
   and `medical.first_aid`; the AI triages with `medical.triage`/`squadcare.care_need`. Add new medical kit
   as `med=` in `fow/data/items.py` and handle it in `treat`.
 - **A lesson**: a `(text, check)` pair in `fow/drill.py`; checks poll game state and must be true to pass.
+- **A battle drill**: an entry in `fow/doctrine.py` with its nation, rank and leadership gate and its mods;
+  the base order kind and the weights are read by the squad AI.  Add the spoken line to `fow/data/phrases.py`
+  and its English to the automatic drill table in `fow/data/translations.py`.
+- **A translated line**: add it to `fow/data/translations.py`; the speech tables are checked by
+  `tests/test_sound_and_translation.py` and the option (`translate` in settings) shows it beside the original.
+- **A quote**: `(tags, text, who, bio)` in `fow/quotes.py`; tags match cause, kit, role and nation.
 - **A battle**: `theatre(...)` in `fow/data/theatres.py`: date and climate, sides and nations,
   who attacks from where, biomes, air/artillery/armour strength, place names, the real divisions.
   Commanders by date go in `fow/data/commanders.py`.
 - **A nation**: names, doctrine and shouts in `fow/data/nations.py`, ranks in `fow/data/ranks.py`,
   phrases in `fow/data/phrases.py`.
+
+Hand-drawn text (quotes, the after-action timeline, the death page) goes through `fow/textfit.py`:
+`wrap`, `fit` once, `clip` to a row budget. Popups truncate and wrap their own lines, but anything
+printed straight to a console must never be wider than its column.
 
 ## Style
 

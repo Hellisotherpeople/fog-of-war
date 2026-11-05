@@ -36,6 +36,7 @@ parser.add_argument('--profile',help='Write cProfile data for measured turns (ti
 parser.add_argument('--digest',action='store_true',help='Hash core simulation results after timing for optimization comparisons')
 parser.add_argument('--walk',action='store_true',help='Measure normal eastward movement actions and their real world turns, including terrain streaming')
 parser.add_argument('--save',type=Path,help='Benchmark a copy of an existing save in the scratch directory')
+parser.add_argument('--budget-ms',type=float,default=0.0,help='Fail (exit 3) if p95 world-turn time exceeds this many ms')
 a = parser.parse_args()
 if a.turns < 1:
     parser.error('--turns must be positive')
@@ -132,3 +133,6 @@ if a.digest:
         digest.update(getattr(g.map,layer).tobytes())
     result['state_digest'] = digest.hexdigest()
 print(json.dumps(result,sort_keys=True))
+if a.budget_ms and result['p95_ms'] > a.budget_ms:
+    print(f"BUDGET: p95 {result['p95_ms']} ms > {a.budget_ms} ms", file=sys.stderr)
+    raise SystemExit(3)

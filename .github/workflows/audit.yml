@@ -1,0 +1,40 @@
+name: audit
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      SDL_VIDEODRIVER: dummy
+      SDL_AUDIODRIVER: dummy
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pytest pytest-xdist
+      - name: compile
+        run: python -m compileall -q fow
+      - name: tests
+        run: python -m pytest -q tests
+      - name: fuzz (short)
+        run: |
+          export FOW_HOME="$(mktemp -d)"
+          python tools/fuzz.py bocage44,kursk43 1 250
+      - name: long invariant run
+        run: |
+          export FOW_HOME="$(mktemp -d)"
+          python tools/longplay.py 400 --seed 3 --theatre bocage44 --nation usa
+      - name: world-turn budget
+        run: |
+          export FOW_HOME="$(mktemp -d)"
+          python tools/benchmark_world.py --radius 240 --turns 90 --budget-ms 350

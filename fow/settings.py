@@ -25,12 +25,22 @@ DEFAULTS = {
     "auto_center": True,      # the view glides back to you whenever you move
     "edge_scroll": False,     # the mouse at the edge of the battlefield scrolls it
     "shake": True,            # the view jolts when shells land close
+    "bright_shots": True,
+    "colorsafe": False,       # recolour red/green meaning toward amber/blue for colour blindness
+    "high_contrast": False,   # lift text to white, crush backgrounds
+    "reduce_motion": False,   # shorter effects and no red flash
+    "screen_reader": False,   # narrate messages and screen changes to stdout
+    "message_pause": 1.0,     # how long messages stay before fading (0.5..3)
+    # tracer streaks, muzzle stars and impact crosses: easier to read a firefight
     "safe_mode": True,        # stop and warn before a step while the enemy's in sight or you're under fire
     "fast_quiet": True,       # walking, autopilot: with no enemy in sight, simulate as fast as the machine can
+    "autopilot_narrate": True,  # autopilot says why it's doing each job, like an instructor
     "realtime": False,        # F6: idle time advances on the same clock as actions and everyone else
     "realtime_pace": "deliberate",  # normal 1:1, deliberate 1:2, slow 1:4 (game seconds : wall seconds)
     "going": False,           # X: the ground tinted by the going (red: no way through; amber: slow)
+    "seen_intro": False,      # the menu has pointed a new player at the drill
     "hints": True,            # a line under your orders with the keys for what's beside you
+    "keymap": {},             # action -> key overrides (fow/keybinds.py; Options > Rebind keys)
     # the sound mixer (each 0..1, on top of the master volume)
     "vol_weapons": 0.9,       # gunfire, shells, explosions, ricochets
     "vol_ambience": 0.45,     # the distant battle, wind and rain
@@ -40,17 +50,35 @@ DEFAULTS = {
     "vol_music": 0.55,        # the music (on top of the master volume)
     "music": "all",           # all: title, briefings and the quiet hours in play; title: menus only; off
     "sound_pack": "cinema",   # cinema: recorded weapons and war sounds (assets/sounds); synth: all synthesised
-    "translate_own": False,   # your side's words shown and spoken in English, in their own voices
+    "translate": "own",       # all foreign speech shown in English beside the original and spoken in English
+    "translate_own": False,   # (old saves) your side only
     "sound_log": "all",       # which sounds are written in the message log: all / near / off
     "battlefield": "large",   # for new games: standard / large / huge (see game.BATTLEFIELDS)
     "reality_radius": 240,    # player-centered tactical radius, in tiles (new games)
+    "preload": "off",         # off / startup / everything: warm sprites, fonts and pictures in RAM at start
     "autosave": True,         # save every few minutes of real time as well as on quitting
     "minimap": False,         # the minimap is open when a game starts
+    "command_view": False,    # F8: the trace - every order, its area and its fire over the ground
     # when you die (succession.py): off - the end; on - carry on as someone else; choose - pick who
     "succession": "off",
     "succession_rule": "squad",   # squad / unit / nearest / role / rank / random / killer
     "succession_side": "own",     # own / any
     "succession_lives": 0,        # 0: no limit
+    # ---- the war's own settings
+    "difficulty": "veteran",      # recruit / veteran / realistic / custom (new games)
+    "difficulty_custom": {},      # the custom preset's four numbers
+    "ironman": False,             # new games: one life, one save, no fallback
+    # ---- advanced (behind the unlock warning: these can break a run or a save)
+    "unlocked": False,            # show the experimental settings at all
+    "autosave_minutes": 5,        # how often the world is written down
+    "save_compression": 1,        # gzip level: 0 fastest, 9 smallest
+    "stream_margin": 64,          # tiles of world kept ready past the active radius
+    "build_speed": 1.0,           # digging and engineer work multiplier
+    "god_mode": False,            # you don't die
+    "reveal_map": False,          # the ground, explored
+    "show_fps": False,            # frame time in the corner
+    "log_level": "normal",        # quiet / normal / loud (message volume and debug lines)
+    "sim_scale": 1,               # additional troop-density multiplier on top of the battlefield size
 }
 ANIM_SPEEDS = ("fast", "normal", "slow", "very slow")
 ANIM_FRAME = {"fast": 0.035, "normal": 0.07, "slow": 0.16, "very slow": 0.32}

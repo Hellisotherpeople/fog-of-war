@@ -26,6 +26,10 @@ def record(game, name, level, why, posthumous=False):
                  evidence="; ".join(evidence), when=game.datetime_str(exact=True), turn=game.turn,
                  place=game.sector.name, posthumous=bool(posthumous), repeat="(second award)" in name)
     cmd.__dict__.setdefault("award_records", []).append(entry)
+    from . import diary
+    diary.won(game, f"{name} ({why})")
+    from . import renown
+    renown.event(game, "medal", text=name)
     return entry
 
 

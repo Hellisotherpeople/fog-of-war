@@ -84,9 +84,9 @@ class Graphics:
         self.sprite_px = s
         if self.settings.get("sprites"):
             if self._sprite_key != s:
-                from .sprites import SpriteBank
+                from .preload import cached_bank
                 if self.sprite_bank is None:
-                    self.sprite_bank = SpriteBank()
+                    self.sprite_bank = cached_bank()
                 ts = self.sprite_bank.build(s)
                 self.sprite_atlas = tcod.render.SDLTilesetAtlas(self.renderer, ts)
                 self._sprite_key = s

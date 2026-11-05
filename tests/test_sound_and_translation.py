@@ -15,8 +15,12 @@ from fow.mixer import BLOCK, LIMIT, Mixer, SR
 def english_side():
     """The option on for the axis, and off again afterwards (it is a module global)."""
     translate.ACTIVE_SIDE = "axis"
+    translate.ACTIVE_MODE = "own"
+    translate.PLAYER = None
     yield
     translate.ACTIVE_SIDE = None
+    translate.ACTIVE_MODE = "own"
+    translate.PLAYER = None
 
 
 @pytest.fixture(scope="module")
@@ -242,7 +246,7 @@ def test_own_side_speaks_english_and_the_enemy_does_not(english_side):
     sov = Actor("ussr", "rifleman", 3, "Ivan Petrov")
     ger.say("Handgranate!", 1)
     sov.say("Granata!", 1)
-    assert ger.shout[0] == "Grenade!" and ger.spoken[0] == "Grenade!" and ger.spoken[3] is True
+    assert ger.shout[0] == "Handgranate! / Grenade!" and ger.spoken[0] == "Grenade!" and ger.spoken[3] is True
     assert sov.shout[0] == "Granata!" and sov.spoken[3] is False
     assert translate.in_english(ger) and not translate.in_english(sov)
 
