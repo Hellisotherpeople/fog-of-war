@@ -788,8 +788,13 @@ def designate(game, sq):
     if sq.side == game.player.side and contact_kind(best) in ("mg", "hmg", "atgun", "tank", "sniper") and \
             t - sq.rep.get("pencilled", -999) > 30:
         from . import marks as MK
-        if MK.place(game, best.x, best.y, "danger", sq.leader if sq.leader is not None and sq.leader.active else None):
+        lead = sq.leader if sq.leader is not None and sq.leader.active else None
+        if MK.place(game, best.x, best.y, "danger", lead):
             sq.rep["pencilled"] = t
+            if lead is not None and not lead.is_player and game.player.squad is sq:
+                from .cmdui import KIND_WORD
+                game.msg(f"{game.name_of(lead)} pencils the {KIND_WORD.get(contact_kind(best), 'enemy')} on the map.",
+                         "info")
     old = sq.__dict__.get("focus")
     sq.focus = (best.id, t)
     lead = sq.leader
