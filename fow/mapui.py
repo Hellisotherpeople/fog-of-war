@@ -138,11 +138,23 @@ class MapState:
                       key=lambda t: max(abs(t[0] - px), abs(t[1] - py)))
         if not rows:
             con.print(sx, 2, "None yet. 1-5 write one.", fg=UI_DIM)
-        for i, (x, y, mk) in enumerate(rows[: SCREEN_H - 7]):
+        room = SCREEN_H - 7
+        for i, (x, y, mk) in enumerate(rows[: room]):
             d = max(abs(x - px), abs(y - py))
             glyph, name, _c = MK.KINDS[mk["kind"]]
             label = f"{name} '{mk['note']}'" if mk.get("note") else name
             con.print(sx, 2 + i, f"{glyph} {label[:14]}  {d * 2}m ({x},{y})"[:29], fg=MK.color(mk, g.turn))
+        y = 2 + min(len(rows), room)
+        if p.has_tool("map") is not None and m.objectives and y < SCREEN_H - 7:
+            con.print(sx, y, "OBJECTIVES", fg=UI_HI)
+            y += 1
+            for i, o in enumerate(m.objectives):
+                if y >= SCREEN_H - 4:
+                    break
+                d = max(abs(o.x - px), abs(o.y - py))
+                col = (140, 200, 255) if o.owner == p.side else (255, 140, 120) if o.owner else (230, 220, 120)
+                con.print(sx, y, f"{'ABCDEFGH'[i % 8]} {o.name[:18]}  {d * 2}m"[:29], fg=col)
+                y += 1
         # the edge of the sheet
         con.print(1, SCREEN_H - 4, MK.LINE + "  × / ▮ last seen", fg=UI_DIM)
         con.print(1, SCREEN_H - 3, "0 rub out   Enter walk there   o send the section   r rally here   "
