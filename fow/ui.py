@@ -1077,7 +1077,7 @@ class GameOverState:
             con.print(60, 8, "No decorations awarded.", fg=UI_DIM, bg=UI_BG)
         for i, award in enumerate(awards[self.award_page * 3:self.award_page * 3 + 3]):
             draw_card(con, award, 58, 6 + i * 13, SCREEN_W - 61)
-        con.print(4, SCREEN_H - 3, "Enter / Esc: main menu   Tab: consequences, diary, report   "
+        con.print(4, SCREEN_H - 3, "Enter / Esc: main menu   Tab: consequences, diary, report   M: the ground   "
                   + ("R: fight this ground again   " if getattr(g, "run_code", None) else "")
                   + "H: earlier runs", fg=UI_DIM, bg=UI_BG)
         if pages > 1:
@@ -1116,7 +1116,8 @@ class GameOverState:
             for w in _tf.clip(why(g), SCREEN_W - 16, max(1, SCREEN_H - 4 - y)):
                 con.print(6, y, _tf.fit(w, SCREEN_W - 16), fg=(225, 205, 155), bg=UI_BG)
                 y += 1
-        con.print(6, SCREEN_H - 3, "Tab: back to the report   Enter / Esc: main menu", fg=UI_DIM, bg=UI_BG)
+        con.print(6, SCREEN_H - 3, "Tab: back to the report   M: the ground   Enter / Esc: main menu",
+                  fg=UI_DIM, bg=UI_BG)
 
     def _render_diary(self, con, g):
         con.draw_frame(4, 2, SCREEN_W - 8, SCREEN_H - 7, fg=UI_FRAME, bg=UI_BG, clear=True)
@@ -1138,7 +1139,8 @@ class GameOverState:
         if self.diary_path:
             con.print(6, SCREEN_H - 3, f"Copied out to {self.diary_path}"[:SCREEN_W - 12], fg=UI_DIM, bg=UI_BG)
         con.print(6, SCREEN_H - 3 if not self.diary_path else SCREEN_H - 4,
-                  "Tab: report / what it may come to   Enter / Esc: main menu", fg=UI_DIM, bg=UI_BG)
+                  "Tab: report / what it may come to   M: the ground   Enter / Esc: main menu",
+                  fg=UI_DIM, bg=UI_BG)
 
     def _render_report(self, con, g):
         con.draw_frame(4, 2, SCREEN_W - 8, SCREEN_H - 7, fg=UI_FRAME, bg=UI_BG, clear=True)
@@ -1165,8 +1167,8 @@ class GameOverState:
                     y += 1
         if self.report_path:
             con.print(6, SCREEN_H - 4, f"Written to {self.report_path}"[:SCREEN_W - 12], fg=UI_DIM, bg=UI_BG)
-        con.print(6, SCREEN_H - 3, "Tab: back to the report   H: earlier runs   Enter / Esc: main menu",
-                  fg=UI_DIM, bg=UI_BG)
+        con.print(6, SCREEN_H - 3, "Tab: back to the report   H: earlier runs   M: the ground   "
+                  "Enter / Esc: main menu", fg=UI_DIM, bg=UI_BG)
 
     def _replay(self):
         g = self.game
@@ -1179,6 +1181,12 @@ class GameOverState:
                             d.get("role"), dict(d.get("setup") or {}, run_code=g.run_code))
 
     def on_key(self, key):
+        if key.char in ("m", "M"):
+            from .mapui import MapState
+            from .game import Game
+            play = PlayState(self.app, self.game)      # for reading the ground, not for walking it
+            Game.delete_save()
+            return self.app.push(MapState(self.app, self.game, play, live=False))
         if key.char in ("r", "R") and getattr(self.game, "run_code", None):
             return self._replay()
         if key.char in ("h", "H"):

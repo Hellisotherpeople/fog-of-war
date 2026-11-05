@@ -145,6 +145,21 @@ def test_order_menu_offers_the_nearest_rally_marker():
     assert sq.order.kind == "rally" and sq.order.target == (p.x - 8, p.y)
 
 
+def test_death_report_opens_the_ground_without_walking():
+    from fow.ui import GameOverState
+    g = make()
+    p = g.player
+    p.body.dead = True
+    app = FakeApp()
+    over = GameOverState(app, g)
+    app.push(over)
+    over.on_key(Key(char="M"))
+    st = app.states[-1]
+    assert isinstance(st, MapState) and not st.live
+    st.on_key(Key(sym=E.KeySym.RETURN))
+    assert app.states[-1] is over
+
+
 def test_rally_order_puts_the_section_into_retreat():
     from fow import ai
     g = make()

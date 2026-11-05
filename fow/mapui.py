@@ -20,10 +20,11 @@ class MapState:
 
     title = "Battlefield map"
 
-    def __init__(self, app, game, play=None):
+    def __init__(self, app, game, play=None, live=None):
         self.app = app
         self.game = game
         self.play = play
+        self.live = bool(play) if live is None else live    # (a dead man reviews, he doesn't walk)
         p = game.player
         self.cx, self.cy = (p.vehicle.x, p.vehicle.y) if p.vehicle is not None else (p.x, p.y)
         self.vx0 = self.vy0 = None
@@ -251,13 +252,13 @@ class MapState:
         if c == "x" or c == ";":
             self.inspect = (self.cx, self.cy)
             return
-        if c == "o" and self.play is not None:
+        if c == "o" and self.live:
             self.app.pop()
             return self.play._order_move((self.cx, self.cy))
-        if c == "r" and self.play is not None:
+        if c == "r" and self.live:
             self.app.pop()
             return self.play._order_rally((self.cx, self.cy))
-        if c in ("f", "s") and self.play is not None:
+        if c in ("f", "s") and self.live:
             if not self.play._can_radio():
                 self.note = "You have no radio."
                 return
@@ -266,7 +267,7 @@ class MapState:
             return self.play.enter_mode("radio_target", (self.cx, self.cy), {"cb": cb})
         if key.sym in (E.KeySym.RETURN, E.KeySym.KP_ENTER):
             self.app.pop()
-            if self.play is not None and not self.play.start_travel(self.cx, self.cy):
+            if self.live and not self.play.start_travel(self.cx, self.cy):
                 self.game.msg("You can't see a way there.", "info")
             return
         if key.sym == E.KeySym.ESCAPE or c in ("M", "m", "q"):
@@ -301,7 +302,7 @@ class MapState:
                 self.inspect = (x, y)
             elif same:
                 self.app.pop()
-                if self.play is not None:
+                if self.live:
                     self.play.start_travel(x, y)
             return
         if b == 1:
