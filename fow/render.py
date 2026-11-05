@@ -1435,17 +1435,18 @@ def draw_tooltip(con, anchor, lines, title=None):
     return x, y, w, h
 
 
-def draw_look_tooltip(con, anchor, lines, title=None, art=(), pic=None):
+def draw_look_tooltip(con, anchor, lines, title=None, art=(), pic=None, pics=()):
     """The look tooltip: what a look shows, with the thing itself drawn above the words that say it."""
     from . import icons
-    pics = 7 if pic and icons.on() else 0
-    if not art and not pics:
+    pic_list = list(pics) or ([(pic, 26, 6)] if pic and icons.on() else [])
+    pic_rows = sum(min(10, max(2, h)) + 1 for _k, _w, h in pic_list) if icons.on() else 0
+    if not art and not pic_rows:
         return draw_tooltip(con, anchor, lines, title)
     ax, ay = anchor
     rows = [(t, c) for t, c in art if t]
-    wide = max([len(t) for t, _ in rows] + [28 if pics else 1])
+    wide = max([len(t) for t, _ in rows] + [30 if pic_rows else 1])
     w = min(VIEW_W - 2, max([len(t) for t, _ in lines] + [len(title or "") + 2] + [wide + 2]))
-    h = len(lines) + len(rows) + pics + 2 + (1 if rows and not pics else 0)
+    h = len(lines) + len(rows) + pic_rows + 2 + (1 if rows and not pic_rows else 0)
     x = ax + 2 if ax + 2 + w < VIEW_W else ax - 2 - w
     y = ay - h - 1 if ay - h - 1 >= 0 else ay + 2
     if y + h > VIEW_H:
@@ -1458,16 +1459,18 @@ def draw_look_tooltip(con, anchor, lines, title=None, art=(), pic=None):
     if title:
         con.print(x + 1, y, f" {title[:w - 4]} ", fg=UI_HI, bg=(16, 15, 12))
     y0 = y + 1
-    if pics:
-        pw = min(w - 4, 26)
-        icons.pic(x + (w - pw) // 2, y0, pw, pics - 1, icons.oriented(pic, pw, pics - 1), "over")
-        y0 += pics
+    for key, want_w, want_h in pic_list:
+        ph = min(10, max(2, want_h))
+        pw = min(w - 6, max(4, want_w))
+        icons.pic(x + (w - pw) // 2, y0, pw, ph, icons.oriented(key, pw, ph), "over")
+        y0 += ph + 1
+    if pic_rows:
         con.print(x + 1, y0, "─" * min(w - 2, max(3, w - 6)), fg=(70, 62, 48), bg=(16, 15, 12))
         y0 += 1
     for t, col in rows:
         con.print(x + 1 + max(0, (w - 2 - len(t)) // 2), y0, t[:w - 2], fg=col or UI_TEXT, bg=(16, 15, 12))
         y0 += 1
-    if rows and not pics:
+    if rows and not pic_rows:
         con.print(x + 1, y0, "─" * min(w - 2, max(3, w - 6)), fg=(70, 62, 48), bg=(16, 15, 12))
         y0 += 1
     for t, col in lines:
@@ -1509,9 +1512,9 @@ def draw_cursor(con, cam, x, y, color=(255, 255, 255)):
         con.rgb["fg"][sx, sy] = color
 
 
-def draw_center_box(con, title, lines, width=None, footer=None, top=None):
+def draw_center_box(con, title, lines, width=None, footer=None, top=None, height=None):
     w = width or min(SCREEN_W - 6, max([len(t) for t, _ in lines] + [len(title) + 4]) + 4)
-    h = min(SCREEN_H - 2, len(lines) + 4)
+    h = height or min(SCREEN_H - 2, len(lines) + 4)
     x = (SCREEN_W - w) // 2
     y = top if top is not None else (SCREEN_H - h) // 2
     con.draw_frame(x, y, w, h, clear=True, fg=UI_FRAME, bg=UI_BG)

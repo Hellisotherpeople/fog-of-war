@@ -422,7 +422,8 @@ the English sounds his language lacks swapped for its nearest ones (`neural_voic
 | `tableaux.py` | battlefield scenes laid before the fighting: a convoy, a dump, a crash, a burning farm |
 | `varia.py` | country furniture and rare set pieces: sidings, canals, sunken lanes, kilns, camps, crossings, strip and flood |
 | `data/history.py` | the historical places a sector may hold, and what happened there (shown when looked at) |
-| `icons.py` | pictures in the interface: painters (kit, body, stance, rounds, sky, map sheet, sight picture...), keys, and the per-frame picture list that `gfx.present` paints, caches and draws under, over and above the consoles |
+| `data/items.py` | the arms and kit: firearms, launchers, grenades (including rifle grenades, whose `launch` flag makes the throw a muzzle-cup shot), charges, gear |
+| `icons.py` | pictures in the interface: painters (kit, body, stance, rounds, a face with its wounds, the ground, sky, map sheet, sight picture...), keys, and the per-frame picture list that `gfx.present` paints, caches and draws under, over and above the consoles |
 | `rear.py` | the living rear: convoys, columns and posts on the supply roads; destroying them cuts the road on the war map (`Strategic.interdict`, supply parents and traffic in `compute_supply`) |
 | `orders.py` | the orders book (all the orders you hold, who gave them, rewards and punishments, carried out) |
 | `people.py` | every soldier's life (home, trade, family, temper, vices), his opinion of you, his buddy, and what things are worth to him (`worth`, `deal`: the same rules for his trades with you and with his mates) |

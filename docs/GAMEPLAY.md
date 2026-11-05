@@ -21,7 +21,12 @@ against Germany, Italy, Japan, Finland, Hungary and Romania.
 **Period equipment, filtered by nation and date.** 130 small arms (a Garand pings when the clip
 ejects, Stens jam, MG 42s overheat, Type 97 grenades are often duds). Also:
 - AT rifles, bazookas, Panzerschrecks, PIATs and Panzerfausts
-- flamethrowers, mortars, satchel charges, magnetic mines, Molotovs
+- rifle grenades from a muzzle cup (No. 68, M9A1, Panzergranate, Dyakonov): impact-fused, and no
+  good fired into the next room because they arm a few yards out
+- flamethrowers, mortars, satchel charges, magnetic mines, battery bundles, Bangalore torpedoes,
+  the No. 74 sticky bomb and No. 73 thermos, Molotovs (the engine deck burns best)
+- section rifle grenadiers, and infantry who will break cover to put a charge on a tank when their
+  rifles cannot hurt it
 - 135 vehicles and emplaced guns, each with real armour per facing and penetration values
 - 56 aircraft types and 30+ off-map artillery batteries, including naval gunfire and Katyushas
 
@@ -1144,8 +1149,13 @@ What you know is what your soldier knows.
   blood where it's coming out, the dressings and tourniquets on. `@` shows it large, with every
   wound marked. Suppression narrows your vision. Blood loss drains colour from the world. Pain
   flashes red. Blasts deafen you.
-- **Pictures, not only words.** The interface draws what your soldier would see or feel. Every
-  word is still there beside the picture. Options > Pictures in the interface switches them off.
+- **Pictures, not only words, and the words held back.** The interface draws what your soldier
+  would see or feel. Hover or look gives the thing first - a man's face and what is wrong with
+  him, his weapon, the kit on the ground, the ground itself - and a name. Rest on it and the
+  description comes. Options > What a look shows: *both* (the default), *pictures* (no prose at
+  all), or *words* (text at once, as a terminal). Marks, items underfoot, mines and warnings are
+  short lines and show in every mode.
+  Options > Pictures in the interface switches the pictures off entirely.
   - The panel: you in your stance, behind cover as high as the cover really is; the weapon in
     your hands; the rounds in its magazine, brass where you've counted them and faded across the
     range your guess covers; your grenades; the sky as it is; your watch, if you have one; a

@@ -33,6 +33,9 @@ You can turn it off in Options ("Key hints").
 | F4 | font: DejaVu Sans Mono / the classic bitmap |
 | / | search in menus, popups, setup, settings, inventory, nearby lists, map, orders, staff, logs and records; find commands on the battlefield or chart |
 
+Options > What a look shows sets the words/pictures balance: both (the picture first, words after
+a rest), pictures, or words only. Options > Pictures in the interface turns pictures off.
+
 Search filters as you type, including numbers and accented names. Use arrows to select and Enter
 to choose (in a text view, Enter finishes typing). Backspace edits; Delete clears the query;
 Esc clears search before closing the screen. While typing, letters are text rather than action

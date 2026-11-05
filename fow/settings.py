@@ -21,6 +21,8 @@ DEFAULTS = {
     "zoom_ascii": 1.0,        # ASCII map cell size relative to a text cell
     "show_numbers": False,    # hit chances as numbers instead of words
     "pictures": True,         # the kit, the body, the watch... drawn in the interface (icons.py), not only named
+    "tell": "both",           # what a look shows, in the words/pictures balance: both / pictures / words
+    "tell_dwell": 1.1,        # seconds a look rests before the words come (with "both")
     "anim_speed": "fast",     # fast / normal / slow / very slow: how long shots and blasts stay on screen
     "auto_center": True,      # the view glides back to you whenever you move
     "edge_scroll": False,     # the mouse at the edge of the battlefield scrolls it

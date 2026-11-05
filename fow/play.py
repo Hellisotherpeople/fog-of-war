@@ -279,7 +279,10 @@ class PlayState:
             self._finish_overlay()
         if self.mode != "normal":
             hint = {"target": "FIRE: move cursor, Tab next target, f/Enter fire, a aim longer, A aim & fire, Esc cancel",
-                    "throw": f"THROW: pick the spot, t/Enter throw, c cook ({self.cook}s), Esc cancel",
+                    "throw": (("RIFLE GRENADE: pick the spot, t/Enter fire, Esc cancel"
+                               if ((self.pending or {}).get("item") is not None
+                                   and (self.pending or {}).get("item").t.get("launch")) else
+                               f"THROW: pick the spot, t/Enter throw, c cook ({self.cook}s), Esc cancel")),
                     "look": "LOOK: move cursor, Esc done",
                     "nearby": "AROUND YOU: everything you can see and hear, nearest first (the list is on the right)",
                     "order_target": f"ORDER ({(self.pending or {}).get('label', 'squad')}): pick the spot"
@@ -603,9 +606,13 @@ class PlayState:
                               (180, 220, 150) if d <= rng else (240, 140, 80)))
         if lines and self.cam.on_screen(cx, cy):
             m = g.map
+            looking = self.mode in ("look", "nearby")
+            since = getattr(self, "look_t", 0.0)
+            if self.mode == "look" and not self.look_words_due(since):
+                lines, title = self.essential(lines, title)
             box = draw_look_tooltip(con, self.cam.to_text(cx, cy), lines, title,
-                                    pic=self._look_pic(cx, cy, m.visible[cx, cy], math.hypot(cx - ox, cy - oy))
-                                    if self.mode in ("look", "nearby") else None,
+                                    pics=self._look_pics(cx, cy, m.visible[cx, cy], math.hypot(cx - ox, cy - oy))
+                                    if looking and self.tell_mode() != "words" else (),
                                     art=self._parked_sketch(cx, cy, m.visible[cx, cy]))
             if self.mode == "target":
                 self._sight_picture(con, cx, cy, box)
@@ -641,6 +648,29 @@ class PlayState:
 
     HOVER_DWELL = 0.3
 
+    def tell_mode(self) -> str:
+        return (getattr(self.app, "settings", None) or {}).get("tell", "both")
+
+    def look_words_due(self, since) -> bool:
+        """Pictures first; the words come if you rest on it.  ('words' mode has them at once.)"""
+        mode = self.tell_mode()
+        if mode == "words":
+            return True
+        if mode == "pictures":
+            return False
+        return time.monotonic() - float(since or 0) >= float(
+            (getattr(self.app, "settings", None) or {}).get("tell_dwell", 1.1))
+
+    ESSENTIAL = ("Here:", "LIVE", "A mine", "up on ", "hands raised", "down, wounded", "Your rounds",
+                 "in reach", "too far", "Bringing", "On the way", "behind good cover", "partly covered")
+
+    def essential(self, lines, title):
+        """What a look must say before the words are due: the name, and anything you'd be hurt for missing."""
+        warns = [l for l in lines if l[0].startswith(self.ESSENTIAL)][:3]
+        if title:
+            return warns, title
+        return (lines[:1] + warns)[:3], title
+
     def hover_looking(self) -> bool:
         """The mouse has come to rest on the battlefield: that's a look."""
         return (self.hover is not None and not self.hover_quiet and not self.popups and self.mode == "normal"
@@ -666,15 +696,19 @@ class PlayState:
                 g = self.game
                 p = g.player
                 ox, oy = (p.vehicle.x, p.vehicle.y) if p.vehicle is not None else (p.x, p.y)
+                if not self.look_words_due(self.hover_t):
+                    lines, title = self.essential(lines, title)
                 draw_look_tooltip(con, self.cam.to_text(x, y), lines, title,
-                                  pic=self._look_pic(x, y, g.map.visible[x, y], math.hypot(x - ox, y - oy)),
+                                  pics=self._look_pics(x, y, g.map.visible[x, y], math.hypot(x - ox, y - oy))
+                                  if self.tell_mode() != "words" else (),
                                   art=self._parked_sketch(x, y, g.map.visible[x, y]))
             return
         if not g.map.explored[x, y]:
             return
-        lines, title = self.describe_tile(x, y, brief=True)
-        if lines and (title or len(lines) > 1):
-            draw_tooltip(con, self.cam.to_text(x, y), lines, title)
+        if self.tell_mode() == "words":          # (pictures get their turn at the dwell; no stray text before it)
+            lines, title = self.describe_tile(x, y, brief=True)
+            if lines and (title or len(lines) > 1):
+                draw_tooltip(con, self.cam.to_text(x, y), lines, title)
 
     def _describe_beyond(self, x, y):
         """Looking across the edge into the next sector."""
@@ -873,17 +907,42 @@ class PlayState:
             lines.append((yards(d), UI_TEXT))
         return lines, title
 
-    def _look_pic(self, x, y, vis, d):
-        """The thing itself, as a picture, when you look at it: the gun a man holds, the kit on the ground."""
+    def _look_pics(self, x, y, vis, d):
+        """The thing itself, as pictures, when you look at it: his face and what's wrong with him; the gun a
+        man holds; the kit on the ground; a vehicle; and, failing all that, the ground you're standing on."""
         from . import icons
         g = self.game
         m = g.map
-        if not vis or not icons.on():
-            return None
+        if not vis or not icons.on() or not m.in_bounds(x, y):
+            return ()
         a = g.soldier_at.get((x, y))
-        if a is not None and a.weapon is not None and a.weapon.t.kind == "gun" and \
-                player_can_see_actor(g, a) and (d < 25 or g.player_binoculars):
-            return icons.item_key(a.weapon)
+        if a is not None and player_can_see_actor(g, a):
+            p = g.player
+            side = "own" if a is p else "friend" if a.side == p.side else "enemy"
+            flags = []
+            worst = min(a.body.hp[k] / max(1, a.body.max[k]) for k in a.body.hp)
+            if a.body.dead:
+                flags.append("dead")
+            elif a.downed:
+                flags.append("down")
+            if worst < 0.75:
+                flags.append("blood")
+            if any(a.body.part_bleeding(k) in ("bandaged", "tourniquet") for k in a.body.hp):
+                flags.append("bandage")
+            if a.body.burning:
+                flags.append("burn soot")
+            if getattr(a.body, "temp", 37.0) < 35.8:
+                flags.append("pale")
+            if a.ai.get("sleeping") is not None:
+                flags.append("eyes")
+            if a.has_tool("brassard"):
+                flags.append("medic")
+            out = [(f"face|{a.nation}|{a.role}|{','.join(flags)}|{side}", 9, 7)]
+            if a.weapon is not None and a.weapon.t.kind == "gun" and (d < 25 or g.player_binoculars):
+                wid = icons.item_key(a.weapon)
+                if wid:
+                    out.append((wid, 12, 3))
+            return tuple(out)
         items = m.items_at(x, y)
         if items:
             top = min(items, key=lambda i: {"gun": 0, "explosive": 1, "grenade": 1, "melee": 2}.get(i.t.kind, 3))
@@ -891,10 +950,23 @@ class PlayState:
                 from .entities import visible_body_items
                 for kit, _loc in visible_body_items(top, d):
                     if kit.t.kind == "gun":
-                        return icons.item_key(kit)
-                return None
-            return icons.item_key(top)
-        return None
+                        return ((icons.item_key(kit), 12, 3),) if icons.item_key(kit) else ()
+                return ()
+            k = icons.item_key(top)
+            return ((k, 12, 3),) if k else ()
+        v = g.vehicle_at.get((x, y))
+        if v is not None and not v.dead:
+            col = "#" + icons.hexcol(FRIEND_COLOR if v.side == g.player.side else ENEMY_COLOR)
+            return ((f"unit:{'tank' if v.vt.vtype in ('tank', 'ltank', 'td', 'spg') else 'supply'}|{col}", 10, 5),)
+        t = int(m.t[x, y])
+        d_ = T.DEFS[t]
+        if d_.key.startswith("ac_"):
+            return ()
+        return ((f"ground|{t}|{int(m.var[x, y])}", 10, 8),)
+
+    def _look_pic(self, x, y, vis, d):
+        pics = self._look_pics(x, y, vis, d)
+        return pics[0][0] if pics else None
 
     def _parked_sketch(self, x, y, vis):
         """An aircraft on the ground still shows as a pencilled planform (there is no picture of every model)."""
@@ -1802,6 +1874,8 @@ class PlayState:
             self.hover = mp
             if self.mode in ("target", "throw", "look", "order_target", "radio_target", "flare_target"):
                 m = self.game.map
+                if (mp[0], mp[1]) != (self.cursor or (None, None)):
+                    self.look_t = time.monotonic()
                 self.cursor = (max(0, min(m.w - 1, mp[0])), max(0, min(m.h - 1, mp[1])))
         else:
             self.hover = None
@@ -3003,6 +3077,7 @@ class PlayState:
         self.mode = mode
         self.cursor = cursor
         self.pending = pending or {}
+        self.look_t = time.monotonic()
 
     def mode_key(self, key: Key):
         from . import marks as MK
@@ -3052,6 +3127,7 @@ class PlayState:
             step = 5 if key.is_run() else 1
             cx, cy = self.cursor
             self.cursor = (max(0, min(g.map.w - 1, cx + mv[0] * step)), max(0, min(g.map.h - 1, cy + mv[1] * step)))
+            self.look_t = time.monotonic()
             return
         if key.sym == E.KeySym.TAB and self.mode == "target":
             self.cycle_target(-1 if key.shift else 1)
