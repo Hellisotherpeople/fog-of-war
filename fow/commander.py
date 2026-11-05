@@ -111,15 +111,18 @@ def commander_update(game, side: str):
     rng = game.rng
     from .command import low_on_ammo, nearest_ammo
     held = _strength_at(game, side, objs)
+    free = []
     for sq in squads:
         if sq.player_led or sq.order.kind == "retreat" or getattr(sq.order, "src", "ai") == "player":
             continue
         if sq.rep.get("construction") or sq.order.src == "staff":
             continue
-        if sq.kind in ("staff", "rear", "aid", "supply") or sq.__dict__.get("convoy"):
+        if sq.kind in ("staff", "rear", "aid", "supply") or sq.__dict__.get("convoy") or sq.__dict__.get("sally"):
             continue                # quartermasters, clerks and surgeons stay at their posts; trucks do their run
         if sq.order.kind == "resupply" and game.turn - sq.order.issued < 500:
             continue
+        if sq.rep.get("withdrawing", 0) > game.turn:
+            continue                # pulling out of ground that's been given up (plan.withdraw)
         # quiet moment and the pouches are empty: back to the dump
         if game.turn - sq.last_contact > 60 and sq.members and low_on_ammo(sq):
             q = nearest_ammo(game, sq, max_d=70)
@@ -127,8 +130,7 @@ def commander_update(game, side: str):
                 sq.order = Order("resupply", target=q, radius=3, issued=game.turn)
                 sq.arrived = False
                 continue
-        anc = sq.anchor()
-        if anc is None:
+        if sq.anchor() is None:
             continue
         if consolidate_objective(game, sq):
             continue
@@ -136,7 +138,19 @@ def commander_update(game, side: str):
         if (o.kind == "defend" and o.obj is not None and not objs[o.obj].contested
                 and objs[o.obj].owner == side
                 and game.turn - sq.rep.get("objective_secured_turn", -999) < 60):
+            continue                # (just taken: they dig in and catch their breath before going on)
+        free.append(sq)
+    # the company plan: each sector's main effort, supporting attack, reserve, outposts and line (plan.py)
+    from .plan import update as plan_update
+    p = game.player
+    told = [p.squad] if p is not None and p.squad is not None and p.squad.side == side and p.squad.player_led \
+        and p.squad.kind not in ("staff", "rear", "aid", "supply") and not game.command.billet else []
+    planned = plan_update(game, side, [sq for sq in free if sq.kind != "hq"], owners, told)
+    for sq in free:
+        if sq.id in planned:
             continue
+        anc = sq.anchor()
+        o = sq.order
         # This unit's own observations can correct its instructions without revealing them
         # to other units. In particular, an unknown HQ report is not an order to retake
         # friendly ground that the section can see it already holds.

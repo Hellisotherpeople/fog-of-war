@@ -379,8 +379,12 @@ class Game:
         if d is None or d["nation"] != p.nation:
             return
         text = notable_designation(self.rng, p.nation, d, self.theatre_id)
+        if d.get("service"):
+            p.__dict__["service"] = d["service"]
         mates = [m for m in (p.squad.members if p.squad is not None else [p])]
         for m in mates:
+            if d.get("service"):
+                m.__dict__["service"] = d["service"]
             m.unit = text
             if d.get("veteran") and m.is_player is False and self.rng.random() < 0.35:
                 m.traits.add("veteran")
@@ -1413,7 +1417,12 @@ class Game:
         acts = [a for a in self.actors if a.alive and a.vehicle is None]
         pos = np.array([(a.x, a.y) for a in acts], np.float32).reshape(-1, 2)
         from . import native
-        self._native_near = native.core.SpatialIndex(pos) if native.core is not None and hasattr(native.core, 'SpatialIndex') else None
+        if native.core is not None and hasattr(native.core, 'SpatialIndex'):
+            sides = np.array([0 if a.side == ALLIES else 1 for a in acts], np.int8)
+            flags = np.array([(1 if a.is_player else 0) | (2 if a.body.downed() else 0) for a in acts], np.int8)
+            self._native_near = native.core.SpatialIndex(pos, sides, flags)
+        else:
+            self._native_near = None
         self._native_enemy = {}
         self._arr = (pos, acts)
         self._arr_index = {a.id: i for i, a in enumerate(acts)}
@@ -1544,14 +1553,22 @@ class Game:
         pos, ents = self.enemy_array(a.side)
         buckets = self._enemy_buckets[a.side]
         index = self.__dict__.get('_native_enemy', {}).get(a.side)
-        ids = index.near(a.x, a.y, radius) if index is not None else sorted(k for bx in range(math.floor((a.x-radius)/32), math.floor((a.x+radius)/32)+1)
-                     for by in range(math.floor((a.y-radius)/32), math.floor((a.y+radius)/32)+1)
-                     for k in buckets.get((bx,by), ()))
+        if index is not None and hasattr(index, "nearest"):
+            return index.nearest(a.x, a.y, radius, 40)
+        ids = index.near(a.x, a.y, radius) if index is not None else \
+            sorted(k for bx in range(math.floor((a.x-radius)/32), math.floor((a.x+radius)/32)+1)
+                   for by in range(math.floor((a.y-radius)/32), math.floor((a.y+radius)/32)+1)
+                   for k in buckets.get((bx,by), ()))
+        if not ids:
+            return np.empty(0, np.intp)
         idx = np.asarray(ids, dtype=np.intp)
-        distances = np.sqrt(((pos[idx] - (a.x,a.y)) ** 2).sum(axis=1))
-        within = distances <= radius
-        idx, distances = idx[within], distances[within]
-        return idx[np.argsort(distances)][:40]
+        dx = pos[idx, 0] - a.x
+        dy = pos[idx, 1] - a.y
+        d2 = dx * dx + dy * dy
+        within = d2 <= radius * radius
+        idx, d2 = idx[within], d2[within]
+        # (order by squared distance is the order by distance; the roots are only for the forty kept)
+        return idx[np.argsort(d2, kind="stable")][:40]
 
     def side_strength(self, side):
         return sum(sq.strength() for sq in self.squads if sq.side == side)
@@ -2509,22 +2526,27 @@ class Game:
             d = abs(p.x - x) + abs(p.y - y)
             if d < 40:
                 self.noise = min(100.0, self.noise + loud / (12.0 + d))
-        # AI hearing: each side hears it at its nearest soldier
+        # AI hearing: each side hears it at its nearest soldier.  Walls only ever muffle, so nobody
+        # outside the open-air range needs the full trace.
+        from .senses import weather_masking
+        max_hear = 10 ** ((loud - HEAR_THRESHOLD - weather_masking(self)) / 20.0) if loud < 90 else 1e9
+        pos, acts = self.actor_array()
+        d2 = ((pos[:, 0] - x) ** 2 + (pos[:, 1] - y) ** 2) if len(acts) else None
         for s in SIDES:
             if side == s:
                 continue
-            pos, acts = self.actor_array()
-            if not acts:
+            if d2 is None:
                 continue
-            d2 = (pos[:, 0] - x) ** 2 + (pos[:, 1] - y) ** 2
             best = None
             side_idx = self._side_indices[s]
             if len(side_idx):
                 k = side_idx[np.argmin(d2[side_idx])]
-                if acts[k].active:
+                if False and d2[k] > max_hear * max_hear:
+                    best = None
+                elif acts[k].active:
                     best = acts[k]
                 else:
-                    live = [i for i in side_idx if acts[i].active]
+                    live = [i for i in side_idx if d2[i] <= max_hear * max_hear and acts[i].active]
                     if live:
                         k = min(live, key=lambda i: d2[i])
                         best = acts[k]
@@ -2751,11 +2773,15 @@ class Game:
                 ign &= (f == 0) & (T.FLAM[m.t] > 0)
                 f[ign] = nrng.integers(15, 45, size=int(ign.sum())).astype(np.int16)
             m.smoke[f > 0] += 0.35
-            # burning soldiers
-            for a in list(self.actors):
-                if a.alive and a.vehicle is None and f[a.x, a.y] > 0:
-                    hit_actor(self, a, rng.uniform(4, 10), "burn", None, "fire", silent=not a.is_player)
-                    a.suppression = min(100, a.suppression + 20)
+            # burning soldiers (only the cells alight, not the whole roster)
+            pos, acts = self.actor_array()
+            if len(acts):
+                on_fire = np.nonzero(f[pos[:, 0].astype(np.intp), pos[:, 1].astype(np.intp)] > 0)[0]
+                for i in on_fire:
+                    a = acts[i]
+                    if a.alive:
+                        hit_actor(self, a, rng.uniform(4, 10), "burn", None, "fire", silent=not a.is_player)
+                        a.suppression = min(100, a.suppression + 20)
             # burning vehicles
             for v in self.vehicles:
                 if not v.dead and f[v.x, v.y] > 0 and rng.random() < 0.02:
@@ -3058,14 +3084,23 @@ class Game:
         elif cmd.billet is not None:
             text = f"You command {cmd.billet_title(self)}. C for command, m for the front."
             enemy_obj = [o for o in m.objectives if o.owner != p.side]
-            if enemy_obj and cmd.billet.echelon in ("platoon", "company"):
+            from .plan import for_player
+            pl = for_player(self)
+            if pl is not None and cmd.billet.echelon in ("platoon", "company"):
+                text = f"You command {cmd.billet_title(self)}. Battalion: {pl[0]} (C: command)"
+                self._command_order_text = pl[0]
+            elif enemy_obj and cmd.billet.echelon in ("platoon", "company"):
                 o = min(enemy_obj, key=lambda o: abs(o.x - p.x) + abs(o.y - p.y))
                 text = f"You command {cmd.billet_title(self)}. Battalion wants {o.name} taken. (C: command)"
                 self._command_order_text = f"Take {o.name}."
         elif sq.player_led:
             text = "You lead. Press O to give your men orders."
             enemy_obj = [o for o in m.objectives if o.owner != p.side]
-            if enemy_obj:
+            from .plan import for_player
+            pl = for_player(self)
+            if pl is not None:
+                text = f"Company: {pl[0]} You lead."
+            elif enemy_obj:
                 o = min(enemy_obj, key=lambda o: abs(o.x - p.x) + abs(o.y - p.y))
                 text = f"Company wants {o.name} taken. You lead."
         else:
@@ -3213,10 +3248,10 @@ class Game:
             for s in SIDES:
                 commander_update(self, s)
         # actors
-        acts = [a for a in self.actors if a.alive]
+        acts = [a for a in self.actors if not a.body.dead]
         rng.shuffle(acts)
         for a in acts:
-            if not a.alive:
+            if a.body.dead:
                 continue
             if not 0 <= a.morale <= 100:
                 a.morale = min(100.0, max(0.0, a.morale))      # (brave or broken, but within the scale)
@@ -3255,11 +3290,12 @@ class Game:
         # physiology & nerves
         officers = [a for a in self.actors if a.rank >= 8 and a.active and not a.downed] if self.turn % 2 == 0 else []
         for a in list(self.actors):
-            if not a.alive:
+            if a.body.dead:
                 continue
-            if a.__dict__.get("recoil"):
+            if a.recoil:
                 settle_recoil(a)
-            ev = a.body.update(rng)
+            a.body.now = self.turn
+            ev = () if a.body.at_rest() else a.body.update(rng, self.turn)
             if a.body.dead:
                 self.kill(a, a.body.killer)
                 continue
@@ -3271,13 +3307,18 @@ class Game:
                         self.msg("You come to. Everything hurts.", "hurt")
                     elif e == "shock":
                         self.msg("You slip into shock...", "hurt")
-            decay = 3.0 + m.pos_cover[a.x, a.y] / 25 if a.vehicle is None else 5
-            a.suppression = max(0.0, a.suppression - decay)
+                    elif e == "septic":
+                        self.msg("The wound has gone septic. You're burning up.", "hurt")
+                    elif e == "died_of_sepsis" and not a.body.dead:
+                        self.msg("The infection finally stops your heart.", "hurt")
+            if a.suppression > 0:
+                decay = 3.0 + m.pos_cover[a.x, a.y] / 25 if a.vehicle is None else 5
+                a.suppression = max(0.0, a.suppression - decay)
             base = NATIONS[a.nation]["doctrine"]["morale"]
             if a.morale < base:
                 a.morale += 0.05 + self._leadership(a, officers)
-            st = getattr(a, "stamina", 100.0)
-            ceiling = 100.0 - 0.6 * getattr(a, "fatigue", 0.0)
+            st = a.stamina
+            ceiling = 100.0 - 0.6 * a.fatigue
             rest = a.moved_turn < self.turn - 1 or a.vehicle is not None
             if st < ceiling:
                 regen = (0.7 + (0.4 if a.stance == 2 else 0.0)) if rest else 0.08
@@ -3290,7 +3331,7 @@ class Game:
                     self._breath_msgs(st, a.stamina)
             elif st > ceiling:
                 a.stamina = ceiling
-            fat = getattr(a, "fatigue", 0.0)
+            fat = a.fatigue
             if fat > 0 and a.moved_turn < self.turn - 5:
                 a.fatigue = max(0.0, fat - (0.006 if a.stance == 2 and a.suppression < 10 else 0.003))
             # the weather, on everyone (you get the messages)

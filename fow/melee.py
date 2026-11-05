@@ -165,7 +165,7 @@ def _from_behind(target, attacker) -> bool:
 def _strength(a) -> float:
     from .skills import level
     s = 0.8 + level(a, "fitness") * 0.03 + (0.2 if "strong" in a.traits else 0)
-    s *= 0.6 + 0.4 * min(1.0, getattr(a, "stamina", 100) / 60.0)          # blown men hit like children
+    s *= 0.6 + 0.4 * min(1.0, a.stamina / 60.0)          # blown men hit like children
     return s
 
 
@@ -263,7 +263,7 @@ def _attack(game, a, target, move=None):
     target.ai["melee_turn"] = game.turn
     if a.ai.get("stuck_in"):
         return _free_blade(game, a)
-    a.stamina = max(0.0, getattr(a, "stamina", 100) - 2.5)
+    a.stamina = max(0.0, a.stamina - 2.5)
     if move in ("silent", "strangle"):
         return _silent(game, a, target, move, cost)
     if move in ("choke", "throw", "break") or (move == "stab" and grappling(game, a) is target):

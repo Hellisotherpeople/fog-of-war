@@ -7,6 +7,57 @@ route and light-mask computation uses wgpu/Metal/Vulkan/DX12.
 most actor decisions still execute in Python. The older full-port estimates below remain estimates,
 not measured gains from the implemented stages.
 
+### Feature-identical pass and a much richer world, 5 November 2026
+
+This pass lands with the terrain, wound-care and battlefield-content work, so the archived baseline
+is the pre-content tree. The "after" build carries the new tiles, richer footprints, more varied
+maps and the clinical wound model; the comparison therefore understates the optimization itself.
+
+Apple M4 Pro, CPython 3.12.11, native extension 0.2.2, five warm-up turns, headless. Both builds
+use the same harness, seed and copied-save policy. Final digests were stable across repeated runs:
+`e494ee07…` (240), `355ad4ce…` (640), `3b56addb…` (travel).
+
+| Scenario | Mean before → after | p95 before → after | Change |
+|---|---:|---:|---:|
+| Bocage, radius 240, 150 turns | 33.68 → 29.54 ms | 57.83 → 52.21 ms | 12.3% faster |
+| Bocage, radius 640, 40 turns | 275.02 → 238.54 ms | 447.66 → 406.31 ms | 13.3% faster |
+| Real travel, radius 240, 60 actions | 38.76 → 39.96 ms | — | 3.1% slower (streaming more varied ground) |
+
+The main new work is exact and native: a neighbourhood query on the spatial index computes the
+nine-cell occupancy and nearby-mate list inside Rust (previously nine Python dict probes and a
+Python query per considered step), with the movement scorer unchanged. Causes carry their own
+condition version and invalidate kit caches; aid-post lookups are per-turn; concealment stays
+cached per target; vision stops at the first out-of-range candidate from the distance-sorted native
+query; `speed()` is cached against its full input state; body care need exits before arithmetic for
+an untouched man; `open_top` uses a rect-to-style index; path reuse accepts a goal one tile away
+for the existing fifteen-turn window. Same-turn downed flags are snapshotted with the actor index
+and refreshed next turn (a man downed mid-turn is treated as downed one fraction of a second
+later). `test_native_expansion.py` proves the native neighbourhood and score vector match the
+Python fallback draw-for-draw.
+
+### Exact hot-path pass, 4 November 2026
+
+Apple M4 Pro, CPython 3.12.11, native extension 0.2.1, five warm-up turns, headless, no rendering.
+Each pair is the same seed, process mode and copied save policy; the recorded core-state digest is
+**identical** in every pair, so no action, random draw, eligibility rule or scheduling decision changed.
+
+| Scenario | Mean before → after | p95 before → after | Reduction |
+|---|---:|---:|---:|
+| Bocage, radius 240, 150 turns | 32.60 → 24.42 ms | 55.86 → 43.62 ms | 25.1% |
+| Bocage, radius 640, 40 turns | 274.03 → 213.29 ms | 447.80 → 376.14 ms | 22.2% |
+| Real travel, radius 240, 60 actions | 37.19 → 29.44 ms | — | 20.8% |
+
+Digests: `f640d67c…` (240), `5f09e73f…` (640), `c8600af3…` (travel). The changes are Python-side
+work removal and two exact native shapes: a spatial nearest query (the same filtered, distance-sorted
+forty candidates as the old NumPy sort) and a flat nine-score vector from `step_scores`. The rest:
+path obstacles queried from the spatial index instead of the whole roster; a validated inventory
+iteration cache and one-pass `items`/`has_tool`; vision exits early with no candidates, uses squared
+distances and computes concealment only within eye range; hot class attributes use slots and cached
+templates; the per-step and per-turn hot paths stop scanning absent charges, wounds, fires and
+zero suppression; hearing skips the line trace when the sound is clearly inaudible or clear; squad
+care checks need before line of sight. `tools/benchmark_world.py --digest` reproduces the comparison.
+An older installed extension still works (the new shapes are feature-detected).
+
 ## Second native stage: all six implementation areas
 
 The 0.2.0 extension and game changes implement these six areas while preserving the

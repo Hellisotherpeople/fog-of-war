@@ -30,7 +30,7 @@ def allowed(a, turn=None) -> str:
     if legs < 0.6 or a.stance == 1:
         return "run"                         # a crouching run, or a limp
     w = a.weight_now(turn) if turn is not None else a.carried_weight()
-    if w > 32 or getattr(a, "fatigue", 0.0) > 85:
+    if w > 32 or a.fatigue > 85:
         return "run"
     return "sprint"
 
@@ -42,7 +42,7 @@ def effective(a, want, turn=None) -> str:
         return "sneak"
     cap = allowed(a, turn)
     pace = want if order[want] <= order[cap] else cap
-    st = getattr(a, "stamina", 100.0)
+    st = a.stamina
     if pace == "sprint" and st < 15:
         pace = "run"
     if pace == "run" and st < 5:
@@ -75,12 +75,12 @@ def ai_pace(game, a) -> str:
         want = "sneak"
     if a.suppression > 50 and st not in ("rout", "hold", "idle") and a.stance == 0:
         want = "sprint"                       # get across and get down
-    breath = getattr(a, "stamina", 100.0)
+    breath = a.stamina
     if want == "sprint" and breath < 35 and st not in ("rout", "banzai"):
         want = "run"
     if breath < 15:
         want = "walk"
-    if getattr(a, "fatigue", 0.0) > 75 and st not in ("rout", "banzai", "assault"):
+    if a.fatigue > 75 and st not in ("rout", "banzai", "assault"):
         want = "walk"
     return effective(a, want, game.turn)
 
@@ -101,14 +101,14 @@ def recent(game, a) -> str:
 def aim_penalty(game, a) -> float:
     r = recent(game, a)
     p = {"run": 0.9, "sprint": 2.6}.get(r, 0.0)
-    f = getattr(a, "fatigue", 0.0)
+    f = a.fatigue
     if f > 50:
         p += (f - 50) / 60.0
     return p
 
 
 def fatigue_word(a):
-    f = getattr(a, "fatigue", 0.0)
+    f = a.fatigue
     if f > 85:
         return "Dead on your feet", (255, 90, 70)
     if f > 65:
@@ -119,5 +119,5 @@ def fatigue_word(a):
 
 
 def speed_mult(a) -> float:
-    f = getattr(a, "fatigue", 0.0)
+    f = a.fatigue
     return 1.0 - max(0.0, f - 60) / 200.0

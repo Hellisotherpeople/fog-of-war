@@ -488,6 +488,18 @@ def draw_overlays(con, game, cam, ui, sprites=False):
                 (tx, ty), _ = edge_text(o.x, o.y)
                 for offset, char in enumerate(letter):
                     put(con, tx + offset, ty, char, col, (20, 20, 20))
+    # pencil marks from captured papers: where their posts were, as last written down
+    if p.ai.get("map_intel"):
+        from .intelligence import INTEL_GLYPH, FORT_DAYS
+        for n in p.ai["map_intel"]:
+            age = game.turn - n["turn"]
+            if age > FORT_DAYS or not cam.on_screen(n["x"], n["y"]):
+                continue
+            if m.in_bounds(n["x"], n["y"]) and m.visible[n["x"], n["y"]]:
+                continue
+            tx, ty = cam.to_text(n["x"], n["y"])
+            col = (200, 120, 100) if age > FORT_DAYS * 0.6 else (235, 165, 120)
+            put(con, tx, ty, INTEL_GLYPH.get(n["kind"], "?"), col)
     draw_order_pointer(con, game, cam)
     # where your head is when you lean out of cover
     pk = getattr(p, "peek", None)
@@ -1142,7 +1154,7 @@ class Popup:
     """A menu box anchored to a point on the map (usually your @)."""
 
     def __init__(self, title, options, anchor, *, footer="", width=None, kind="menu", data=None,
-                 lines=None, letters=True):
+                 lines=None, letters=True, pic=None):
         self.title = title
         self.options = options      # list of (label, value, color|None, enabled)
         self.anchor = anchor        # screen coords of the thing it comes from
@@ -1153,6 +1165,7 @@ class Popup:
         self.data = data or {}
         self.lines = lines or []
         self.letters = letters
+        self.pic = pic              # an icons key: the thing itself, drawn above the words
         self.rect = (0, 0, 0, 0)
         self.scroll = 0
         from .search import Search
@@ -1210,11 +1223,12 @@ class Popup:
         return None
 
     def layout(self):
-        w = self.width or max([len(self.title) + 4] + [len(o[0]) + 6 for o in self.options] +
+        w = self.width or max([len(self.title) + 4, 30 if self.pic else 0] + [len(o[0]) + 6 for o in self.options] +
                               [len(l[0]) + 3 for l in self.lines] + [len(self.display_footer()) + 3])
         w = min(w, VIEW_W - 4)
         max_rows = VIEW_H - 6
-        body = len(self.lines) + max(1, len(self.indices()))
+        pics = self.pic_rows()
+        body = pics + len(self.lines) + max(1, len(self.indices()))
         h = min(max_rows, body) + 2 + (1 if self.display_footer() else 0)
         ax, ay = self.anchor
         # prefer to the right of the anchor, with a gap for the connector
@@ -1228,12 +1242,16 @@ class Popup:
         self.rect = (x, y, w, h)
         return self.rect
 
+    def pic_rows(self):
+        from . import icons
+        return 7 if self.pic and icons.on() else 0
+
     def item_at(self, sx, sy):
         x, y, w, h = self.rect
         if not (x < sx < x + w - 1 and y < sy < y + h - 1):
             return None
-        body_row = sy - y - 1 - len(self.lines)
-        avail = h - 2 - len(self.lines) - (1 if self.display_footer() else 0)
+        body_row = sy - y - 1 - self.pic_rows() - len(self.lines)
+        avail = h - 2 - self.pic_rows() - len(self.lines) - (1 if self.display_footer() else 0)
         if body_row < 0 or body_row >= avail:
             return None
         row = body_row + self.scroll
@@ -1269,6 +1287,8 @@ def draw_popup(con, pop: Popup):
     if pop.title:
         con.print(x + 2, y, f" {pop.title[:w - 6]} ", fg=UI_HI, bg=UI_BG)
     row = y + 1
+    pics = pop.pic_rows()
+    row += pics
     for text, col in pop.lines:
         if row >= y + h - 1:
             break
@@ -1302,6 +1322,9 @@ def draw_popup(con, pop: Popup):
         con.print(x + 1, y + h - 2, footer[:w - 2], fg=UI_DIM, bg=UI_BG)
     from . import icons
     icons.erase(x, y, w, h)                       # (nothing painted earlier shows through the box)
+    if pics:
+        pw = min(w - 4, 30)
+        icons.pic(x + (w - pw) // 2, y + 1, pw, pics - 1, icons.oriented(pop.pic, pw, pics - 1), "over")
 
 
 def draw_tooltip(con, anchor, lines, title=None):
@@ -1327,15 +1350,17 @@ def draw_tooltip(con, anchor, lines, title=None):
     return x, y, w, h
 
 
-def draw_look_tooltip(con, anchor, lines, title=None, art=()):
-    """The look tooltip: what a look shows, drawn above the words that say it."""
-    if not art:
+def draw_look_tooltip(con, anchor, lines, title=None, art=(), pic=None):
+    """The look tooltip: what a look shows, with the thing itself drawn above the words that say it."""
+    from . import icons
+    pics = 7 if pic and icons.on() else 0
+    if not art and not pics:
         return draw_tooltip(con, anchor, lines, title)
     ax, ay = anchor
-    wide = max([len(t) for t, _ in art] + [1])
+    rows = [(t, c) for t, c in art if t]
+    wide = max([len(t) for t, _ in rows] + [28 if pics else 1])
     w = min(VIEW_W - 2, max([len(t) for t, _ in lines] + [len(title or "") + 2] + [wide + 2]))
-    rows = [(t, c) for t, c in art if t] or [(" ", None)]
-    h = len(lines) + len(rows) + 2
+    h = len(lines) + len(rows) + pics + 2 + (1 if rows and not pics else 0)
     x = ax + 2 if ax + 2 + w < VIEW_W else ax - 2 - w
     y = ay - h - 1 if ay - h - 1 >= 0 else ay + 2
     if y + h > VIEW_H:
@@ -1344,16 +1369,22 @@ def draw_look_tooltip(con, anchor, lines, title=None, art=()):
     lx = x if x > ax else x + w - 1
     con.print(ax + (1 if lx > ax else -1), ay, "·", fg=UI_FRAME)
     con.draw_frame(x, y, w, h, clear=True, fg=(110, 100, 70), bg=(16, 15, 12))
-    from . import icons
     icons.erase(x, y, w, h)
     if title:
         con.print(x + 1, y, f" {title[:w - 4]} ", fg=UI_HI, bg=(16, 15, 12))
     y0 = y + 1
+    if pics:
+        pw = min(w - 4, 26)
+        icons.pic(x + (w - pw) // 2, y0, pw, pics - 1, icons.oriented(pic, pw, pics - 1), "over")
+        y0 += pics
+        con.print(x + 1, y0, "─" * min(w - 2, max(3, w - 6)), fg=(70, 62, 48), bg=(16, 15, 12))
+        y0 += 1
     for t, col in rows:
         con.print(x + 1 + max(0, (w - 2 - len(t)) // 2), y0, t[:w - 2], fg=col or UI_TEXT, bg=(16, 15, 12))
         y0 += 1
-    con.print(x + 1, y0, "─" * min(w - 2, max(3, w - 6)), fg=(70, 62, 48), bg=(16, 15, 12))
-    y0 += 1
+    if rows and not pics:
+        con.print(x + 1, y0, "─" * min(w - 2, max(3, w - 6)), fg=(70, 62, 48), bg=(16, 15, 12))
+        y0 += 1
     for t, col in lines:
         con.print(x + 1, y0, t[:w - 2], fg=col or UI_TEXT, bg=(16, 15, 12))
         y0 += 1

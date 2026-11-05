@@ -46,7 +46,7 @@ pub fn step_scores(
     swap_cost: f64,
     unit: f64,
     big: f64,
-) -> PyResult<Vec<(i64, i64, f64)>> {
+) -> PyResult<Vec<f64>> {
     let t = tiles.as_array();
     let fire = fire.as_array();
     let walk = walk.as_array();
@@ -110,7 +110,7 @@ pub fn step_scores(
             }
         }
     }
-    let mut out = Vec::new();
+    let mut out = vec![f64::INFINITY; 9];
     for i in 0..scores.len() {
         if !valid[i] {
             continue;
@@ -148,7 +148,7 @@ pub fn step_scores(
         } else {
             *s -= stay_bias;
         }
-        out.push((dx, dy, *s));
+        out[j] = *s;
     }
     Ok(out)
 }

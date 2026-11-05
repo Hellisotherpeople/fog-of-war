@@ -162,6 +162,7 @@ def use(ps, item):
         if tool == "antiseptic":
             p.ai["antiseptic_until"] = g.turn + int(21600 * item.condition)
             p.ai.setdefault("needs", dict(hunger=0., thirst=0., infection=0.))["infection"] *= 1 - .7 * item.condition
+            p.body.antisepsis(item.condition, g.turn)
             g.msg("You clean the wound with antiseptic. It still needs a dressing if it is bleeding.", "good")
         else:
             p.ai["splinted_until"] = g.turn + int(21600 * item.condition)

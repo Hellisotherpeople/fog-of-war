@@ -232,7 +232,14 @@ def worth(game, a, it, giving=False) -> float:
                                            t.id in ("katana", "dadao", "kampfmesser")):
         v *= 3.0 if not (a.nation == "ussr" and tool == "watch") else 5.0
     elif t.kind == "gun" and t is not getattr(a.weapon, "t", None):
-        v *= 0.4 if t.weight > 3 else 0.8             # (another rifle is only weight)
+        from . import quality
+        w = getattr(a.weapon, "t", None)
+        if w is not None and w.kind == "gun":
+            # (a better rifle is worth carrying; another common one is only weight)
+            v *= 1.0 + max(-0.45, min(1.4, (quality.score(t) - quality.score(w)) / 45.0))
+        else:
+            v *= 1.0 + max(0.0, quality.score(t)) / 60.0
+        v *= 0.55 if t.weight > 8 else 1.0
     if giving:
         v *= 1.15 + (0.35 if lf["temper"] in ("hard", "cynical") else 0.0)
     return max(0.1, v)
@@ -257,6 +264,8 @@ def wants(game, a, n=3) -> list[str]:
         spare = sum(1 for i in a.inv if i.t.kind in ("mag", "clip", "ammo") and i.t.cal == w.t.cal)
         if spare <= 2:
             out.append(f"ammunition for his {w.t.name}")
+        if w.t.kind == "gun" and getattr(w.t, "freq", 10) > 2:
+            out.append("a better-made gun")
     if a.body.wounds and a.medical("bandage") is None:
         out.append("a field dressing")
     if lf["drinker"] and a.find(lambda i: i.t.tool == "flask") is None:

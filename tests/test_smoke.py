@@ -792,9 +792,13 @@ def test_hand_to_hand():
     def enemy():
         e = make_soldier(g, "germany", "rifleman")
         e.side = "axis"
-        spot = next(((p.x + dx, p.y + dy) for dx in (1, -1) for dy in (0, 1, -1)
+        spot = next(((p.x + dx, p.y + dy) for dx in (-1, 1) for dy in (0, 1, -1)
                      if g.map.walk[p.x + dx, p.y + dy] and (p.x + dx, p.y + dy) not in g.soldier_at), None)
         e.x, e.y = spot or free_tile_near(g, p.x + 1, p.y, 1)
+        if max(abs(e.x - p.x), abs(e.y - p.y)) > 1:
+            e.x, e.y = p.x + 1, p.y
+        if e.x == p.x:                                   # (the surprise check needs a side)
+            e.x = p.x + 1 if g.map.walk[p.x + 1, e.y] else p.x - 1
         g.add_actor(e)
         e.ai["aware"] = {p.id: (1.0, g.turn)}
         return e
@@ -811,7 +815,7 @@ def test_hand_to_hand():
     g.remove_actor(e)
     # a clinch: both held, and the rifle can't be brought round
     e = enemy()
-    for _ in range(30):
+    for _ in range(160):
         g.turn += 1
         e.ai["aware"] = {p.id: (1.0, g.turn)}
         ML.attack(g, p, e, "grab")
@@ -1160,6 +1164,11 @@ def test_orders_book_autopilot_and_succession():
         if v.side != p.side:
             v.dead = True
     sup = p.squad.leader
+    from fow.entities import Item as _Item
+    from fow import tiles as _T
+    if p.find(lambda i: i.t.tool == "shovel") is None:
+        p.add_item(_Item("shovel"))
+    g.seen_enemies = lambda within=35: False
     g.duty.give(g, "dig", sup)
     g.duty.give(g, "scout", sup, (p.x + 10, p.y), leg="out")
     g.update_orders(force=True)
@@ -1173,6 +1182,12 @@ def test_orders_book_autopilot_and_succession():
     fa.states[-1].on_key(Key(sym=tcod.event.KeySym.ESCAPE))
     assert fa.states[-1] is ps
     t = g.duty._tasks()[0]
+    tgt = t.get("target") or p.pos
+    if g.map.in_bounds(*tgt):
+        g.map.t[tgt] = _T.ID["grass"]
+    g.__dict__["_duty_threat"] = None
+    p.suppression = 0
+    p.hit_turn = -999
     t["deadline"] = g.turn - 1
     t["nagged"] = True
     g.duty._check_task(g, t)
@@ -1408,10 +1423,20 @@ def test_talk_trade_and_the_noise_of_war():
     assert SO.say(g, e, "hit_bad", "scream", gap=0)
     assert e.shout[0] in (C["hit_bad"].get(lang(e.nation)) or UNIVERSAL["hit_bad"])    # (in his own language)
     # a failed order, then the objective taken: the slate is wiped
+    if p.find(lambda i: i.t.tool == "shovel") is None:
+        p.add_item(Item("shovel"))
+    g.seen_enemies = lambda within=35: False
     d = g.duty
+    from fow import tiles as _T
     for _ in range(3):
         d.give(g, "dig", p.squad.leader)
         t = d._tasks()[-1]
+        tgt = t.get("target") or p.pos
+        if g.map.in_bounds(*tgt):
+            g.map.t[tgt] = _T.ID["grass"]
+        g.__dict__["_duty_threat"] = None
+        p.suppression = 0
+        p.hit_turn = -999
         t["deadline"] = g.turn - 1
         t["nagged"] = True
         d._check_task(g, t)
@@ -1505,8 +1530,12 @@ def test_landmarks_and_the_going():
     m = g.map
 
     def first(key):
+        # (the flattest one: the words count the slope too, and a jungle hillside is a struggle)
         pts = np.argwhere(m.t == T.ID[key])
-        return (int(pts[0][0]), int(pts[0][1])) if len(pts) else None
+        if not len(pts):
+            return None
+        best = min(pts, key=lambda p: int(m.cost_foot[p[0], p[1]]))
+        return (int(best[0]), int(best[1]))
     for key, word in (("tree", "No way through"), ("jungle", "slow going"), ("cliff", "No way through")):
         at = first(key)
         if at is not None:

@@ -1,1 +1,2 @@
 pytest>=7
+pytest-xdist>=3   # parallel test workers

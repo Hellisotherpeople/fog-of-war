@@ -35,6 +35,7 @@ def test_marked_post_visit_survives_walking_up_before_staff_are_in_sight(kind, p
     g = scene()
     unmapped(g)
     staff = post_with_staff(g, post, role)
+    g.map.visible[:] = False
     g.map.visible[40, 20] = True              # the post itself is in view; its staff are not
     key = contacts.request(g, kind)
     assert orders.focus(g, key)

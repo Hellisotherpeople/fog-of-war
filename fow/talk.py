@@ -305,7 +305,7 @@ def _state_words(g, a) -> str:
     bits.append("I'm all right. Really." if m > 65 else "I'm holding up." if m > 45 else
                 "Honestly? I don't know how much more of this I've got in me." if m > 25 else
                 "I can't stop my hands shaking. Look at them.")
-    if getattr(a, "stamina", 100) < 35 or getattr(a, "fatigue", 0) > 60:
+    if a.stamina < 35 or a.fatigue > 60:
         bits.append("I could sleep for a week.")
     t = getattr(a.body, "temp", 37.0)
     if t < 36.4:

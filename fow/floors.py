@@ -19,14 +19,19 @@ OPEN_TOP = {"church", "desert_house", "barn", "white_church", "tower", "keep", "
 
 def open_top(game, a):
     """The rect of the building whose open top (belfry, roof, hayloft) a man is up on, or None."""
-    z = getattr(a, "z", 0)
+    z = a.z
     if z <= 0 or a is None:
         return None
     m = game.map
     b = m.building_at(a.x, a.y)
     if b is None or z < b[1] - 1:
         return None
-    style = next((bb[4] for bb in m.buildings if tuple(bb[:4]) == b[0]), "")
+    styles = m.__dict__.get("_bstyle")
+    key = (id(m.buildings), len(m.buildings))
+    if styles is None or styles[0] != key:
+        styles = (key, {tuple(bb[:4]): bb[4] for bb in m.buildings if len(bb) > 4})
+        m.__dict__["_bstyle"] = styles
+    style = styles[1].get(b[0], "")
     return b[0] if style in OPEN_TOP else None
 
 
@@ -41,7 +46,7 @@ def tick(game):
     from .combat import hit_actor
     m = game.map
     for a in game.actors:
-        z = getattr(a, "z", 0)
+        z = a.z
         if not z or not a.alive:
             continue
         if not T.FLOOR[m.t[a.x, a.y]] or m.building_at(a.x, a.y) is None:
@@ -64,7 +69,7 @@ def ai_act(game, a, vis, sq):
     from . import actions as A
     from .ai import path_step
     m = game.map
-    z = getattr(a, "z", 0)
+    z = a.z
     order = sq.order.kind if sq is not None else "hold"
     moving = order in ("move", "attack", "assault", "retreat", "flank", "follow", "mount", "regroup")
     if z < 0:
@@ -116,9 +121,11 @@ def place_upstairs(game):
         if sq.order.kind not in ("hold", "defend", "dig", "ambush"):
             continue
         for a in sq.members:
-            if not a.alive or a.vehicle is not None or getattr(a, "z", 0):
+            if not a.alive or a.vehicle is not None or a.z:
                 continue
             keen = a.role == "sniper" or (a.role in ("lmg_gunner", "hmg_gunner") and rng.random() < 0.4) or \
+                (a.role in ("at_soldier", "mortarman") and rng.random() < 0.25) or \
+                (a.role in ("officer", "intel", "radioman") and rng.random() < 0.3) or \
                 (a.role == "rifleman" and rng.random() < 0.06)
             if not keen:
                 continue

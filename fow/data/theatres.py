@@ -469,7 +469,7 @@ theatre(
     date=(1944, 6, 25, 5, 0), climate="summer",
     desc="The largest battle in Nordic history. The Soviet summer offensive smashes into the "
          "Finnish line between the lakes; the Finns, with German Panzerfausts, hold.",
-    sides={ALLIES: [("ussr", 1.0)], AXIS: [("finland", 1.0)]},
+    sides={ALLIES: [("ussr", 1.0)], AXIS: [("finland", 0.85), ("germany", 0.15)]},
     attacker=ALLIES, attacker_from="S", front=0.3,
     biomes=[("forest", 5), ("marsh", 2), ("village", 1), ("farmland", 1)],
     air={ALLIES: 0.75, AXIS: 0.35}, arty={ALLIES: 0.9, AXIS: 0.75}, armor={ALLIES: 0.6, AXIS: 0.2},
@@ -477,7 +477,8 @@ theatre(
     places=["Tali", "Ihantala", "Portinhoikka", "Leitimojärvi", "Repola", "Kärstilänjärvi",
             "Juustila", "Viipuri road", "Konkkala", "Noskua"],
     divisions={"finland": ["Panssaridivisioona", "6. Divisioona", "18. Divisioona"],
-               "ussr": ["21st Army", "30th Guards Rifle Corps"]},
+               "ussr": ["21st Army", "30th Guards Rifle Corps"],
+               "germany": ["Sturmgeschütz-Brigade 303", "122. Infanterie-Division"]},
 )
 
 theatre(

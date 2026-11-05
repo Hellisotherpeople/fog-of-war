@@ -8,7 +8,7 @@ def digging_order():
     g = scene()
     p = g.player
     p.rank = 0
-    p.add_item(Item('shovel'))
+    p.invent.slots['melee'] = Item('shovel')          # (the kit rolled this seed may leave no room for it)
     sup = soldier(g,12,10,rank=4)
     g.duty.give(g,'dig',sup)
     return g,g.duty.task
@@ -22,10 +22,13 @@ def test_dig_deadline_accounts_for_actual_work_and_active_work_cannot_be_punishe
     t['deadline'] = g.turn + 500
     rep = g.duty.rep
     for _ in range(900):
-        assert actions.dig(g,g.player)
+        c = actions.dig(g,g.player)
+        if c is None:
+            break                       # the hole is finished
         g.turn += 1
         g.duty._check_task(g,t)
-    assert t in g.duty.tasks and g.player.dig_progress > 0
+    assert t in g.duty.tasks and (g.player.dig_progress > 0 or
+                                  g.map.tile(*g.player.pos).key in ('foxhole', 'trench_snow'))
     assert not t['nagged'] and g.duty.strikes == 0 and g.duty.rep == rep
     assert t['compliance'] == 'work in progress'
 

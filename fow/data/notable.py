@@ -301,6 +301,57 @@ NOTABLE = {
                    regiments=["Panzergrenadier-Regiment Müncheberg 1", "Panzergrenadier-Regiment Müncheberg 2"],
                    desc="Scraped together in March 1945 from training schools and remnants: the Seelow Heights, "
                         "then the streets of Berlin."),
+    # ---------------------------------------------------------------- the Waffen-SS (their own service and ranks)
+    "de_lssah": dict(nation="germany", div="1. SS-Panzer-Division Leibstandarte SS Adolf Hitler", nick="LSSAH",
+                     service="ss", theatres=["france40", "kursk43", "bastogne44", "berlin45"], veteran=True,
+                     div_by={"france40": "Leibstandarte SS Adolf Hitler (motorised)"},
+                     regiments=["SS-Panzergrenadier-Regiment 1", "SS-Panzergrenadier-Regiment 2"],
+                     desc="Hitler's bodyguard grown into a panzer division: the Meuse crossings, Kharkov and Kursk, "
+                          "the Ardennes, and the last fighting round the Chancellery."),
+    "de_dasreich": dict(nation="germany", div="2. SS-Panzer-Division Das Reich", nick="Das Reich", service="ss",
+                        theatres=["france40", "barbarossa41", "kursk43", "bocage44"], veteran=True,
+                        div_by={"france40": "SS-Verfügungsdivision"},
+                        regiments=["SS-Panzergrenadier-Regiment 3", "SS-Panzergrenadier-Regiment 4"],
+                        desc="From the Meuse in 1940 to the Russian front, then from the south of France to Normandy "
+                             "in June 1944 - on the way, the men of its 2nd battalion shot the village of Oradour."),
+    "de_totenkopf": dict(nation="germany", div="3. SS-Panzer-Division Totenkopf", nick="Totenkopf", service="ss",
+                         theatres=["france40", "barbarossa41", "kursk43"], veteran=True,
+                         regiments=["SS-Panzergrenadier-Regiment 5", "SS-Panzergrenadier-Regiment 6"],
+                         desc="Raised from the camp guards, its rank and file wearing the death's head: the Demyansk "
+                              "pocket, Kharkov, and the shoulder of the Kursk salient."),
+    "de_polizei": dict(nation="germany", div="4. SS-Polizei-Panzergrenadier-Division", nick="", service="ss",
+                       theatres=["barbarossa41", "moscow41"], regiments=["SS-Polizei-Schützen-Regiment 1",
+                                                                         "SS-Polizei-Schützen-Regiment 2"],
+                       desc="Police reservists drafted into the field: the Luga and the Volkhov, and the winter "
+                            "before Moscow."),
+    "de_wiking": dict(nation="germany", div="5. SS-Panzer-Division Wiking", nick="Wiking", service="ss",
+                      theatres=["barbarossa41", "kursk43"], veteran=True,
+                      regiments=["SS-Panzergrenadier-Regiment Germania", "SS-Panzergrenadier-Regiment Nordland"],
+                      desc="Dutch, Danish, Norwegian and Flemish volunteers under German officers: the Mius, the "
+                           "Caucasus, and the Kursk salient."),
+    "de_nord": dict(nation="germany", div="6. SS-Gebirgs-Division Nord", nick="Nord", service="ss",
+                    theatres=["karelia44"], regiments=["SS-Gebirgsjäger-Regiment 11", "SS-Gebirgsjäger-Regiment 12"],
+                    desc="Mountain troops from Bavaria and Austria sent to Finnish Lapland - and brought south to "
+                         "Tali-Ihantala in the summer of 1944."),
+    "de_hj": dict(nation="germany", div="12. SS-Panzer-Division Hitlerjugend", nick="HJ", service="ss",
+                  theatres=["bocage44", "bastogne44"], veteran=True,
+                  regiments=["SS-Panzergrenadier-Regiment 25", "SS-Panzergrenadier-Regiment 26"],
+                  desc="Seventeen- and eighteen-year-olds from the Hitler Youth, officered by veterans of the "
+                       "Leibstandarte: Caen and the Falaise pocket, then the Ardennes - fanatical, and very young."),
+    "de_hohen": dict(nation="germany", div="9. SS-Panzer-Division Hohenstaufen", nick="", service="ss",
+                     theatres=["arnhem44"], regiments=["SS-Panzergrenadier-Regiment 19", "SS-Panzergrenadier-Regiment 20"],
+                     desc="One of the two divisions refitting at Arnhem when the British dropped on top of them."),
+    "de_frund": dict(nation="germany", div="10. SS-Panzer-Division Frundsberg", nick="", service="ss",
+                     theatres=["arnhem44"], regiments=["SS-Panzergrenadier-Regiment 21", "SS-Panzergrenadier-Regiment 22"],
+                     desc="The other: up from the south, into the fight at Nijmegen and Oosterbeek."),
+    "de_dirl": dict(nation="germany", div="16. SS-Panzergrenadier-Division Reichsführer SS", nick="", service="ss",
+                    theatres=["cassino44"], regiments=["SS-Panzergrenadier-Regiment 35", "SS-Panzergrenadier-Regiment 36"],
+                    desc="Himmler's own division, in the ruins of Cassino town and along the Garigliano."),
+    "de_char": dict(nation="germany", div="33. Waffen-Grenadier-Division der SS Charlemagne", nick="Charlemagne",
+                    service="ss", theatres=["berlin45"], regiments=["Waffen-Grenadier-Regiment 57",
+                                                                   "Waffen-Grenadier-Regiment 58"],
+                    desc="French volunteers in German uniform: the last formed division in Berlin, holding the "
+                         "government quarter at the end."),
     # ================================================================== Italy, Japan, Romania, Hungary
     "it_ariete": dict(nation="italy", div="Divisione Ariete", nick="", theatres=["alamein42"], veteran=True,
                       regiments=["8° Reggimento Bersaglieri", "132° Reggimento Carri"],

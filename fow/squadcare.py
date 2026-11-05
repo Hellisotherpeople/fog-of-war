@@ -57,8 +57,14 @@ def care_need(patient):
     # A dressed but damaged limb can still benefit from a corpsman's existing treatment.
     if any(0 < b.hp[p] < b.max[p] * .7 for p in b.hp):
         need = max(need, 5.)
-    urgent = b.bleed_rate() >= 3 or b.blood < 3000 or not b.conscious
-    return (3 if urgent else 2, need) if need >= 1 else (0, 0.)
+    if need <= 0:
+        return (0, 0.)
+    if b.bleed_rate() >= 4 or b.blood < 2700 or b.__dict__.get("shock", 0.) >= 100:
+        return (4, max(need, 8.))
+    if b.blood < 3600 or b.__dict__.get("shock", 0.) >= 60 or any(w.arterial and not w.tourniquet
+                                                                for w in b.wounds):
+        return (3, max(need, 4.))
+    return (2, need)
 
 
 def low_ammo(actor):
@@ -145,21 +151,29 @@ def dispatch(game, sq):
         return
     candidates = []
     for recipient in game.near(lead.x, lead.y, 24, sq.side):
-        if not eligible_patient(game, recipient, sq.side) or not sees(game, lead, recipient):
+        if not eligible_patient(game, recipient, sq.side):
             continue
+        # (work out whether he needs anything before the costly line of sight)
         credit = effectiveness(game, lead, recipient)
         d = distance(lead, recipient)
         tier, need = care_need(recipient)
         recent = recipient.ai.get("support_received", {})
-        if tier and (tier == 3 or game.turn - recent.get("aid", -999) >= 20) and not claimed(game, recipient, "aid"):
-            candidates.append(((tier, need + credit * 4 - d * .4), recipient, "aid", credit))
+        aid = bool(tier and (tier == 3 or game.turn - recent.get("aid", -999) >= 20) and
+                   not claimed(game, recipient, "aid"))
         # Nearby men can notice empty pouches; further away, firing dry or a call is the cue.
         cue = d <= 8 or game.turn - recipient.fired_turn < 20 or game.turn - recipient.ai.get("ammo_call", -999) < 30
-        if recipient.active and low_ammo(recipient) and cue and game.turn - recent.get("ammo", -999) >= 40 and \
-                not claimed(game, recipient, "ammo"):
+        ammo = bool(recipient.active and low_ammo(recipient) and cue and
+                    game.turn - recent.get("ammo", -999) >= 40 and not claimed(game, recipient, "ammo"))
+        if not (aid or ammo):
+            continue
+        if not sees(game, lead, recipient):
+            continue
+        if aid:
+            candidates.append(((tier, need + credit * 4 - d * .4), recipient, "aid", credit, tier))
+        if ammo:
             candidates.append(((1, (10 if recipient.weapon.loaded == 0 else 0) + credit * 6 - d * .4),
-                               recipient, "ammo", credit))
-    for _, recipient, kind, credit in sorted(candidates, key=lambda c: c[0], reverse=True):
+                               recipient, "ammo", credit, 1))
+    for _, recipient, kind, credit, tier in sorted(candidates, key=lambda c: c[0], reverse=True):
         suitable = [a for a in helpers if a is not recipient and distance(a, recipient) <= 28 and
                     not (a.ai.get("support_retry", {}).get((recipient.id, kind), -1) > game.turn) and
                     (MED.can_help(game, a, recipient) if kind == "aid" else
@@ -171,7 +185,7 @@ def dispatch(game, sq):
         helper.ai["support_job"] = dict(target=recipient.id, leader=lead.id, kind=kind,
                                          sector=(game.sector.x, game.sector.y), until=game.turn + 90,
                                          last_pos=recipient.pos, last_seen=game.turn,
-                                         triage=care_need(recipient)[0],
+                                         triage=tier,
                                          gun=recipient.weapon.iid if kind == "ammo" else None)
         game._support_claims = None
         helper.ai.pop("path", None)

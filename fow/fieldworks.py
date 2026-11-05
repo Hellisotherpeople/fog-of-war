@@ -134,7 +134,7 @@ def act(game, a, visible):
         return None
     if game.turn - sq.last_contact < 60 or game.map.fire[a.x, a.y]:
         return None
-    if a.stamina < 15 or a.__dict__.get("fatigue", 0) > 85:
+    if a.stamina < 15 or a.fatigue > 85:
         p["status"] = "work party resting"
         a.stamina = min(100, a.stamina + 3)
         return 1000

@@ -206,7 +206,7 @@ def box(model, facing, folded=False):
 
 
 def sketch(model, folded=False, max_w=56, max_h=10):
-    """The aircraft as a little text planform, nose up - what a look at it shows (fow.itemart sized)."""
+    """The aircraft as a little text planform, nose up - what a look at it shows (look-tooltip sized)."""
     S, L, g = grid(model, folded)
     # a tile a metre is too long: squeeze the fuselage to fit the look box, wings keep their reach
     step = max(1, -(-L // max_h))

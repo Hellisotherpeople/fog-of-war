@@ -34,7 +34,8 @@ PROFILE = {"farmland": (10, 0.010, 1.0), "farmland_light": (8, 0.010, 1.0), "boc
            "desert": (5, 0.008, 0.8), "hills": (42, 0.012, 3.0), "mountain": (95, 0.011, 6.0),
            "abbey": (95, 0.011, 6.0), "marsh": (2, 0.010, 0.3), "jungle": (34, 0.014, 3.0),
            "volcanic": (24, 0.014, 2.5), "sea": (0, 0.01, 0.0), "beach": (10, 0.010, 1.0)}
-HILL_NAMES = ("hill", "point", "ridge", "height", "kurgan", "mount", "col", "crest", "knoll", "peak")
+HILL_NAMES = ("hill", "point", "ridge", "height", "kurgan", "mount", "col", "crest", "knoll", "peak", "high ground",
+              "the rise")
 
 
 # ============================================================================ making the land

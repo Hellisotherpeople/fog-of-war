@@ -46,7 +46,17 @@ def _wanted(kind, it, man) -> bool:
     if kind == "medical":
         return t.kind == "medical"
     if kind == "weapons":
-        return t.kind in ("grenade", "explosive") or (t.kind == "gun" and (man.weapon is None or man.weapon.t.kind != "gun"))
+        if t.kind in ("grenade", "explosive"):
+            return True
+        if t.kind != "gun":
+            return False
+        from . import quality
+        w = man.weapon
+        if w is None or w.t.kind != "gun":
+            return True
+        if quality.better(t, w.t) <= 0:
+            return False
+        return it.loaded > 0 or man.ammo_for(it) is not None
     if kind == "papers":
         return t.tool in ("document", "orders", "map") or it.tid == "paybook"
     return False

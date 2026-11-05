@@ -51,6 +51,25 @@ SCENARIOS = {
     "evader": dict(name="Shot down", role="pilot", w=2,
                    desc="Your aircraft is burning in a field behind you. You're alive, deep in enemy country. "
                         "Get home."),
+    "village_fight": dict(name="Street fighting", role=None, w=4,
+                          desc="A village worth holding, and the enemy in it. House by house, wall by wall, "
+                               "with the streets swept by machine guns."),
+    "crossing": dict(name="River crossing", role="engineer", w=4,
+                     desc="The water's in front and they're dug in behind it. Get across the bridge, or find the "
+                          "ford, and hold the far bank."),
+    "counterattack": dict(name="Counter-attack", role=None, w=3,
+                          desc="You take the ground - and then they come back for it, in numbers, while you're "
+                               "still getting your wind."),
+    "ambush": dict(name="Road ambush", role="squad_leader", w=3,
+                   desc="A column is coming down the road. Wait until it's in the killing ground, then break it "
+                        "and get away."),
+    "tank_hunt": dict(name="Tank hunting", role="at_soldier", w=3,
+                      desc="A handful of men, a couple of launchers and the things themselves. Kill tanks."),
+    "mine_sweep": dict(name="Mine clearance", role="engineer", w=2,
+                       desc="A lane has to be cleared through their minefield before anyone else can move."),
+    "drill": dict(name="Training range", role=None, w=0,
+                  desc="A corner of the rear with an instructor, sandbags and a few dummies. Movement, looking, "
+                       "cover, the weapon, fire and the dressing - or the trial for the job you picked."),
     "pow": dict(name="Prisoner of war", role=None, w=1,
                 desc="The war goes on without you, beyond the wire. Survive. Escape, if you can."),
 }
@@ -207,6 +226,65 @@ def choose_start(game, sid, side):
         return s
     if sid == "sniper":
         return ours
+    if sid == "village_fight":
+        pairs = []
+        for s in st.sectors():
+            if not s.playable or s.control != side or not st.is_front(s, side):
+                continue
+            for n in st.neighbors(s):
+                if n.playable and n.control == enemy:
+                    pairs.append((s, n))
+        if not pairs:
+            return None
+        pairs.sort(key=lambda p: p[1].biome not in ("village", "town", "city_ruins", "factory"))
+        ours, theirs = pairs[0]
+        theirs.units[side].update(st._detach(ours.units[side], 0.6))
+        theirs.units[enemy].update(Counter({"inf": rng.randint(4, 8), "mg": 2}))
+        return theirs
+    if sid == "crossing":
+        pairs = []
+        for s in st.sectors():
+            if not s.playable or s.control != side or not st.is_front(s, side):
+                continue
+            for n in st.neighbors(s):
+                if n.playable and n.control == enemy:
+                    pairs.append((s, n))
+        if not pairs:
+            return None
+        pairs.sort(key=lambda p: bool(p[1].river))
+        ours, theirs = pairs[0]
+        if not theirs.river:
+            theirs.river = rng.choice(("h", "v"))
+        theirs.fort = min(3, theirs.fort + 1)
+        theirs.units[side].update(st._detach(ours.units[side], 0.7))
+        theirs.units[side]["eng"] += 2
+        theirs.units[enemy].update(Counter({"inf": rng.randint(3, 6), "mg": 1}))
+        return theirs
+    if sid == "counterattack":
+        s = theirs if rng.random() < 0.5 else ours
+        s.units[side].update(st._detach(ours.units[side], 0.6))
+        s.units[enemy].update(st._detach(theirs.units[enemy], 0.5))
+        s.units[enemy]["inf"] += rng.randint(5, 9)
+        if game.theatre["armor"].get(enemy, 0) > 0.2:
+            s.units[enemy]["tank"] += rng.randint(1, 3)
+        return s
+    if sid == "ambush":
+        s = ours
+        s.units[side] = Counter()
+        return s
+    if sid == "tank_hunt":
+        s = ours
+        s.units[side] = Counter()
+        s.units[enemy]["tank"] += rng.randint(2, 4)
+        s.units[enemy]["inf"] += rng.randint(1, 3)
+        return s
+    if sid == "mine_sweep":
+        s = theirs
+        s.fort = min(3, s.fort + 2)
+        s.units[side] = Counter()
+        s.units[side]["eng"] += 2
+        s.units[enemy] = Counter({"inf": rng.randint(2, 5), "mg": 1})
+        return s
     return None
 
 
@@ -281,6 +359,84 @@ def setup_player(game, sid, notes):
                 place(game, a, p.x, p.y, 4)
         return sq
 
+    if sid == "drill":
+        from . import tiles as T
+        from .drill import Drill
+        from .entities import Item
+        strip_friends([p.squad] if p.squad is not None else [])
+        for sq in list(game.squads):
+            if sq.side == enemy:
+                for a in list(sq.members):
+                    game.remove_actor(a)
+                for v in list(sq.vehicles):
+                    game.lift_vehicle(v)
+                    v.dead = True
+                sq.members, sq.vehicles, sq.gone = [], [], True
+        for a in list(game.actors):
+            if a.side == enemy and a is not p:
+                game.remove_actor(a)
+        game.waves = []
+        game.sector.units[enemy] = Counter()
+        # a clear patch of the rear, a line of sandbags, and the dummies ahead
+        cx = cy = None
+        for _ in range(200):
+            cx, cy = rng.randint(20, m.w - 20), rng.randint(15, m.h - 15)
+            if all(m.walk[cx + dx, cy + dy] and m.water[cx + dx, cy + dy] < 1
+                   for dx, dy in ((0, 0), (0, 3), (8, 1), (8, 6))):
+                break
+        game.remove_actor(p)
+        place(game, p, cx, cy, 10)
+        p.x, p.y = cx, cy
+        p.weapon = None
+        p.stance = 0
+        for x in range(cx - 3, cx + 4):
+            if m.walk[x, cy + 2]:
+                m.t[x, cy + 2] = T.ID["sandbags"]
+        mk = None
+        for d in range(8, 20):
+            for dx, dy in ((d, 2), (d, -2), (2, d)):
+                if m.walk[cx + dx, cy + dy] and m.water[cx + dx, cy + dy] < 1:
+                    mk = (cx + dx, cy + dy)
+                    break
+            if mk:
+                break
+        mk = mk or (cx + 8, cy)
+        # a trodden lane out to the marker and the thing itself, so it can be seen and walked to
+        ground = int(m.t[cx, cy])
+        for x in range(cx + 1, mk[0] + 1):
+            for y in range(min(cy, mk[1]) - 1, max(cy, mk[1]) + 2):
+                if m.in_bounds(x, y) and not T.FLOOR[m.t[x, y]] and T.WALK[m.t[x, y]] \
+                        and m.t[x, y] != T.ID["sandbags"]:
+                    m.t[x, y] = ground
+        for x in range(cx - 1, cx + 2):
+            for y in range(min(cy, mk[1]) - 1, max(cy, mk[1]) + 2):
+                if m.in_bounds(x, y) and not T.FLOOR[m.t[x, y]] and T.WALK[m.t[x, y]]:
+                    m.t[x, y] = ground
+        m.t[mk] = T.ID["range_marker"]
+        m.walk[mk] = True
+        m.see[mk] = True
+        for n, d in enumerate((12, 18, 26)):
+            target = make_soldier(game, game.side_nation(enemy), "rifleman", rank=1)
+            target.ai["drill_target"] = True
+            if not place(game, target, cx + d, cy + (-3 + n * 3), 6):
+                continue
+            for i in target.inv:
+                if i.t.kind == "gun":
+                    target.weapon = i
+        ins = make_soldier(game, p.nation, "squad_leader", rank=min(6, p.rank + 3))
+        ins.ai["drill_instructor"] = True
+        ins.unit = "the training detail"
+        place(game, ins, cx - 2, cy + 1, 4)
+        if p.squad is not None:
+            ins.squad = p.squad
+            p.squad.members.append(ins)
+            p.squad.player_led = True
+            p.squad.order = Order("follow", issued=game.turn, src="player")
+        for _ in range(2):
+            p.invent.add(Item("bandage"), prefer="pockets")
+        game.drill = Drill(game, game.setup.get("drill", "basic"), mk, ins)
+        notes.append("This is a range, not the front. The dummies don't shoot back.")
+        return
     if sid == "patrol":
         x, y = edge_band_point(game, home, rng, depth=(1, 3))
         small_team("recon", 4, x, y, "patrol")
@@ -388,6 +544,57 @@ def setup_player(game, sid, notes):
         game.mission = dict(kind="sniper", stage="hunt", need=rng.randint(3, 5), base=p.kills,
                             text="Kill their leaders: officers, NCOs, machine gunners. Don't be seen doing it.")
         notes.append("Your spotter has the binoculars and the patience. You have the rifle.")
+    elif sid == "village_fight":
+        game.mission = dict(kind="take", stage="take",
+                            text="Clear the village. Every house, every yard - and hold what you take.")
+        notes.append("The streets are swept. Work through the walls and gardens, not down the middle.")
+    elif sid == "crossing":
+        game.mission = dict(kind="take", stage="take",
+                            text="Get across the water, take the bridge or the ford, and hold the far bank.")
+        notes.append("The bridge is the quick way and the mined way. The engineers have the gear for both.")
+    elif sid == "counterattack":
+        for i in range(2):
+            game.schedule_wave(enemy, Counter({"inf": rng.randint(2, 5), "mg": 1}), game.home_edge(enemy),
+                               delay=900 + i * rng.randint(500, 900))
+        game.mission = dict(kind="take", stage="take",
+                            text="Take the ground, then hold it when they come back. They will come back.")
+        notes.append("The ground is the point. A counter-attack is coming; dig while you can.")
+    elif sid == "ambush":
+        small_team("rifle", 6, *edge_band_point(game, home, rng, depth=(1, 3)), "ambush party")
+        if rng.random() < 0.5:
+            _set_night(game)
+        game.mission = dict(kind="partisans", stage="wait", convoy_turn=game.turn + rng.randint(90, 240),
+                            need=2, killed=0, home=home,
+                            text="Ambush the column on the road. Destroy two vehicles, then break contact.")
+        notes.append("Camouflage, arcs of fire, and a way out. The road is the bait.")
+    elif sid == "tank_hunt":
+        squad = game.player.squad
+        if squad is not None:
+            for a in list(squad.members):
+                if a is not p:
+                    squad.members.remove(a)
+                    game.remove_actor(a)
+        small_team("at", 3, *edge_band_point(game, home, rng, depth=(1, 4)), "tank hunting team")
+        for a in [p] + list(p.squad.members if p.squad else []):
+            if a is p or a.role == "at_soldier":
+                for _ in range(2):
+                    it = _satchel(game, p.nation)
+                    if it is not None and a.add_item(it) is None:
+                        break
+        game.mission = dict(kind="take", stage="take", capture_required=False,
+                            text="Find and kill their armour. The infantry without tanks will fold.")
+        notes.append("Hull-down is a tank's friend and yours is a ditch. Get above and behind.")
+    elif sid == "mine_sweep":
+        squad = game.player.squad
+        if squad is not None:
+            for a in list(squad.members):
+                if a is not p and a.role not in ("engineer", "seabee"):
+                    squad.members.remove(a)
+                    game.remove_actor(a)
+        small_team("engineer", 4, *edge_band_point(game, home, rng, depth=(1, 3)), "clearing party")
+        game.mission = dict(kind="take", stage="take",
+                            text="Clear a lane through the minefield and get the party across it.")
+        notes.append("Probe, mark, and keep your spacing. The lane is for everyone behind you.")
     elif sid == "assault":
         game.mission = dict(kind="take", stage="take",
                             text="Take every objective on this field. The whole army is watching this attack.")
@@ -405,7 +612,8 @@ def setup_player(game, sid, notes):
         game.mission["start"] = game.turn
         game.mission["_start_sector"] = game.sector
         authority = 13 if game.mission["kind"] == "agent" else \
-            12 if sid in ("rearguard", "defence", "assault", "armour") else 10
+            12 if sid in ("rearguard", "defence", "assault", "armour", "crossing", "counterattack",
+                          "village_fight", "mine_sweep") else 10
         game.mission.setdefault("authority", min(18, max(authority, p.rank + 1)))
         from .mission_evidence import prepare
         prepare(game, game.mission)

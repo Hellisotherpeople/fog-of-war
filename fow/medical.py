@@ -52,13 +52,37 @@ def missing_hp(b) -> int:
 
 def needs_care(b) -> float:
     """How badly a body needs a medic (0 = not at all)."""
+    if not b.wounds and b.blood >= 4200 and not b.__dict__.get("shock", 0.0):
+        return 0.0
     return b.bleed_rate() * 12 + max(0.0, b.effective_pain() - 70) / 3 + max(0.0, 4200 - b.blood) / 60 + \
-        (25 if b.unconscious > 0 else 0)
+        (25 if b.unconscious > 0 else 0) + b.infection() * 0.3 + b.__dict__.get("shock", 0.0) * 0.25
+
+
+TRIAGE = ("immediate", "delayed", "minimal", "expectant")
+
+
+def triage(b) -> int:
+    """0 immediate, 1 delayed, 2 minimal, 3 expectant (the colour of the tag)."""
+    if b.dead:
+        return 3
+    if b.bleed_rate() >= 4 or any(w.arterial and not w.tourniquet for w in b.wounds) or \
+            b.__dict__.get("shock", 0) >= 100 or b.blood < 2700:
+        return 0
+    if b.blood < 3600 or b.__dict__.get("shock", 0) >= 60 or any(w.arterial and not w.tourniquet
+                                                                for w in b.wounds):
+        return 1
+    if missing_hp(b) > 20 or b.infection() > 45:
+        return 1
+    if b.wounds:
+        return 2
+    return 2
 
 
 def should_evacuate(b) -> bool:
     """Bad enough to leave the line for: a ruined limb, a chest or head wound, or half a limb gone."""
     parts = _parts(b)
+    if b.sepsis or any(getattr(w, "necrosis", False) for w in b.wounds):
+        return True
     if any(b.hp[p] <= 0 for p in parts):
         return True
     if any(b.hp[p] < b.max[p] * 0.45 for p in parts):
@@ -68,7 +92,9 @@ def should_evacuate(b) -> bool:
 
 
 def needs_surgery(b) -> bool:
-    """Wounds a dressing won't fix: chest and head wounds, ruined limbs, lost flesh."""
+    """Wounds a dressing won't fix: chest and head wounds, ruined limbs, lost flesh, gangrene."""
+    if b.sepsis or any(getattr(w, "necrosis", False) for w in b.wounds):
+        return True
     if any(b.hp[p] <= 0 for p in _parts(b)):
         return True
     if missing_hp(b) > 25:
@@ -98,29 +124,37 @@ def _first_aid(game, medic, patient, item=None):
     kit = medic.medical("kit")
     # 1. bleeding: pack it properly
     w = b.worst_wound()
-    dressing = medic.medical("bandage")
+    dressing = medic.medical("pressure") or medic.medical("bandage")
     if w is not None:
         limb = w.part not in ("head", "torso")
-        if limb and w.bleed > 5 and medic.medical("tourniquet"):
-            return A.treat(game, medic, patient, medic.medical("tourniquet"))
+        if limb and w.arterial and w.tourniquet is False:
+            if medic.medical("tourniquet"):
+                return A.treat(game, medic, patient, medic.medical("tourniquet"))
+            if medic.medical("pressure"):
+                return A.treat(game, medic, patient, medic.medical("pressure"))
+        if w.burn and medic.medical("burn"):
+            dressing = medic.medical("burn")
     if w is not None and dressing is not None:
         n = 0
         while b.worst_wound() is not None and n < (4 if kit else 2):
             ww = b.worst_wound()
             ww.bandaged = True
+            ww.dress_turn = game.turn
+            ww.pressure = ww.arterial and dressing.t.med == "pressure"
             ww.bleed *= 0.02 if ww.part in ("torso", "head") else 0.0
+            ww.dirt *= max(0.0, 1.0 - 0.5 * dressing.condition)
             n += 1
             if kit is not None:
                 kit.uses -= 1
                 if kit.uses <= 0:
                     medic.remove_item(kit)
                     kit = None
-                    dressing = medic.medical("bandage")      # the kit's used up: on to loose dressings, if any
+                    dressing = medic.medical("pressure") or medic.medical("bandage")
                     if dressing is None:
                         break
             else:
                 A._consume(medic, dressing)
-                dressing = medic.medical("bandage")
+                dressing = medic.medical("pressure") or medic.medical("bandage")
                 if dressing is None:
                     break
         medic.stats["bandaged"] += n
@@ -150,6 +184,38 @@ def _first_aid(game, medic, patient, item=None):
         game.msg_for(medic, patient, f"slap{'s' if not medic.is_player else ''} {who} awake and talk{'s' if not medic.is_player else ''} {patient.him if not patient.is_player else 'you'} round",
                      "info")
         return 150
+    # 4b. broken limbs and dirt
+    broken = [w for w in b.wounds if w.fracture and not b.splinted_at(w.part)]
+    if broken and medic.find(lambda i: i.t.tool == "splint"):
+        it = medic.find(lambda i: i.t.tool == "splint")
+        part = max(broken, key=lambda w: w.bleed).part
+        b.splint(part, game.turn, it.condition)
+        if it.t.uses:
+            A._consume(medic, it)
+        game.msg_for(medic, patient, f"splint{'s' if not medic.is_player else ''} the broken "
+                                     f"{'leg' if 'leg' in part else 'arm'}", "good")
+        return 450
+    if b.infection() > 30:
+        if medic.medical("penicillin"):
+            it = medic.medical("penicillin")
+            b.antisepsis(1.5, game.turn)
+            A._consume(medic, it)
+            game.msg_for(medic, patient, f"give{'s' if not medic.is_player else ''} {who} penicillin", "good")
+            return 260
+        if medic.medical("sulfa"):
+            it = medic.medical("sulfa")
+            b.antisepsis(0.7, game.turn)
+            A._consume(medic, it)
+            game.msg_for(medic, patient, f"clean{'s' if not medic.is_player else ''} and dust{'s' if not medic.is_player else ''} "
+                                         f"the wound with sulfa", "good")
+            return 220
+    # 4c. shock: flat, warm, fluids
+    if b.__dict__.get("shock", 0) > 60 and b.blood > 2500 and not b.warm:
+        b.warm(900)
+        game.msg_for(medic, patient, f"lay{'s' if not medic.is_player else ''} {who} flat, feet up, "
+                                     f"and wrap{'s' if not medic.is_player else ''} {patient.him if not patient.is_player else 'yourself'} up",
+                     "good")
+        return 300
     # 5. stitch what can be stitched
     worst = min((p for p in PARTS if 0 < b.hp[p] < b.max[p] * 0.7), key=lambda p: b.hp[p] / b.max[p], default=None)
     if worst is not None and (kit is not None or medic.medical("bandage")):
@@ -177,6 +243,10 @@ def can_help(game, medic, patient) -> bool:
     if w is not None:
         if medic.medical("bandage") or (s < MEDIC and medic.medical("sulfa")):
             return True
+        if w.burn and medic.medical("burn"):
+            return True
+        if w.arterial and (medic.medical("pressure") or medic.medical("tourniquet")):
+            return True
         candidates = [w] if s >= MEDIC else b.wounds
         if medic.medical("tourniquet") and any(w.part not in ("head", "torso") and
                 not w.bandaged and not w.tourniquet and w.bleed > 5 for w in candidates):
@@ -203,11 +273,17 @@ def can_help(game, medic, patient) -> bool:
 def aid_posts(game, side):
     """(x, y, rect) of this side's aid stations on the map."""
     m = game.map
+    recs = getattr(m, "gen_positions", None) or []
+    cache = game.__dict__.get("_aid_posts")
+    key = (game.turn, side, len(recs))
+    if cache is not None and cache[0] == key:
+        return cache[1]
     out = []
-    for rec in getattr(m, "gen_positions", []) or []:
+    for rec in recs:
         if not rec.get("destroyed") and (rec.get("kind") == "hospital" or
                                          rec.get("kind") == "aid" and rec.get("side") == side):
             out.append((rec["x"], rec["y"], rec["rect"]))
+    game.__dict__["_aid_posts"] = (key, out)
     return out
 
 
@@ -274,6 +350,7 @@ def begin_surgery(game, surgeon, patient) -> int | None:
 
 def finish_surgery(game, surgeon, patient):
     """What the knife could do."""
+    from .body import TOURNIQUET_LOST
     rng = game.rng
     b = patient.body
     b.amputated = set(getattr(b, "amputated", ())) | set(patient.ai.get("amputated", ()))
@@ -283,7 +360,8 @@ def finish_surgery(game, surgeon, patient):
     if not patient.alive:
         return "dead"
     s = skill(surgeon) if surgeon is not None else MEDIC
-    severity = missing_hp(b) / max(1, sum(b.max.values())) + (0.4 if b.blood < 3000 else 0)
+    severity = missing_hp(b) / max(1, sum(b.max.values())) + (0.4 if b.blood < 3000 else 0) + \
+        (0.25 if b.sepsis else 0.0) + b.infection() / 300
     p_die = max(0.01, 0.25 * severity - (0.08 if s >= SURGEON else 0))
     if rng.random() < p_die:
         b.dead = True
@@ -295,11 +373,24 @@ def finish_surgery(game, surgeon, patient):
     for w in b.wounds:
         w.bleed = 0.0
         w.bandaged = True
-    b.wounds = [w for w in b.wounds if w.tourniquet]            # a tourniqueted limb comes off or is saved below
+    # infection is drained and washed out; gangrene and strangled limbs decide themselves
+    for w in b.wounds:
+        w.infection *= 0.35
+        w.dirt = 0.0
+    b.sepsis = False
+    b.shock = max(0.0, b.__dict__.get("shock", 0) - 40)
+    dead_limb = {w.part for w in b.wounds if w.part not in ("head", "torso") and
+                 (w.necrosis or (w.tourniquet and game.turn - getattr(w, "tourniquet_turn", 0) > TOURNIQUET_LOST))}
+    b.wounds = [w for w in b.wounds if w.tourniquet or w.part in dead_limb]
+    for p in dead_limb:
+        if b.hp[p] > 0:
+            b.hp[p] = 0
     lost = []
     for p in _parts(b):
         if b.hp[p] <= 0 and p not in ("head", "torso"):
-            if rng.random() < (0.45 if s >= SURGEON else 0.2):
+            if p in dead_limb:
+                lost.append(p)
+            elif rng.random() < (0.45 if s >= SURGEON else 0.2):
                 b.hp[p] = int(b.max[p] * 0.3)                   # saved
             else:
                 lost.append(p)                                  # amputated
@@ -352,8 +443,22 @@ def recover(game, a, turns):
             whole = int(frac)
             a.ai["_heal_" + p] = frac - whole
             b.hp[p] = min(b.max[p], b.hp[p] + whole)
-    if supplied and b.blood < BLOOD_MAX:
-        b.heal_blood(turns * 0.6)
+    if supplied:
+        for w in b.wounds:
+            w.infection = max(0.0, getattr(w, "infection", 0.0) - turns * 0.03)
+            if w.necrosis and w.part not in ("head", "torso"):
+                pass
+        if b.sepsis and b.infection() < 45:
+            b.sepsis = False
+        for part, until in list(b.__dict__.get("splint_turn", {}).items()):
+            if game.turn > until and any(w.part == part and w.fracture for w in b.wounds):
+                for w in b.wounds:
+                    if w.part == part:
+                        w.fracture = False
+                b.splint_turn.pop(part, None)
+                b.pain = max(0.0, b.pain - 8)
+        if b.blood < BLOOD_MAX:
+            b.heal_blood(turns * 0.6)
     if a.ai.get("recovering") is not None and missing_hp(b) <= sum(b.max.values()) * 0.1:
         a.ai.pop("recovering", None)
 

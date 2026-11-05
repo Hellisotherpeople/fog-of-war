@@ -205,30 +205,49 @@ class InventoryScreen:
                 self.cells.append(dict(kind="search", pane=pane, item=None, rect=(x0 + 2, y0 + h - 4, w - 4, 2)))
         # footer help / info
         if pane is self.own:
+            from . import icons, quality
+            hi = self._hover_item()
+            key = icons.item_key(hi) if (icons.on() and hi is not None) else None
+            textw = w - 22 if key else w - 4
             info = self.info or self._hover_text()
-            lines = textwrap.wrap(info, w - 4)[:2]
+            lines = textwrap.wrap(info, max(12, textw))[:2]
             for i, line in enumerate(lines):
                 con.print(x0 + 2, y0 + h - 9 + i, line, fg=UI_TEXT, bg=UI_BG)
             for i, line in enumerate(HELP_LINES):
-                con.print(x0 + 2, y0 + h - 7 + i, line, fg=UI_DIM, bg=UI_BG)
+                con.print(x0 + 2, y0 + h - 7 + i, line[: max(10, textw)], fg=UI_DIM, bg=UI_BG)
+            if key is not None:
+                pw, ph = 18, 7
+                px, py = x0 + w - pw - 1, y0 + h - 10
+                con.draw_frame(px, py, pw, ph, clear=True, fg=UI_FRAME, bg=UI_BG)
+                icons.erase(px, py, pw, ph)
+                con.print(px + 1, py, f" {hi.name[: pw - 4]} ", fg=quality.color(hi.t), bg=UI_BG)
+                icons.pic(px + 1, py + 1, pw - 2, ph - 3, icons.oriented(key, pw - 2, ph - 3), "over")
+                con.print(px + 1, py + ph - 2, quality.words(hi.t)[: pw - 2], fg=quality.color(hi.t), bg=UI_BG)
+
+    def _hover_item(self):
+        if not self.cells:
+            return None
+        return self.cells[self.cursor % len(self.cells)].get("item")
 
     def _hover_text(self):
-        if not self.cells:
-            return ""
-        c = self.cells[self.cursor % len(self.cells)]
-        it = c.get("item")
+        it = self._hover_item()
         if it is None:
-            if c["kind"] == "slot":
-                return f"{SLOT_NAME[c['slot']]}: empty."
+            if self.cells:
+                c = self.cells[self.cursor % len(self.cells)]
+                if c["kind"] == "slot":
+                    return f"{SLOT_NAME[c['slot']]}: empty."
             return ""
         t = it.t
+        from . import quality
         bits = [it.name]
         if t.kind == "gun":
             bits.append(f"[{it.ammo_estimate()}]")
         if t.kind == "mag":
             bits.append(f"[{it.rounds_text()}]")
         bits.append(f"{it.weight:.1f} kg")
-        return " ".join(bits) + ". " + (t.desc[:110] if t.desc else "")
+        if t.kind == "gun":
+            bits.append(quality.words(t))
+        return " ".join(bits) + " " + (t.desc[:110] if t.desc else "")
 
     def _kit_blocks(self, pane):
         """(label, [(grid, loc)]) groups for a kit."""
@@ -282,7 +301,9 @@ class InventoryScreen:
             if it is not None and it.t.kind == "gun" and it.t.cat not in ("melee",):
                 txt = f"{it.t.name} [{it.ammo_estimate()}]"
             hands = pane is self.own and it is not None and it is self.game.player.weapon
-            col = (255, 240, 170) if hands else (UI_TEXT if it is not None else UI_DIM)
+            from . import quality
+            col = (255, 240, 170) if hands else (quality.color(it.t) if it is not None and it.t.kind == "gun"
+                                                 else UI_TEXT if it is not None else UI_DIM)
             key = icons.item_key(it) if (pics and it is not None) else None
             if pics:
                 # the thing itself (or the empty place for it), with where it's worn and what it is beside it
@@ -366,7 +387,7 @@ class InventoryScreen:
             self._draw_item_block(con, it, x + ix * CW, y + iy * CH, w * CW, h * CH)
 
     def _draw_item_block(self, con, it, x, y, w, h):
-        from . import icons
+        from . import icons, quality
         base = KIND_COL.get(it.t.kind, (80, 80, 80))
         sel = self.cells and self.cells[self.cursor % len(self.cells)].get("item") is it
         key = icons.item_key(it) if icons.on() else None
@@ -377,9 +398,12 @@ class InventoryScreen:
             for dy in range(h):
                 con.print(x + dx, y + dy, " ", bg=bg)
         lab = label_for(it)
+        lab_col = (240, 235, 215) if key is None else bg
+        if it.t.kind == "gun":
+            lab_col = quality.color(it.t)
         lines = textwrap.wrap(lab, max(1, w)) or [lab]
         for k, line in enumerate(lines[: max(1, h - (1 if h > 1 else 0))]):
-            con.print(x, y + k, line[:w], fg=(240, 235, 215) if key is None else bg, bg=bg)
+            con.print(x, y + k, line[:w], fg=lab_col, bg=bg)
         if key is not None:
             icons.pic(x, y, w, h, icons.oriented(key, w, h), "over")
         tag = ""

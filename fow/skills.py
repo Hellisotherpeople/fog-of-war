@@ -111,12 +111,12 @@ def roll(rng, a):
     s = {}
     for k in SKILLS:
         s[k] = rng.gauss(base * 0.55, 1.6)
-    for table in (ROLE_SKILLS.get(a.role, {}), UNIT_SKILLS.get(a.__dict__.get("unit_type") or "", {})):
-        for k, floor in table.items():
-            s[k] = max(s[k], floor + rng.gauss(0, 0.8))
     for t in getattr(a, "traits", ()) or ():
         for k, d in TRAIT_SKILLS.get(t, {}).items():
             s[k] += d
+    for table in (ROLE_SKILLS.get(a.role, {}), UNIT_SKILLS.get(a.__dict__.get("unit_type") or "", {})):
+        for k, floor in table.items():
+            s[k] = max(s[k], floor + rng.gauss(0, 0.8))
     # a native speaker's languages are the enemy's - here: the tongues he'd need behind the lines
     for k in s:
         s[k] = round(max(0.0, min(10.0, s[k])), 1)

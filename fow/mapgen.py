@@ -51,8 +51,9 @@ STOREYS = {"farmhouse": 2, "house": 2, "townhouse": 3, "barn": 2, "church": 4, "
            "windmill": 3, "post_mill": 3, "chateau": 3, "station": 2, "chapel": 1, "kiln": 1, "elevator": 4,
            "bungalow": 1, "white_church": 3, "shrine": 1, "temple": 1, "pagoda": 5, "tower": 2, "white_house": 2,
            "marabout": 2, "keep": 3, "lighthouse": 4}
-CELLARS = {"farmhouse": 0.7, "house": 0.6, "townhouse": 0.8, "church": 0.5, "abbey": 0.8, "izba": 0.4,
-           "desert_house": 0.2, "factory": 0.4, "chateau": 0.95, "station": 0.3, "keep": 0.8, "white_house": 0.3}
+CELLARS = {"farmhouse": 0.78, "house": 0.7, "townhouse": 0.9, "church": 0.55, "abbey": 0.85, "izba": 0.45,
+           "desert_house": 0.2, "factory": 0.5, "chateau": 0.95, "station": 0.5, "keep": 0.8, "white_house": 0.35,
+           "inn": 0.8, "town_hall": 0.7, "hospital": 0.7, "school": 0.6}
 
 STYLE = {
     # style: (wall, floor, window chance, furniture)
@@ -331,10 +332,68 @@ class Gen:
         wall, floor, win_p, furn = STYLE[style]
         m = self.m
         wid, fid = T.ID[wall], T.ID[floor]
-        m.t[x0:x0 + bw, y0:y0 + bh] = wid
-        m.t[x0 + 1:x0 + bw - 1, y0 + 1:y0 + bh - 1] = fid
+        # the footprint: not every shed in Europe is a box.  Wings, courtyards, apses and lean-tos.
+        shape = "rect"
+        r = self.rng.random()
+        if furn == "church" and bw >= 11 and bh >= 11 and r < 0.45:
+            shape = "cross"
+        elif bw >= 9 and bh >= 8 and r < 0.30:
+            shape = self.rng.choice(("L", "T", "U", "L"))
+        elif max(bw, bh) >= 3.2 * min(bw, bh) and min(bw, bh) >= 4:
+            shape = "long"
+        mask = np.zeros((bw, bh), bool)
+        mask[:, :] = True
+
+        def wing(ax, ay, aw, ah):
+            mask[max(0, ax):min(bw, ax + aw), max(0, ay):min(bh, ay + ah)] = True
+
+        if shape == "L":
+            if bw >= bh:
+                wing(0, 0, bw, max(3, bh // 2))
+                wing(0, 0, max(3, bw // 2), bh)
+            else:
+                wing(0, 0, max(3, bw // 2), bh)
+                wing(0, 0, bw, max(3, bh // 2))
+        elif shape == "T":
+            if bw >= bh:
+                wing(0, 0, bw, max(3, bh // 2))
+                wing(bw // 2 - 2, 0, 4, bh)
+            else:
+                wing(0, 0, max(3, bw // 2), bh)
+                wing(0, bh // 2 - 2, bw, 4)
+        elif shape == "U":
+            wing(0, 0, bw, max(3, bh // 2))
+            wing(0, 0, max(3, bw // 3), bh)
+            wing(bw - max(3, bw // 3), 0, max(3, bw // 3), bh)
+        elif shape == "cross":
+            wing(0, bh // 2 - 2, bw, 4)
+            wing(bw // 2 - 2, 0, 4, bh)
+            wing(0, 0, max(3, bw // 3), bh // 3)
+        if shape in ("rect", "long") and min(bw, bh) >= 5 and self.rng.random() < 0.25:
+            # a chamfered or irregular corner: a bay, an apse, a lean-to pulled down
+            for cx, cy, ax, ay in ((0, 0, 1, 1), (bw - 1, 0, -1, 1), (0, bh - 1, 1, -1), (bw - 1, bh - 1, -1, -1)):
+                if self.rng.random() < 0.5:
+                    span = self.rng.randint(1, min(3, min(bw, bh) - 2))
+                    for k in range(span):
+                        for j in range(span - k):
+                            mask[min(bw - 1, max(0, cx + ax * k)), min(bh - 1, max(0, cy + ay * j))] = False
+        if shape != "rect":
+            # clear the courtyard ground the walls used to enclose
+            for x in range(bw):
+                for y in range(bh):
+                    if not mask[x, y]:
+                        m.t[x0 + x, y0 + y] = T.ID[self.key("ground")]
+        m.t[x0:x0 + bw, y0:y0 + bh][mask] = wid
+        inner_mask = mask.copy()
+        inner_mask[0, :] = inner_mask[-1, :] = inner_mask[:, 0] = inner_mask[:, -1] = False
+        inner_mask[1:, :] &= mask[:-1, :]
+        inner_mask[:-1, :] &= mask[1:, :]
+        inner_mask[:, 1:] &= mask[:, :-1]
+        inner_mask[:, :-1] &= mask[:, 1:]
+        m.t[x0:x0 + bw, y0:y0 + bh][inner_mask] = fid
+        inner_cells = [(x0 + x, y0 + y) for x in range(bw) for y in range(bh) if inner_mask[x, y]]
         # partitions
-        if rooms and bw >= 9 and bh >= 7 and furn in ("house", "church") and self.rng.random() < 0.8:
+        if shape == "rect" and rooms and bw >= 9 and bh >= 7 and furn in ("house", "church") and self.rng.random() < 0.8:
             px = x0 + self.rng.randint(3, bw - 4)
             m.t[px, y0 + 1:y0 + bh - 1] = wid
             gy = self.rng.randint(y0 + 1, y0 + bh - 2)
@@ -345,14 +404,17 @@ class Gen:
                 m.t[side[0]:side[1], py] = wid
                 gx = self.rng.randint(side[0], side[1] - 1)
                 m.t[gx, py] = T.ID["doorway"]
-        # perimeter positions (non-corner)
+        # perimeter positions, whichever side of the shape they face
         perim = []
-        for x in range(x0 + 1, x0 + bw - 1):
-            perim.append((x, y0, "N"))
-            perim.append((x, y0 + bh - 1, "S"))
-        for y in range(y0 + 1, y0 + bh - 1):
-            perim.append((x0, y, "W"))
-            perim.append((x0 + bw - 1, y, "E"))
+        for x in range(bw):
+            for y in range(bh):
+                if not mask[x, y] or inner_mask[x, y]:
+                    continue
+                for dx, dy, s in ((0, -1, "N"), (0, 1, "S"), (-1, 0, "W"), (1, 0, "E")):
+                    ax, ay = x + dx, y + dy
+                    if not (0 <= ax < bw and 0 <= ay < bh) or not mask[ax, ay]:
+                        perim.append((x0 + x, y0 + y, s))
+                        break
         # windows
         if furn == "bunker":
             face = self.att or "N"
@@ -399,11 +461,10 @@ class Gen:
             if placed >= ndoors:
                 break
         # furniture
-        self._furnish(x0, y0, bw, bh, furn)
+        self._furnish(x0, y0, bw, bh, furn, inner_cells)
         # the stairs up, and a trapdoor to the cellar (against a wall, where they'd be)
         storeys = STOREYS.get(style, 1)
-        inner = [(x, y) for x in range(x0 + 1, x0 + bw - 1) for y in range(y0 + 1, y0 + bh - 1)
-                 if T.FLOOR[m.t[x, y]] and self._against_wall(x, y)]
+        inner = [(x, y) for x, y in inner_cells if T.FLOOR[m.t[x, y]] and self._against_wall(x, y)]
         self.rng.shuffle(inner)
         if storeys > 1 and inner:
             sx, sy = inner.pop()
@@ -419,10 +480,11 @@ class Gen:
         self.protected[x0 - 1:x0 + bw + 1, y0 - 1:y0 + bh + 1] = True
         return (x0, y0, bw, bh)
 
-    def _furnish(self, x0, y0, bw, bh, furn):
+    def _furnish(self, x0, y0, bw, bh, furn, inner=None):
         m = self.m
-        inner = [(x, y) for x in range(x0 + 1, x0 + bw - 1) for y in range(y0 + 1, y0 + bh - 1)
-                 if T.FLOOR[m.t[x, y]] or T.ID["dirt"] == m.t[x, y]]
+        if inner is None:
+            inner = [(x, y) for x in range(x0 + 1, x0 + bw - 1) for y in range(y0 + 1, y0 + bh - 1)
+                     if T.FLOOR[m.t[x, y]] or T.ID["dirt"] == m.t[x, y]]
         if not inner:
             return
         r = self.rng
@@ -518,13 +580,18 @@ class Gen:
             tries += 1
             style = self.rng.choice(styles)
             if style in ("barn",):
-                bw, bh = self.rng.randint(7, 12), self.rng.randint(6, 9)
+                bw, bh = self.rng.randint(6, 14), self.rng.randint(5, 10)
             elif style == "shed":
-                bw, bh = self.rng.randint(4, 6), self.rng.randint(4, 5)
+                bw, bh = self.rng.randint(3, 7), self.rng.randint(3, 5)
             elif style == "hut":
-                bw, bh = self.rng.randint(4, 7), self.rng.randint(4, 6)
+                bw, bh = self.rng.randint(4, 8), self.rng.randint(4, 7)
+            elif style in ("farmhouse", "house", "izba", "desert_house"):
+                if self.rng.random() < 0.3:                 # a long house, a cottage with a lean-to
+                    bw, bh = self.rng.randint(9, 15), self.rng.randint(4, 7)
+                else:
+                    bw, bh = self.rng.randint(5, 12), self.rng.randint(5, 10)
             else:
-                bw, bh = self.rng.randint(6, 11), self.rng.randint(6, 9)
+                bw, bh = self.rng.randint(5, 12), self.rng.randint(5, 9)
             if self.rng.random() < 0.5:
                 bw, bh = bh, bw
             if road_pts and self.rng.random() < 0.7:
@@ -541,6 +608,19 @@ class Gen:
                 built.append(b)
                 if style in ("farmhouse", "house", "izba") and self.rng.random() < 0.4:
                     self._garden(x, y, bw, bh)
+                if style in ("farmhouse", "house", "izba", "desert_house") and len(built) < n \
+                        and self.rng.random() < 0.16:
+                    # a terrace: the next house shares the gable wall
+                    w2, h2 = max(4, bh + self.rng.randint(-2, 2)), max(4, bw + self.rng.randint(-2, 2))
+                    if self.rng.random() < 0.5:
+                        nx, ny, ww, hh = x + bw, y, w2, bh
+                    else:
+                        nx, ny, ww, hh = x, y + bh, bw, h2
+                    if self.area_free(nx - 1, ny - 1, nx + ww + 1, ny + hh + 1):
+                        b2 = self.building(nx, ny, ww, hh, self.rng.choice(("house", "izba", "farmhouse")),
+                                           ruin=ruin)
+                        if b2:
+                            built.append(b2)
         if built:
             self.poi.append(("the village", cx, cy, 12))
         if self.rng.random() < 0.5:
@@ -616,12 +696,17 @@ class Gen:
         """Row houses sharing walls around a courtyard."""
         m = self.m
         r = self.rng
-        depth = r.randint(5, 8)
+        depth = r.randint(5, 9)
         wid = T.ID[STYLE[style][0]]
         # courtyard fill
         m.t[bx0:bx1, by0:by1] = T.ID[self.key("ground2") if r.random() < 0.5 else "dirt"]
+        # an alley or two through the block, and uneven frontages
+        for _ in range(r.randint(0, 2)):
+            ax = r.randint(bx0 + 4, max(bx0 + 4, bx1 - 5))
+            m.t[ax:ax + 2, by0:by1] = T.ID["dirt"]
         # split frontage into houses along top and bottom
-        for (yy, hh) in ((by0, depth), (by1 - depth, depth)):
+        bd = depth + (1 if r.random() < 0.3 else 0)
+        for (yy, hh) in ((by0, depth), (by1 - bd, bd)):
             x = bx0
             while x < bx1 - 3:
                 wdt = min(r.randint(5, 9), bx1 - x)
@@ -717,15 +802,19 @@ class Gen:
             sub = m.t[ax:bx, ay:by]
             free = ~self.protected[ax:bx, ay:by]
             sub[free] = cid
-            if style == "bocage":
+            if style in ("bocage", "hedged"):
                 border_id = T.ID["hedge"]
-                gaps = self.rng.randint(1, 3)
+                gaps = self.rng.randint(1, 4)
             elif style == "fenced":
                 border_id = None
                 gaps = 3
             elif style == "walls":
                 border_id = T.ID["low_wall"]
                 gaps = 3
+            elif style == "terrace":
+                border_id = T.ID["low_wall"]
+                gaps = 5
+                sub[free] = T.ID["plowed_ridges"]
             else:
                 continue
             # borders
@@ -1091,43 +1180,53 @@ class Gen:
     # ---------------------------------------------------------------- biomes
     def gen_farmland(self):
         self.base_ground()
-        self.road_network(self.rng.randint(1, 3))
-        self.fields(style=self.rng.choice(["open", "fenced", "fenced", "walls"]))
-        self.forests(amount=0.12)
+        self.road_network(self.rng.randint(1, 4))
+        style = self.rng.choice(["open", "fenced", "fenced", "walls", "hedged", "open"])
+        self.fields(style=style, min_size=self.rng.randint(12, 20), max_size=self.rng.randint(26, 40))
+        self.forests(amount=self.rng.uniform(0.06, 0.2))
         vx, vy = self.w // 2 + self.rng.randint(-40, 40), self.h // 2 + self.rng.randint(-25, 25)
-        self.village(vx, vy, n=self.rng.randint(4, 9))
-        for _ in range(self.rng.randint(0, 2)):
+        self.village(vx, vy, n=self.rng.randint(3, 11), spread=self.rng.randint(18, 36))
+        if self.rng.random() < 0.25:                     # a second hamlet across the fields
+            hx, hy = self.rng.randint(20, self.w - 30), self.rng.randint(15, self.h - 25)
+            self.village(hx, hy, n=self.rng.randint(2, 5), styles=("farmhouse", "barn", "shed"),
+                         church=False, spread=10)
+        for _ in range(self.rng.randint(0, 3)):
             ox, oy = self.rng.randint(10, self.w - 30), self.rng.randint(10, self.h - 25)
             if self.area_free(ox, oy, ox + 18, oy + 12):
                 self.orchard(ox, oy, 18, 12)
         self.scatter("hay", 0.002, self.mask_where(["wheat", "plowed"]))
+        if self.rng.random() < 0.4:
+            self.scatter("plowed_ridges", 0.05, self.mask_where(["plowed"]))
         self.scatter(self.key("tree"), 0.004)
 
     def gen_bocage(self):
         self.base_ground(tall_amt=0.1)
-        self.road_network(self.rng.randint(1, 2), sunken=True)
-        self.fields(style="bocage", min_size=12, max_size=26)
-        for _ in range(self.rng.randint(1, 3)):
+        self.road_network(self.rng.randint(1, 3), sunken=self.rng.random() < 0.8)
+        self.fields(style="bocage", min_size=self.rng.randint(10, 16), max_size=self.rng.randint(22, 34))
+        for _ in range(self.rng.randint(1, 4)):
             fx, fy = self.rng.randint(15, self.w - 30), self.rng.randint(15, self.h - 25)
-            self.village(fx, fy, n=self.rng.randint(2, 4), styles=("farmhouse", "barn", "shed"),
-                         church=False, spread=10)
+            self.village(fx, fy, n=self.rng.randint(2, 5), styles=("farmhouse", "barn", "shed"),
+                         church=self.rng.random() < 0.25, spread=self.rng.randint(8, 16))
             if self.rng.random() < 0.6:
                 self.poi.append(("the farm", fx, fy, 9))
-        for _ in range(self.rng.randint(1, 3)):
+        for _ in range(self.rng.randint(1, 4)):
             ox, oy = self.rng.randint(10, self.w - 25), self.rng.randint(10, self.h - 20)
             if self.area_free(ox, oy, ox + 14, oy + 10):
                 self.orchard(ox, oy, 14, 10)
-        self.forests(amount=0.06)
+        self.forests(amount=self.rng.uniform(0.03, 0.12))
+        self.scatter("haystack", 0.0012)
+        self.scatter("gate", 0.001)
 
     def gen_forest(self):
         self.base_ground(tall_amt=0.05)
         if self.rng.random() < 0.8:
             self.road_network(1)
-        self.forests(amount=0.55, density=0.5, scale=0.02, bush=0.45,
+        self.forests(amount=self.rng.uniform(0.4, 0.7), density=self.rng.uniform(0.35, 0.6), scale=0.02,
+                     bush=self.rng.uniform(0.3, 0.55),
                      tree=self.key("tree2") if self.m.climate != "summer" else "pine",
                      tree2=self.key("tree"))
         # clearings
-        for _ in range(self.rng.randint(2, 5)):
+        for _ in range(self.rng.randint(2, 7)):
             cx, cy = self.rng.randint(15, self.w - 15), self.rng.randint(15, self.h - 15)
             rad = self.rng.randint(5, 12)
             for x in range(cx - rad, cx + rad):
@@ -1146,6 +1245,17 @@ class Gen:
                          if self.m.climate == "winter" else ("farmhouse", "barn", "shed"), church=False)
         # tree bursts - shattered trees
         self.scatter("dead_tree", 0.004, self.mask_where([self.key("tree"), self.key("tree2"), "pine"]))
+        if self.rng.random() < 0.35:                    # a burnt patch, and the men who cut it
+            bx, by = self.rng.randint(20, self.w - 40), self.rng.randint(20, self.h - 30)
+            for _ in range(self.rng.randint(30, 70)):
+                x, y = bx + self.rng.randint(-12, 12), by + self.rng.randint(-9, 9)
+                if 0 < x < self.w - 1 and 0 < y < self.h - 1 and not self.protected[x, y]:
+                    self.m.t[x, y] = T.ID["burnt" if self.rng.random() < 0.6 else "dead_tree"]
+            for _ in range(3):
+                x, y = bx + self.rng.randint(-8, 8), by + self.rng.randint(-6, 6)
+                if not self.protected[x, y]:
+                    self.m.t[x, y] = T.ID["cordwood"]
+            self.poi.append(("the burnt clearing", bx, by, 8))
 
     def gen_village(self):
         self.gen_farmland_light()
@@ -1236,6 +1346,13 @@ class Gen:
             self.ridges(amount=0.03, key="cliff", scale=0.02)
         self.scatter("boulder", 0.004)
         self.scatter("scrub", 0.03)
+        if self.rng.random() < 0.3:
+            self.scatter("salt_pan", 0.006, self.mask_where(["sand"]))
+        if self.rng.random() < 0.4:                     # a cistern and its trough
+            cx, cy = self.rng.randint(20, self.w - 20), self.rng.randint(20, self.h - 20)
+            self.m.t[cx, cy] = T.ID["well"]
+            self.m.t[cx + 1, cy] = T.ID["water_trough"]
+            self.poi.append(("the cistern", cx, cy, 6))
         # small stone buildings / fort
         if self.rng.random() < 0.5:
             cx, cy = self.rng.randint(30, self.w - 30), self.rng.randint(25, self.h - 25)
@@ -1258,8 +1375,18 @@ class Gen:
         self.scatter("boulder", 0.006)
         self.forests(amount=0.12, density=0.35)
         if self.m.climate in ("mediterranean", "desert"):
-            self.fields(style="walls", min_size=10, max_size=20,
+            self.fields(style=self.rng.choice(("walls", "terrace", "walls")), min_size=10, max_size=20,
                         region=(10, 10, self.w // 2, self.h // 2))
+        if self.rng.random() < 0.5:
+            self.scatter("plowed_ridges", 0.02, self.mask_where([self.key("ground")]))
+        if self.rng.random() < 0.45:
+            self.scatter("sheepfold", 0.004, self.mask_where([self.key("ground"), "grass", "grass_dry"]))
+        for _ in range(self.rng.randint(0, 2)):
+            sx, sy = self.rng.randint(25, self.w - 30), self.rng.randint(20, self.h - 25)
+            for _ in range(self.rng.randint(6, 12)):
+                x, y = sx + self.rng.randint(-5, 5), sy + self.rng.randint(-4, 4)
+                if 0 < x < self.w - 1 and 0 < y < self.h - 1 and not self.protected[x, y]:
+                    self.m.t[x, y] = T.ID["sheepfold" if self.rng.random() < 0.5 else "tall_grass"]
         vx, vy = self.rng.randint(30, self.w - 30), self.rng.randint(25, self.h - 25)
         st = ("farmhouse", "farmhouse", "shed") if self.m.climate != "tropical" else ("hut",)
         self.village(vx, vy, n=self.rng.randint(2, 5), styles=st, church=False, spread=12)
@@ -1317,7 +1444,14 @@ class Gen:
         self.m.t[mask & (rnd < 0.62)] = T.ID["jungle"]
         self.m.t[mask & (rnd >= 0.62) & (rnd < 0.72)] = T.ID["tree"]
         self.m.t[mask & (rnd >= 0.72) & (rnd < 0.8)] = T.ID["palm"]
-        self.m.t[(n > 0.55) & (rnd < 0.3)] = T.ID["bamboo"]
+        self.m.t[(n > 0.55) & (rnd < 0.3 + self.rng.uniform(0, 0.25))] = T.ID["bamboo"]
+        if self.rng.random() < 0.5:                     # old paddies gone to seed
+            px, py = self.rng.randint(20, self.w - 40), self.rng.randint(20, self.h - 30)
+            for x in range(px, px + self.rng.randint(10, 22)):
+                for y in range(py, py + self.rng.randint(6, 12)):
+                    if 0 < x < self.w - 1 and 0 < y < self.h - 1 and not self.protected[x, y] \
+                            and self.rng.random() < 0.8:
+                        self.m.t[x, y] = T.ID["paddy" if self.rng.random() < 0.5 else "paddy_stubble"]
         # trails
         for _ in range(self.rng.randint(1, 3)):
             a, b = self.rng.choice([("N", "S"), ("E", "W"), ("N", "E"), ("S", "W")])
@@ -1939,9 +2073,13 @@ class Gen:
         from .homefront import dress
         dress(self)
         self.battle_damage(spec.get("intensity", 0.5))
+        from . import tableaux
+        tableaux.place(self)                      # a convoy, a dump, a crash: something happened here
         self.pick_objectives()
         from .relief import make as relief
         relief(self)                              # the lie of the land, with the named hills real hills
+        from .plan import tag_objectives
+        tag_objectives(self.m)                    # what each objective is: height, crossing, village...
         self.dress_slopes()
         # clear edges so units can enter: first/last rows walkable where possible
         self._clear_spawn_edges()

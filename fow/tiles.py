@@ -127,6 +127,18 @@ T("runway", "airfield", ".·", (140, 140, 130), (70, 70, 65), cost=90, into="cra
   hp=600, armor=60, vcost=45)
 T("paddy", "rice paddy", "~\"~,", (130, 180, 100), (38, 70, 60), cost=260, water=1,
   conceal=25, into="paddy", sound=2)
+T("paddy_stubble", "rice stubble", ".,'`", (170, 160, 95), (80, 72, 40), dig=True, cost=130,
+  into="dirt", conceal=15, flam=35, burnt="burnt")
+T("plowed_ridges", "ridged field", "≋≋≋≋", (130, 95, 58), (58, 42, 26), dig=True, cost=150,
+  into="dirt", conceal=10)
+T("terrace", "terrace", "≡≡≡", (125, 130, 80), (52, 58, 30), cost=160, cover=15, dig=True,
+  into="dirt", conceal=12)
+T("orchard_ground", "orchard grass", ".,'.", (95, 145, 65), (35, 58, 25), dig=True, flam=15,
+  conceal=10, burnt="burnt", into="dirt")
+T("salt_pan", "salt pan", "·.,·", (225, 222, 205), (150, 146, 132), cost=120, dig=True,
+  into="salt_pan")
+T("cinder", "clinker", ".,;`", (95, 90, 88), (38, 35, 34), cost=150, into="rubble_light",
+  sound=1)
 
 # ------------------------------------------------------------------ water
 T("shallow", "shallow water", "~≈~~", (110, 160, 230), (30, 62, 115), cost=240, water=1,
@@ -255,6 +267,62 @@ T("bridge", "bridge", "═", (170, 150, 120), (70, 55, 40), cost=95, hp=900, arm
   into="deep", vcost=60, sound=3)
 T("rail", "railway", "╪", (140, 130, 120), (60, 52, 45), cost=110, hp=300, armor=60,
   into="rubble_light", vcost=80)
+T("rail_ballast", "ballast", "∴:∴", (135, 128, 118), (62, 56, 48), cost=140, hp=150, armor=25,
+  into="rubble_light", vcost=90)
+T("sleeper_stack", "sleeper stack", "═", (120, 95, 65), (48, 36, 24), walk=False, see=True,
+  cover=45, tall=True, hp=180, armor=20, into="rubble_wood", flam=35, crush=1)
+T("telegraph_pole", "telegraph pole", "|", (120, 95, 65), (35, 30, 25), walk=False, see=True,
+  cover=10, tall=True, hp=80, armor=8, into="burnt", flam=30, crush=1,
+  desc="A creosoted pole, wires singing overhead.")
+T("level_crossing", "level crossing", "╪", (155, 140, 115), (68, 58, 45), cost=105, hp=250,
+  armor=40, into="rubble_light", vcost=70)
+T("culvert", "culvert", "∩", (150, 145, 135), (45, 60, 60), cost=180, water=1, cover=20,
+  into="rubble", sound=1)
+T("cutting_wall", "cutting wall", "#", (145, 125, 100), (85, 70, 55), walk=False, cover=100,
+  tall=True, hp=350, armor=90, into="rubble_earth", crush=2)
+T("lock_gate", "lock gate", "╬", (105, 130, 120), (45, 55, 52), walk=False, see=True,
+  cover=60, tall=True, hp=900, armor=110, into="rubble_wood", flam=10, crush=4, hard=True)
+T("weir", "weir", "≈", (170, 200, 220), (55, 80, 105), cost=280, water=1, pos_cover=15,
+  into="weir", sound=3)
+T("barge", "moored barge", "▬", (115, 95, 70), (50, 45, 38), cost=130, cover=45, hp=700,
+  armor=60, into="wreck", flam=20, burnt="wreck", crush=9, sound=4,
+  desc="A flat cargo barge, low in the water.")
+T("tank_ditch", "tank ditch", "▼", (120, 95, 62), (42, 33, 22), cost=300, pos_cover=70,
+  conceal=45, crush=9, dig=True, into="tank_ditch")
+T("dugout", "dugout", "◙", (105, 85, 58), (34, 28, 20), cost=180, pos_cover=88, conceal=80,
+  dig=True, into="dugout", desc="Timbered steps down into the ground. The safest place here.")
+T("gate", "field gate", "∩", (150, 115, 72), (42, 34, 24), cost=170, cover=18, tall=True,
+  hp=90, armor=6, into="dirt", flam=30, crush=1, desc="A five-bar gate. Hinged, if you have time.")
+T("stile", "stone stile", "≠", (165, 160, 145), (70, 66, 58), cost=260, cover=25, into="rubble",
+  crush=2)
+T("haystack", "haystack", "♦", (205, 180, 100), (95, 80, 40), walk=False, see=False, cover=30,
+  tall=True, hp=120, armor=3, into="burnt", flam=90, burnt="burnt", crush=1)
+T("corn_rick", "corn rick", "Ω", (190, 165, 90), (85, 72, 38), walk=False, see=False,
+  cover=35, tall=True, hp=100, armor=3, into="burnt", flam=85, burnt="burnt", crush=1)
+T("cordwood", "cordwood", "≡", (125, 98, 62), (55, 42, 26), walk=False, see=True, cover=50,
+  tall=True, hp=160, armor=18, into="rubble_wood", flam=55, crush=1)
+T("sacks", "sack stack", "■", (185, 160, 110), (75, 62, 40), walk=False, see=True, cover=35,
+  tall=True, hp=60, armor=3, into="rubble_earth", crush=1)
+T("handcart", "handcart", "π", (130, 100, 65), (52, 40, 28), walk=False, see=True, cover=45,
+  tall=True, hp=90, armor=10, into="rubble_wood", crush=2,
+  desc="A two-wheeled cart, tipped up and abandoned.")
+T("water_trough", "water trough", "▭", (150, 160, 165), (55, 65, 70), walk=False, see=True,
+  cover=45, hp=120, armor=30, into="rubble_light", crush=2)
+T("beehives", "beehives", "Θ", (205, 175, 90), (60, 55, 35), walk=False, see=True, cover=15,
+  tall=True, hp=25, armor=1, into="rubble_wood", crush=1,
+  desc="Wicker skeps. Nobody's collecting honey today.")
+T("hop_poles", "hop poles", "|||", (130, 120, 80), (45, 50, 30), cost=180, see=False,
+  conceal=45, cover=10, hp=30, armor=2, into="dirt", crush=1)
+T("kiln", "brick kiln", "Ω", (160, 90, 70), (80, 45, 35), walk=False, see=False, cover=90,
+  tall=True, hp=900, armor=140, into="rubble_heavy", crush=3, hard=True)
+T("lime_kiln", "lime kiln", "Ω", (190, 185, 170), (90, 88, 80), walk=False, see=False,
+  cover=90, tall=True, hp=800, armor=130, into="rubble_heavy", crush=3, hard=True)
+T("charcoal_stack", "charcoal stack", "▲", (80, 75, 70), (32, 30, 28), walk=False, see=False,
+  cover=45, tall=True, hp=100, armor=5, into="burnt", flam=60, burnt="burnt", crush=1)
+T("sheepfold", "sheepfold", "≡", (150, 145, 125), (70, 66, 55), cost=300, cover=55, hp=400,
+  armor=80, into="rubble", crush=2)
+T("range_marker", "white marker", "X", (255, 250, 225), (70, 70, 55), cost=100, see=True,
+  into="dirt", desc="A white-painted board on a stake. The instructor wants you here.")
 
 # ------------------------------------------------------------------ defensive works
 T("sandbags", "sandbags", "≡", (205, 185, 125), (102, 88, 56), cost=320, cover=86, hp=450,
@@ -301,6 +369,15 @@ T("ammo_stack", "stacked ammunition", "■", (190, 175, 80), (70, 62, 30), walk=
 T("fuel_drums", "fuel drums", "◘", (200, 90, 60), (70, 40, 30), walk=False, see=True,
   cover=45, tall=True, hp=60, armor=4, into="burnt", flam=95, burnt="burnt", crush=1,
   desc="Jerricans and drums of petrol.")
+T("gas_cylinders", "gas cylinders", "Ø", (170, 200, 160), (50, 70, 55), walk=False, see=True,
+  cover=40, tall=True, hp=50, armor=8, into="rubble_light", crush=1,
+  desc="Welding oxygen and acetylene, chained to a trolley. The oxygen makes any fire fierce.")
+T("coal_heap", "coal heap", "▄", (55, 55, 58), (28, 28, 30), walk=False, see=False,
+  cover=55, tall=True, hp=90, armor=2, into="rubble_light", flam=60, burnt="burnt", crush=2,
+  desc="A heap of locomotive coal. It burns for hours and keeps a line lit at night.")
+T("marker", "stone marker", "‡", (215, 210, 195), (82, 78, 70), walk=False, see=True,
+  cover=40, tall=True, hp=500, armor=90, into="rubble_light", crush=2,
+  desc="A low stone marker, its lettering weathered. Somebody thought this worth remembering.")
 T("antenna", "radio mast", "¥", (190, 190, 190), (40, 40, 40), walk=False, see=True,
   cover=5, tall=True, hp=60, armor=10, into="rubble_light", crush=1)
 T("redcross", "red cross marker", "+", (230, 30, 30), (220, 220, 220), cost=100,
@@ -614,6 +691,7 @@ BG = np.array([d.bg for d in DEFS], np.int16)
 
 EXPLODE[ID["ammo_stack"]] = (320, 5, 1)
 EXPLODE[ID["fuel_drums"]] = (160, 3, 3)
+EXPLODE[ID["gas_cylinders"]] = (240, 4, 4)
 EXPLODE[ID["plane_parked"]] = (140, 3, 3)
 EXPLODE[ID["ammo_rack"]] = (600, 6, 2)
 EXPLODE[ID["avgas"]] = (450, 5, 5)

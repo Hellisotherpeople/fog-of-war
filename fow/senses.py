@@ -356,7 +356,7 @@ def _high(e) -> bool:
 
 
 def can_detect(game, viewer, target, dist=None, r=None, conceal=None) -> bool:
-    if getattr(viewer, "z", 0) < 0 or getattr(target, "z", 0) < 0:
+    if viewer.z < 0 or target.z < 0:
         return False                                  # nobody in a cellar sees out, or is seen from outside
     if dist is None:
         dist = math.hypot(target.x - viewer.x, target.y - viewer.y)
@@ -405,7 +405,7 @@ def _sight_line(game, viewer, target) -> bool:
 
 def peek_point(a):
     """Where a soldier leaning out of cover has his head, or None."""
-    pk = getattr(a, "peek", None)
+    pk = a.peek
     if not pk or a.vehicle is not None or not a.alive or a.downed:
         return None
     return a.x + pk[0], a.y + pk[1]
@@ -422,7 +422,8 @@ def update_actor_vision(game, a):
         a.visible = vis
         return vis
     r_eye = r
-    if game.is_dark:
+    dark = game.is_dark
+    if dark:
         r = max(r, 45)        # flashes and lit targets can be seen far off at night
     pos, ents = game.enemy_array(a.side)
     if len(ents) == 0:
@@ -430,20 +431,21 @@ def update_actor_vision(game, a):
         return vis
     idx = game.enemy_candidates(a, r + 2.0)
     ax, ay = a.x, a.y
-    if getattr(a, "z", 0) < 0:
-        a.visible = vis                               # (down in the cellar)
+    if a.z < 0 or not len(idx):
+        a.visible = vis                               # (down in the cellar, or nobody within reach)
         return vis
     m = game.map
     batch = FP.lines_ready() and _open_top(game, a) is None
     seen = []                                         # (e, distance, concealment), nearest first
     wait = []                                         # ... the ones whose line of sight is still to be drawn
     if batch:
-        dark = game.is_dark
         turn = game.turn
         for k in idx:
             e = ents[k]
             dk = math.hypot(e.x - ax, e.y - ay)
-            if dk > r or getattr(e, "z", 0) < 0:
+            if dk > r:
+                break                         # (nearest first: everything after is further)
+            if e.z < 0:
                 continue
             cf = concealment_factor(game, a, e)
             if peek_point(e) is not None or _open_top(game, e) is not None:
@@ -605,7 +607,11 @@ def sound_at(game, sx, sy, loud, lx, ly) -> float:
     d = math.hypot(lx - sx, ly - sy)
     level = loud - 20 * math.log10(max(1.0, d)) - weather_masking(game)
     if d > 3 and loud < 90:
-        # walls between muffle the sound
+        # walls only ever muffle: below the threshold already, or clear even at the worst, skip the trace
+        if level < HEAR_THRESHOLD:
+            return level
+        if level - 30 >= HEAR_THRESHOLD + 30:
+            return level - 30
         pts = tcod.los.bresenham((sx, sy), (lx, ly))[1:-1]
         if len(pts):
             att = T.SOUND[game.map.t[pts[:, 0], pts[:, 1]]].sum()

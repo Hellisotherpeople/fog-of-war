@@ -11,6 +11,10 @@ from . import tiles as T
 from .combat import explode, fire_weapon, hit_actor, melee_attack
 from .data.items import ITEMS, ammo_id
 from .entities import Item
+from .pace import COST as PACE_COST, DRAIN as PACE_DRAIN, FATIGUE as PACE_FATIGUE, LOUD as PACE_LOUD, pace_of
+from .relief import climb as slope
+from .skills import fitness_mult, use as skill_use
+from .stealth import fieldcraft
 
 STANCE_MOVE = {0: 1.0, 1: 1.45, 2: 3.2}
 STANCE_NAME = {0: "standing", 1: "crouching", 2: "prone"}
@@ -23,7 +27,7 @@ FLOOR_WORD = {-1: "the cellar", 0: "the ground floor", 1: "the first floor", 2: 
 
 
 def floor_word(game, a) -> str:
-    z = getattr(a, "z", 0)
+    z = a.z
     if z <= 0:
         return FLOOR_WORD.get(z, "the ground floor")
     b = game.map.building_at(a.x, a.y)
@@ -44,7 +48,7 @@ def climb(game, a, dz: int) -> int | None:
     again.  None if there's no way that way from here."""
     m = game.map
     t = m.tile(a.x, a.y).key
-    z = getattr(a, "z", 0)
+    z = a.z
     b = m.building_at(a.x, a.y)
     if a.vehicle is not None or a.carrying is not None:
         return None
@@ -71,14 +75,13 @@ def climb(game, a, dz: int) -> int | None:
 
 def move(game, a, dx: int, dy: int, allow_swap=True):
     m = game.map
-    if getattr(a, "peek", None):
+    if a.peek:
         unpeek(game, a)
     nx, ny = a.x + dx, a.y + dy
     if not m.in_bounds(nx, ny):
         return None
     tid = int(m.t[nx, ny])
-    d = T.DEFS[tid]
-    z = getattr(a, "z", 0)
+    z = a.z
     if z != 0:
         # upstairs you can walk the floor (the same plan as below) but not out of the door; in the cellar, nowhere
         b0 = m.building_at(a.x, a.y)
@@ -89,15 +92,14 @@ def move(game, a, dx: int, dy: int, allow_swap=True):
                          "You're upstairs: the stairs are the way down (>).", "info")
             return None
     # doors open when walked into
-    if d.door == 1:
+    if T.DOOR[tid] == 1:
         m.set(nx, ny, "door_open")
         m.refresh()
         game.emit_sound(nx, ny, 20, "door", "a door creaking open", a.side, a)
         return 100
-    if not d.walk:
+    if not T.WALK[tid]:
         return None
-    if (nx, ny) in game.vehicle_at:
-        v = game.vehicle_at[(nx, ny)]
+    if game.vehicle_at.get((nx, ny)) is not None:
         return None
     other = game.soldier_at.get((nx, ny))
     if other is not None and other is not a:
@@ -135,12 +137,10 @@ def move(game, a, dx: int, dy: int, allow_swap=True):
     if a.body.downed() and a.body.conscious:
         mult = max(mult, 3.5)
         a.stance = 2
-    from .pace import COST as PACE_COST, pace_of
     pace = pace_of(game, a) if water < 2 else "walk"
     a.ai["pace_now"] = pace
     mult *= PACE_COST[pace]
-    from .relief import climb
-    cost = int(cost * mult * climb(game.map, a.x, a.y, a.x + dx, a.y + dy))     # the slope: up is slow
+    cost = int(cost * mult * slope(game.map, a.x, a.y, a.x + dx, a.y + dy))     # the slope: up is slow
     if dx != 0 and dy != 0:
         cost = int(cost * 1.1)
     # carrying a wounded comrade
@@ -171,7 +171,7 @@ def move(game, a, dx: int, dy: int, allow_swap=True):
         elif not c.alive:
             put_down(game, a)
     # wire
-    if d.key == "wire":
+    if tid == T.ID["wire"]:
         if game.rng.random() < 0.6:
             a.entangled = game.rng.randint(1, 4)
             if a.is_player:
@@ -179,8 +179,6 @@ def move(game, a, dx: int, dy: int, allow_swap=True):
             if game.rng.random() < 0.4:
                 hit_actor(game, a, game.rng.uniform(2, 6), "cut", None, "barbed wire", silent=True)
     # footsteps
-    from .pace import LOUD as PACE_LOUD
-    from .stealth import fieldcraft
     loud = ({0: 30, 1: 24, 2: 16}[a.stance] + T.SOUND[tid] * 2) * PACE_LOUD.get(pace, 1.0) * \
         (fieldcraft(a) if pace in ("sneak", "walk") else 1.0)
     if loud > 0 and game.rng.random() < 0.35 * PACE_LOUD[pace]:
@@ -190,7 +188,6 @@ def move(game, a, dx: int, dy: int, allow_swap=True):
     if mn is not None:
         trigger_mine(game, a, nx, ny, mn)
     # breath: crawling and heavy loads wear you out
-    from .pace import DRAIN as PACE_DRAIN, FATIGUE as PACE_FATIGUE
     load = 1.0 + max(0.0, a.weight_now(game.turn) - 18.0) / 22.0
     drain = (0.22, 0.45, 0.9)[a.stance] * (T.COST[tid] / 100.0) * load * PACE_DRAIN[pace]
     if a.carrying is not None:
@@ -199,14 +196,13 @@ def move(game, a, dx: int, dy: int, allow_swap=True):
         drain += 1.5
     if getattr(a.body, "temp", 37.0) > 38.5:
         drain *= 1.4                           # labouring in the heat
-    from .skills import fitness_mult, use
     drain *= fitness_mult(a)                   # the fit keep their wind
     if drain > 0.6 and game.rng.random() < 0.05:
-        use(game, a, "fitness", 1.0)
+        skill_use(game, a, "fitness", 1.0)
     if pace == "sneak" and game.rng.random() < 0.08 and a.ai.get("near_enemy_turn", -99) > game.turn - 30:
-        use(game, a, "stealth", 1.0)           # creeping with the enemy close: it teaches you
-    a.stamina = max(0.0, getattr(a, "stamina", 100.0) - drain)
-    a.fatigue = min(100.0, getattr(a, "fatigue", 0.0) + PACE_FATIGUE[pace] * load * (T.COST[tid] / 100.0)
+        skill_use(game, a, "stealth", 1.0)           # creeping with the enemy close: it teaches you
+    a.stamina = max(0.0, a.stamina - drain)
+    a.fatigue = min(100.0, a.fatigue + PACE_FATIGUE[pace] * load * (T.COST[tid] / 100.0)
                     * (2.0 if a.carrying is not None else 1.0))
     # deep water
     if water >= 2:
@@ -266,6 +262,8 @@ def reload(game, a, weapon=None, speed=False) -> int | None:
         return unjam(game, a)
     cost = ammo_reload(game, a, w, speed=speed)
     if cost:
+        if a.is_player and game.__dict__.get("drill"):
+            game.stats["drill_reloads"] += 1
         from .familiar import learn, level, slow
         f = level(a, w.t)
         if f < 1.0:
@@ -358,7 +356,7 @@ def _throw(game, a, item, tx, ty, cook=0):
     ly = int(round(ty + rng.gauss(0, sig)))
     # trace flight: stops at walls, bounces off trees/windows
     m = game.map
-    pk = getattr(a, "peek", None)
+    pk = a.peek
     ox, oy = (a.x + pk[0], a.y + pk[1]) if pk else (a.x, a.y)     # thrown from round the corner
     path = tcod.los.bresenham((ox, oy), (lx, ly))
     land = (ox, oy)
@@ -453,7 +451,7 @@ def peek(game, a, dx, dy) -> int | None:
 
 
 def unpeek(game, a):
-    pk = getattr(a, "peek", None)
+    pk = a.peek
     if pk:
         pa = getattr(game, "peek_at", {})
         if pa.get((a.x + pk[0], a.y + pk[1])) is a:
@@ -466,7 +464,7 @@ class _Leaning:
 
     def __init__(self, a):
         self.a = a
-        self.pk = getattr(a, "peek", None)
+        self.pk = a.peek
 
     def __enter__(self):
         if self.pk:
@@ -633,7 +631,7 @@ def drink(game, a, item) -> int:
         a.suppression = max(0, a.suppression - 10)
         if getattr(a.body, "temp", 37.0) > 37.4:
             a.body.temp -= 0.5                 # water, in the heat, is life
-        a.stamina = min(100.0, getattr(a, "stamina", 100.0) + 8)
+        a.stamina = min(100.0, a.stamina + 8)
     elif t.tool == "flask":
         a.body.alcohol += 1.0
         a.body.pain = max(0, a.body.pain - 10)
@@ -642,7 +640,7 @@ def drink(game, a, item) -> int:
     return 150
 
 
-def treat(game, medic, patient, item=None) -> int | None:
+def treat(game, medic, patient, item=None, part=None) -> int | None:
     """Apply first aid.  medic may be the patient."""
     b = patient.body
     self_aid = medic is patient
@@ -654,12 +652,27 @@ def treat(game, medic, patient, item=None) -> int | None:
             return None
     if item is None:
         # pick the right treatment automatically - and if there's nothing for the wound, the pain or the blood
-        if b.worst_wound() is not None:
-            limbs = [w for w in b.wounds if w.part not in ("head", "torso") and not w.bandaged and w.bleed > 5]
+        wound = b.worst_wound()
+        if part is not None:
+            wound = b.bleeding_wound(part) or next((w for w in b.wounds if w.part == part), None)
+        if wound is not None:
+            burns = [w for w in b.wounds if w.burn and not w.bandaged]
+            broken = [w for w in b.wounds if w.fracture and not b.splinted_at(w.part)]
+            limbs = [w for w in b.wounds if w.part not in ("head", "torso") and not w.bandaged
+                     and (w.arterial or w.bleed > 8)]
             if limbs and medic.medical("tourniquet"):
                 item = medic.medical("tourniquet")
+            elif burns and medic.medical("burn"):
+                item = medic.medical("burn")
+            elif limbs and medic.medical("pressure"):
+                item = medic.medical("pressure")
+            elif broken and medic.find(lambda i: i.t.tool == "splint"):
+                item = medic.find(lambda i: i.t.tool == "splint")
             else:
-                item = medic.medical("bandage") or medic.medical("sulfa")
+                item = medic.medical("pressure") or medic.medical("burn") or medic.medical("bandage") \
+                    or medic.medical("sulfa")
+        if item is None and b.infection() > 35 and medic.medical("penicillin"):
+            item = medic.medical("penicillin")
         if item is None and b.effective_pain() > 70 and medic.medical("morphine"):
             item = medic.medical("morphine")
         if item is None and b.blood < 3800 and medic.medical("plasma"):
@@ -669,14 +682,14 @@ def treat(game, medic, patient, item=None) -> int | None:
     if not item.functional:
         return None
     quality *= item.condition
-    med = item.t.med
+    med = item.t.med or ("splint" if item.t.tool == "splint" else None)
     cost = 300
     if self_aid:
         who = "yourself" if medic.is_player else medic.himself
     else:
         who = "you" if patient.is_player else game.name_of(patient)
-    if med in ("bandage", "kit"):
-        w = b.bandage(quality)
+    if med in ("bandage", "kit", "pressure", "burn"):
+        w = b.bandage(quality, part=part, turn=game.turn, pressure=(med == "pressure"), burn=(med == "burn"))
         if w is None:
             return None
         cost = 280 if not self_aid else 380
@@ -684,7 +697,7 @@ def treat(game, medic, patient, item=None) -> int | None:
             item.uses -= 1
             # a medic's bag treats everything at once over time
             while b.worst_wound() is not None and item.uses > 0 and rng.random() < 0.7:
-                b.bandage(quality)
+                b.bandage(quality, turn=game.turn)
                 item.uses -= 1
                 cost += 150
             if b.effective_pain() > 60:
@@ -694,16 +707,36 @@ def treat(game, medic, patient, item=None) -> int | None:
         else:
             _consume(medic, item)
         medic.stats["bandaged"] += 1
-        game.msg_for(medic, patient, f"bandage{'s' if not medic.is_player else ''} {who}", "good")
+        verb = {"pressure": "presses a pad hard onto the bleeding point",
+                "burn": "lays a clean, greased dressing over the burns"}.get(
+                    med, f"bandage{'s' if not medic.is_player else ''} {who}")
+        game.msg_for(medic, patient, verb, "good")
     elif med == "sulfa":
-        w = b.worst_wound()
-        if w:
-            w.bleed *= 1 - .25 * item.condition
+        if b.antisepsis(0.8, game.turn) == 0:
+            return None
         _consume(medic, item)
         cost = 120
         game.msg_for(medic, patient, f"sprinkle{'s' if not medic.is_player else ''} sulfa powder on the wound", "good")
+    elif med == "penicillin":
+        if b.antisepsis(1.6, game.turn) == 0 and b.infection() < 20:
+            return None
+        b.pain = max(0.0, b.pain - 4)
+        _consume(medic, item)
+        cost = 240
+        game.msg_for(medic, patient, f"give{'s' if not medic.is_player else ''} {who} a shot of penicillin", "good")
+    elif med == "splint":
+        broken = [w for w in b.wounds if w.fracture and not b.splinted_at(w.part)]
+        if not broken:
+            return None
+        part = max(broken, key=lambda w: w.bleed).part
+        b.splint(part, game.turn, item.condition)
+        if item.t.uses:
+            _consume(medic, item)
+        cost = 420
+        game.msg_for(medic, patient, f"splint{'s' if not medic.is_player else ''} the broken "
+                                     f"{'leg' if 'leg' in part else 'arm'}", "good")
     elif med == "tourniquet":
-        if b.tourniquet() is None:
+        if b.tourniquet(game.turn) is None:
             return None
         _consume(medic, item)
         cost = int(200 / max(.15, item.condition))
@@ -718,6 +751,8 @@ def treat(game, medic, patient, item=None) -> int | None:
         _consume(medic, item)
         cost = 600
         game.msg_for(medic, patient, f"rig{'s' if not medic.is_player else ''} a bottle of plasma for {who}", "good")
+    if cost and med in ("bandage", "kit") and medic.is_player and game.__dict__.get("drill"):
+        game.stats["drill_bandages"] += 1
     return cost
 
 
@@ -889,7 +924,7 @@ def enter_vehicle(game, a, v) -> int | None:
                 if v.squad is not None and v not in v.squad.vehicles:
                     v.squad.vehicles.append(v)
             v.side = a.side
-            if getattr(a, "peek", None):
+            if a.peek:
                 unpeek(game, a)
             game.remove_from_map(a)
             a.vehicle = v
@@ -914,7 +949,7 @@ def enter_vehicle(game, a, v) -> int | None:
     cap = riders_capacity(v)                     # (a tank with no seats inside has room on the hull)
     if len(v.passengers) >= cap:
         return None
-    if getattr(a, "peek", None):
+    if a.peek:
         unpeek(game, a)
     game.remove_from_map(a)
     a.vehicle = v
@@ -928,7 +963,7 @@ def exit_vehicle(game, a) -> int | None:
     v = a.vehicle
     if v is None:
         return None
-    if getattr(a, "peek", None):
+    if a.peek:
         unpeek(game, a)
     spot = game.free_around(v, prefer_away_from=game.brain_enemy_center(a.side))
     if spot is None:

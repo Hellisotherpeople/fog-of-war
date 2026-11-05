@@ -72,6 +72,11 @@ in any script that plays the game.
 .venv/bin/python -m pytest tests/test_staff_career.py tests/test_ui_search.py
 ```
 
+`pytest.ini` runs test files across all cores by default (`pytest-xdist`, from
+`requirements-dev.txt`), which takes the suite from about three minutes to about thirty seconds on
+an M4 Pro. Add `-n0` to run serially when debugging a shared-state problem, or `-k` to narrow it.
+Each worker gets its own scratch home through the test harness.
+
 The smoke tests start every battle on both sides, every service, save and load aboard a ship
 and a bomber, check a carrier is built full size, and run a carrier battle for four hours of game
 time to make sure the war at sea goes somewhere. The full suite also exercises the moving land world;
@@ -110,15 +115,32 @@ Most content is data, declared with small helper functions:
   equipment pools, years, then weight, fire modes, reload and shot costs, jam and heat, sound.
   Which soldiers carry it comes from the pools in `fow/data/nations.py` and the role kits in
   `fow/data/roles.py`.
-- **Its picture**: an ASCII drawing under `%% item_id` in `assets/art/*.txt` (at most 56 × 10, printable
-  ASCII), shown when it's looked over. `tools/check_art.py` validates the files and lists any item without one;
-  the test suite fails while one is missing.
+- **Its picture**: a painter in `fow/icons.py`, keyed from `item_key` by the item's kind and family (above the
+  item's own dimensions). It's drawn when the thing is hovered in the kit screen, looked at in the world, or
+  looked over. `quality.py` reads a gun's worth off its stats and rarity; the AI and the men use it to decide
+  what to carry and trade.
 - **A vehicle or gun**: `fow/data/vehicles.py` (armour per facing, penetration, crew seats).
   Its footprint on the ground comes from its real dimensions (`fow/footprint.py`).
 - **A ship**: `ship(...)` in `fow/data/ships.py` for her guns, armour, speed and air group; her
   hull and decks come from her class in `SPEC` in `fow/shipyard.py` (length and beam in two-metre
   tiles, and the list of decks). A new class needs a `SPEC` entry and, if its layout differs, a
   deck builder.
+- **A historical place**: an entry in `fow/data/history.py`, keyed by theatre, laid by
+  `landmarks.historical`; the note is shown when the marker is looked at. Keep it factual and short.
+- **A battlefield scene**: a builder in `fow/tableaux.py` (weighted by ground and intensity) - props and
+  cover, not decoration alone.
+- **Country furniture**: a builder in `fow/varia.py`, returning `True` only after claiming a spot with
+  `landmarks.spot` and `protect`; add it to `varia.menu` by ground/climate, or to `varia.rare` for a set
+  piece. Buildings vary their footprint themselves (`mapgen.Gen.building`: wings, courtyards, cross plans,
+  chamfered bays); do not assume a rectangle.
+- **A tile**: `T(...)` in `fow/tiles.py` with physical properties (walk, cover, height, HP, what it becomes
+  when destroyed, fire and crush behaviour) and a description; a palette variant goes through `variant` so
+  the climate colours stay together.
+- **A wound or treatment**: the clinical state lives on `body.Wound` (bleed, dirt, infection, arterial,
+  fracture, dressing age) and `body` (shock, fever, splints). Treatments are selected in `actions.treat`
+  and `medical.first_aid`; the AI triages with `medical.triage`/`squadcare.care_need`. Add new medical kit
+  as `med=` in `fow/data/items.py` and handle it in `treat`.
+- **A lesson**: a `(text, check)` pair in `fow/drill.py`; checks poll game state and must be true to pass.
 - **A battle**: `theatre(...)` in `fow/data/theatres.py`: date and climate, sides and nations,
   who attacks from where, biomes, air/artillery/armour strength, place names, the real divisions.
   Commanders by date go in `fow/data/commanders.py`.

@@ -422,6 +422,116 @@ gun("orita", "Orița M1941", "smg", "9mm", 32, 22, 2.0, 22, ["romania"], (1942, 
     weight=3.5, modes=("single", "auto"), burst=5, shot=50, bcost=100, reload=160, freq=6,
     sound="SMG fire", loud=62, desc="Romanian SMG with a long barrel and good sights.")
 
+# ---------------- late-war, foreign and captured pieces (rare: they were oddities in the line)
+# American second-line and trials weapons
+gun("m1917_enfield", "M1917 Enfield", "rifle", "3006", 6, 44, 0.55, 66, ["usa"], (1917, 1945),
+    weight=4.2, shot=125, reload=190, feed="clip", bayonet=16, freq=1,
+    sound="the crack of a bolt-action rifle", desc="US-made P14 adaptation. Issued to rear troops and as aid.")
+gun("m1941_johnson", "Johnson M1941", "rifle", "3006", 10, 41, 0.6, 60, ["usa"], (1941, 1945),
+    weight=4.3, shot=80, reload=170, feed="clip", freq=1, sound="rifle fire",
+    desc="American semi-automatic with a rotary magazine; the Marines' Raiders used a few.")
+gun("reising_m50", "Reising M50", "smg", "45acp", 20, 24, 2.2, 18, ["usa"], (1941, 1945),
+    weight=3.2, modes=("single", "auto"), burst=4, shot=55, bcost=100, reload=190, freq=1,
+    sound="SMG fire", loud=62, desc="Cheap delayed-blowback SMG. Fine in a police station, finicky in sand.")
+gun("ud_m42", "United Defense M42", "smg", "9mm", 25, 22, 2.3, 22, ["usa"], (1942, 1945),
+    weight=4.5, modes=("single", "auto"), burst=5, shot=55, bcost=100, reload=180, freq=0.8,
+    sound="SMG fire", loud=62, desc="Steel-framed 9mm for the OSS and resistance drops.")
+gun("johnson_lmg", "Johnson M1941 LMG", "lmg", "3006", 20, 40, 1.15, 58, ["usa"], (1941, 1945),
+    weight=6.8, modes=("auto",), burst=4, bcost=100, reload=180, heat=3, freq=0.5,
+    sound="light machine-gun fire", loud=75, desc="Light automatic rifle for parachute troops.")
+# British late and specialist
+gun("lee_no5", "Lee-Enfield No.5 'Jungle Carbine'", "carbine", "303", 10, 39, 0.9, 45, ["uk"],
+    (1944, 1950), weight=3.5, shot=90, reload=190, feed="stripper", bayonet=14, freq=1,
+    sound="a sharp carbine report", desc="Shortened, lightened Lee-Enfield with a conical flash hider.")
+gun("lanchester", "Lanchester Mk I", "smg", "9mm", 50, 22, 2.2, 20, ["uk"], (1941, 1945),
+    weight=4.8, modes=("single", "auto"), burst=5, shot=55, bcost=100, reload=190, jam=0.004,
+    sound="SMG fire", loud=62, desc="Naval copy of the MP 28. Heavy, comfortable, reliable.")
+gun("vickers_k", "Vickers K", "lmg", "303", 60, 36, 1.25, 55, ["uk"], (1940, 1945),
+    weight=9.5, modes=("auto",), burst=6, bcost=100, reload=200, heat=2, freq=0.8,
+    sound="the fast rattle of a Vickers K", loud=78, desc="Aircraft observer's gun: a very high rate in a "
+                                                           "small package, issued to Commando landing craft.")
+gun("patchett", "Patchett Mk I", "smg", "9mm", 32, 22, 1.8, 26, ["uk"], (1944, 1950), weight=3.0,
+    modes=("single", "auto"), burst=5, shot=55, bcost=100, reload=170, freq=0.4,
+    sound="SMG fire", loud=60, desc="The trials Sterling: light, accurate and nearly jam-proof.")
+# Soviet automatic rifles and older machine guns still in store
+gun("avt40", "AVT-40", "rifle", "762r", 10, 42, 0.9, 55, ["ussr"], (1940, 1945), weight=4.2,
+    modes=("single", "auto"), burst=4, bcost=100, shot=80, reload=190, jam=0.01, freq=1,
+    sound="the hard crack of an AVT", desc="Select-fire SVT. On automatic it beats itself apart.")
+gun("dt29", "DT-29", "lmg", "762r", 63, 40, 1.4, 50, ["ussr"], (1929, 1950), weight=9.0,
+    modes=("auto",), burst=4, bcost=100, reload=230, heat=4, freq=0.8, sound="machine-gun fire",
+    loud=74, desc="Tank gunner's Degtyaryov with a pan magazine; handy on foot too.")
+gun("maxim_tokarev", "Maxim-Tokarev", "hmg", "762r", 100, 42, 1.0, 72, ["ussr"], (1928, 1945),
+    weight=17.0, modes=("auto",), burst=7, bcost=100, reload=430, deploy=True, feed="belt", freq=0.5,
+    sound="heavy machine-gun fire", loud=80, desc="Maxim action in a light air-cooled jacket.")
+gun("as44", "AS-44", "assault", "762t", 30, 38, 1.1, 46, ["ussr"], (1945, 1950), weight=5.0,
+    modes=("single", "auto"), burst=4, bcost=100, reload=180, freq=0.3, sound="assault-rifle fire",
+    loud=68, desc="Sudayev's pre-production assault rifle. Only a few hundred were made.")
+# German second-line, late stamps and captured conversions
+gun("mp41", "MP 41", "smg", "9mm", 32, 24, 1.9, 23, ["germany"], (1941, 1945), weight=3.6,
+    modes=("single", "auto"), burst=5, shot=55, bcost=100, reload=170, freq=1, sound="SMG fire",
+    loud=62, desc="MP 40 with a wooden stock and a selector, sold to allies and the SS.")
+gun("mp28", "MP 28", "smg", "9mm", 20, 23, 2.4, 23, ["germany"], (1930, 1945), weight=4.0,
+    modes=("single", "auto"), burst=5, shot=55, bcost=100, reload=180, freq=2, sound="SMG fire",
+    loud=64, desc="Pre-war Bergmann. Still carried by police, SS and second-line troops.")
+gun("emp", "Erma EMP", "smg", "9mm", 32, 23, 2.0, 23, ["germany"], (1938, 1943), weight=3.8,
+    modes=("single", "auto"), burst=5, shot=55, bcost=100, reload=180, freq=1, sound="SMG fire",
+    loud=62, desc="Well-made pre-war SMG; the SS got most of them.")
+gun("mp3008", "MP 3008", "smg", "9mm", 32, 21, 3.0, 18, ["germany"], (1945, 1950), weight=2.9,
+    modes=("auto",), burst=4, bcost=100, reload=200, jam=0.01, freq=2, sound="the rattle of a stamped SMG",
+    loud=62, desc="The last-ditch 'Volks-MP': a Sten copy with the magazine beneath.")
+gun("vg15", "Volkssturmgewehr VG 1-5", "assault", "792k", 30, 34, 1.7, 40, ["germany"], (1945, 1950),
+    weight=4.0, modes=("single", "auto"), burst=4, bcost=100, reload=220, jam=0.012, freq=1,
+    sound="a crude automatic rifle", loud=66, desc="Gas-operated emergency rifle, crude stamped and hurried.")
+gun("stg45", "StG 45(M)", "assault", "792k", 30, 37, 1.3, 48, ["germany"], (1945, 1950),
+    weight=4.4, modes=("single", "auto"), burst=4, bcost=100, reload=180, freq=0.4,
+    sound="assault-rifle fire", loud=68, desc="Mauser's roller-delayed last design. Barely reached the line.")
+gun("mg15", "MG 15", "lmg", "792", 75, 40, 1.3, 60, ["germany"], (1935, 1945), weight=8.0,
+    modes=("auto",), burst=6, bcost=100, reload=210, heat=3, freq=1, sound="fast machine-gun fire",
+    loud=76, desc="Aircraft gun pressed into ground service with a bipod and a drum.")
+gun("gewehr41", "Gewehr 41", "rifle", "792", 10, 43, 0.85, 60, ["germany"], (1942, 1945),
+    weight=4.9, shot=85, reload=220, feed="clip", jam=0.01, freq=1, sound="rifle fire",
+    desc="Early semi-automatic Mauser: heavy, and its gas trap hates dirt.")
+gun("m30_drilling", "M 30 drilling", "shotgun", "12ga", 3, 12, 3.5, 12, ["germany"], (1935, 1945),
+    weight=3.4, shot=110, reload=300, pellets=9, freq=0.4, feed="tube", sound="a shotgun blast", loud=72,
+    desc="Aircrew survival gun: two shotgun barrels and a rifle barrel.")
+gun("mp41r", "MP 41(r)", "smg", "9mm", 35, 24, 2.1, 22, ["germany"], (1942, 1945), weight=3.6,
+    modes=("single", "auto"), burst=5, shot=52, bcost=100, reload=160, freq=0.8,
+    sound="the fast chatter of a converted PPSh", loud=64,
+    desc="Captured PPSh-41 rechambered for 9mm. The SS and second-line units prized them.")
+# Italian late designs
+gun("fnab43", "FNA-B 43", "smg", "9mm", 40, 22, 2.2, 20, ["italy"], (1943.5, 1950), weight=3.5,
+    modes=("single", "auto"), burst=5, shot=55, bcost=100, reload=180, freq=1, sound="SMG fire",
+    loud=62, desc="Folded-sheet SMG made for the Republic of Salò and the partisans alike.")
+gun("tz45", "TZ-45", "smg", "9mm", 40, 22, 2.0, 22, ["italy"], (1945, 1950), weight=3.2,
+    modes=("single", "auto"), burst=5, shot=55, bcost=100, reload=180, freq=0.5, sound="SMG fire",
+    loud=62, desc="Very late Italian SMG, a Sten derivative with a wooden grip.")
+gun("carcano_3838", "Carcano M91/38", "rifle", "65it", 5, 41, 0.6, 60, ["italy"], (1938, 1950),
+    weight=3.8, shot=120, reload=180, feed="clip", bayonet=14, freq=4, sound="rifle fire",
+    desc="Shortened Carcano. The model on the sixth floor in Dallas; in Italy it was just a rifle.")
+gun("breda35pg", "Breda PG", "rifle", "65it", 20, 38, 1.0, 50, ["italy"], (1935, 1945), weight=4.4,
+    shot=80, reload=200, freq=0.6, feed="clip", sound="rifle fire", desc="Italian semi-automatic with a "
+                                                                    "short-recoil action; barely issued.")
+# Japanese late
+gun("type2_smg", "Type 2 SMG", "smg", "8nambu", 30, 20, 2.5, 18, ["japan"], (1944, 1950), weight=3.9,
+    modes=("single", "auto"), burst=5, shot=55, bcost=100, reload=180, freq=0.7, sound="SMG fire",
+    loud=62, desc="Japanese copy of the Bergmann, too late and too few.")
+gun("type4_rifle", "Type 4 rifle", "rifle", "77jp", 10, 42, 0.85, 55, ["japan"], (1945, 1950),
+    weight=4.4, shot=85, reload=210, feed="clip", freq=0.5, sound="rifle fire",
+    desc="Japanese copy of the Garand, built by hand in the last months.")
+gun("type99_sniper", "Type 99 sniper rifle", "sniper", "77jp", 5, 43, 0.25, 100, ["japan"], (1942, 1950),
+    weight=4.5, shot=130, reload=220, scope=True, feed="stripper", freq=1, sound="a sharp rifle crack",
+    desc="Type 99 with a 4x scope and a wire monopod. Its sight markings were made for the range.")
+# French and minor
+gun("mas40", "MAS-40", "rifle", "75fr", 5, 42, 0.6, 60, ["france"], (1940, 1945), weight=4.1,
+    shot=85, reload=190, feed="clip", freq=1, sound="rifle fire",
+    desc="French semi-automatic. A few were in the line in June 1940 and in the Free French later.")
+gun("rsc1917", "RSC M1917", "rifle", "8lebel", 5, 40, 0.9, 55, ["france"], (1917, 1940), weight=4.6,
+    shot=90, reload=220, feed="clip", freq=0.8, sound="rifle fire",
+    desc="First-war semi-automatic, still in store in 1940.")
+gun("berthier", "Berthier Mle 16", "rifle", "8lebel", 5, 40, 0.8, 50, ["france"], (1916, 1940),
+    weight=3.8, shot=120, reload=190, feed="clip", bayonet=14, freq=2, sound="rifle fire",
+    desc="Short Berthier carbine. The French army's second rifle.")
+
 # ================================================================= launchers / flamers / mortars
 
 def launcher(id, name, cat, pen, blast, rng, nations, years, *, cal=None, weight=6.0,
@@ -675,6 +785,15 @@ def gear(id, name, kind, *, weight=0.2, volume=0.2, glyph=";", color=(170, 170, 
 # medical
 gear("bandage", "field dressing", "medical", med="bandage", power=1, weight=0.1, volume=0.1,
      glyph="+", color=(230, 230, 230), desc="A compress bandage. Stops bleeding on one wound.")
+gear("pressure_dressing", "pressure dressing", "medical", med="pressure", power=1.4, weight=0.15,
+     volume=0.12, glyph="+", color=(235, 225, 215), stack=3,
+     desc="A pad and a long tail to wind on hard. Controls a spurting artery without a tourniquet.")
+gear("burn_dressing", "burn dressing", "medical", med="burn", power=1.3, weight=0.12, volume=0.12,
+     glyph="+", color=(240, 235, 220), stack=3,
+     desc="Greased, non-stick gauze for burns. Keeps the air off and dirt out.")
+gear("penicillin", "penicillin", "medical", med="penicillin", power=1, weight=0.05, volume=0.05,
+     glyph="+", color=(245, 245, 205),
+     desc="An injection against infection. Late in the war, and never enough of it.")
 gear("morphine", "morphine syrette", "medical", med="morphine", power=60, weight=0.05,
      volume=0.05, glyph="+", color=(200, 200, 250),
      desc="Squeeze into a muscle. Kills pain. Too many will kill you.")
@@ -732,8 +851,9 @@ gear("notebook", "NCO's notebook", "tool", tool="document", weight=0.05, volume=
      desc="Names, rations, positions sketched in pencil.")
 gear("field_orders", "field orders", "tool", tool="document", weight=0.05, volume=0.05, glyph="?",
      color=(230, 210, 160), desc="An officer's orders for the day: objectives, times, fire plans.")
-gear("marked_map", "marked map", "tool", tool="document", weight=0.2, volume=0.2, glyph="?", color=(230, 210, 160),
-     desc="A map with the enemy's own positions and boundaries in grease pencil.")
+gear("marked_map", "marked map", "tool", tool="map", weight=0.2, volume=0.2, glyph="?", color=(230, 210, 160),
+     desc="A map with the enemy's own positions and boundaries in grease pencil. Use it to read what they "
+          "have marked, then hand it to intelligence.")
 gear("op_orders", "operation orders", "tool", tool="document", weight=0.2, volume=0.2, glyph="?",
      color=(250, 220, 150), desc="A battalion's plan of attack, in full. Worth a man's life to get back.")
 gear("whistle", "whistle", "tool", tool="whistle", weight=0.02, volume=0.01,

@@ -201,6 +201,10 @@ def book(game) -> list:
         o = sq.order
         from .ai import order_target
         text = o.describe(game)
+        from .plan import for_squad, brief
+        pl, role = for_squad(game, sq)
+        if text and pl is not None and role is not None:
+            text = f"{text}. {brief(game, pl, sq)}"
         if text:
             out.append(dict(key="squad", who=f"{sq.leader.full_name}, your {sq.leader.role_name.lower()}",
                             how=_route(game, sq.leader), text=text, issued=o.issued, due=None,
@@ -209,15 +213,20 @@ def book(game) -> list:
                             point=order_target(game, sq), authority=sq.leader.rank))
     cmd = game.command
     if cmd.billet is not None or (sq is not None and sq.player_led):
+        from . import plan as _plan
         objs = [o for o in game.map.objectives if o.owner != p.side] if game.map is not None else []
         ob = min(objs, key=lambda o: abs(o.x - p.x) + abs(o.y - p.y)) if objs else None
         text = f"Take {ob.name}." if ob is not None else None
+        point = (ob.x, ob.y) if ob is not None else None
+        pl = _plan.for_player(game)
+        if pl is not None:
+            text, point = pl[0], pl[1] or point
         if text:
             out.append(dict(key="command", who="battalion" if cmd.billet is not None else "company",
                             how="the battalion net" if p.has_tool("radio") else "a runner",
                             text=text, issued=None, due=None, reward="a reported contribution to the operation",
                             penalty="relieved of your command if it goes badly enough", urgent=False,
-                            point=(ob.x, ob.y), authority=12 if cmd.billet is not None else 10))
+                            point=point, authority=12 if cmd.billet is not None else 10))
     field = game.__dict__.get("field_order")
     if field and field.get('journey'):
         if tuple(field['journey']) == (game.sector.x,game.sector.y):

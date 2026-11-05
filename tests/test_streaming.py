@@ -401,7 +401,15 @@ def test_enemy_spatial_candidates_match_full_scan_including_moving_targets():
             distances = np.sqrt(((pos-(a.x,a.y))**2).sum(axis=1))
             expected = np.nonzero(distances <= radius)[0]
             expected = expected[np.argsort(distances[expected])][:40]
-            assert list(g.enemy_candidates(a,radius)) == list(expected)
+            got = np.asarray(list(g.enemy_candidates(a, radius)), dtype=np.intp)
+            if not len(expected):
+                assert not len(got)
+                continue
+            # (equal-distance ties may come back in a different order; the distances, and every
+            # candidate strictly nearer than the fortieth, must be the same)
+            assert np.allclose(distances[got], distances[expected])
+            assert set(got[distances[got] < distances[expected][-1]]) == \
+                set(expected[distances[expected] < distances[expected][-1]])
     enemy = next(a for a in g.actors if a.side != g.player.side)
     enemy.x,enemy.y = g.player.x+1,g.player.y
     g.note_move(enemy)

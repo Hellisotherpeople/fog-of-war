@@ -52,7 +52,7 @@ def sheltered(game, a):
         if deck is not None:
             return not deck.weather
     return m is not None and m.in_bounds(a.x, a.y) and T.FLOOR[m.t[a.x, a.y]] and \
-        not a.__dict__.get("z", 0) > 0
+        not a.z > 0
 
 
 def exposure(game, a):

@@ -83,7 +83,7 @@ def update(game, a, dt=30):
         ins += 2.5
     moving = a.moved_turn >= game.turn - 3
     work = 4.0 if moving else 0.0
-    if getattr(a, "stamina", 100) < 60 and moving:
+    if a.stamina < 60 and moving:
         work += 3.0
     # the body's balance: comfortable between about 8 and 26 degrees felt, clothed
     felt = air + 7 * ins + work - (4 if a.stance == 2 and air < 5 else 0)

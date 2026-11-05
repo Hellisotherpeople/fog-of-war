@@ -137,7 +137,8 @@ class DistanceField:
         return int(value)-1 if value and (self.settled[x,y] or value == 1) else BIG
 
     def __getitem__(self, key):
-        if isinstance(key,tuple) and len(key)==2 and all(isinstance(v,(int,np.integer)) for v in key):
+        if isinstance(key, tuple) and len(key) == 2 and isinstance(key[0], (int, np.integer)) and \
+                isinstance(key[1], (int, np.integer)):
             return self.item(*key)
         return self.materialize()[key]
 
@@ -164,7 +165,8 @@ class RustDistanceField:
         return self._field.settled
 
     def __getitem__(self, key):
-        if isinstance(key,tuple) and len(key)==2 and all(isinstance(v,(int,np.integer)) for v in key):
+        if isinstance(key, tuple) and len(key) == 2 and isinstance(key[0], (int, np.integer)) and \
+                isinstance(key[1], (int, np.integer)):
             return self.item(*key)
         return self.materialize()[key]
 

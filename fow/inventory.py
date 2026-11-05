@@ -7,6 +7,8 @@ belts are individual items with round counts.  Bodies keep their kit.
 """
 from __future__ import annotations
 
+_VER = [0]                  # bumped whenever any grid's contents change
+
 
 SLOTS = ("head", "body", "rig", "pack", "primary", "secondary", "holster", "melee")
 SLOT_NAME = {"head": "Head", "body": "Body", "rig": "Webbing", "pack": "Pack", "primary": "Primary (sling)",
@@ -122,6 +124,7 @@ class Grid:
         item.grid = self
         item.gpos = (x, y)
         self.items.append(item)
+        _VER[0] += 1
 
     def remove(self, item):
         if item in self.items:
@@ -132,6 +135,7 @@ class Grid:
                     col[j] = None
         item.grid = None
         item.gpos = None
+        _VER[0] += 1
 
     def find_spot(self, item):
         if not self.allows(item):
@@ -159,9 +163,9 @@ def container_grids(item) -> list:
     if gs is None:
         spec = item.t.get("grids") or ()
         gs = [Grid(w, h, name, set(allow) if allow else None) for (w, h, name, allow) in spec]
+        for g in gs:
+            g.owner = item
         item.data["grids"] = gs
-    for g in gs:
-        g.owner = item
     return gs
 
 
@@ -172,6 +176,7 @@ class Inventory:
         self.slots = {s: None for s in SLOTS}
         self.pockets = [Grid(1, 1, "pocket") for _ in range(4)]
         self.hands = None              # something carried in both hands (crate, second body...)
+        self._items_cache = None
 
     # ------------------------------------------------------------ enumeration
     def grids(self):
@@ -190,11 +195,29 @@ class Inventory:
         return out
 
     def items(self):
+        """Everything carried, in reach order (cached until a slot or a grid changes)."""
+        sig = (_VER[0], self.hands, tuple(self.slots.values()))
+        cache = self.__dict__.get('_items_cache')
+        if cache is not None and cache[:3] == sig:
+            return cache[3]
         out = [it for it in self.slots.values() if it is not None]
-        for g, _ in self.grids():
+        rig = self.slots["rig"]
+        if rig is not None:
+            for g in container_grids(rig):
+                out += g.items
+        for g in self.pockets:
             out += g.items
+        body = self.slots["body"]
+        if body is not None and body.t.get("grids"):
+            for g in container_grids(body):
+                out += g.items
+        pack = self.slots["pack"]
+        if pack is not None and pack.t.get("grids"):
+            for g in container_grids(pack):
+                out += g.items
         if self.hands is not None:
             out.append(self.hands)
+        self._items_cache = (*sig, out)
         return out
 
     def location(self, item) -> str:

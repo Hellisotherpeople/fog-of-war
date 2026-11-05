@@ -189,6 +189,126 @@ def strategic_reports(game, initial=False):
                 pending.append((side, key, report, game.turn + (600 if own else 1200)))
 
 
+# ------------------------------------------------------------------ reading captured papers
+
+# what each captured paper can be made to say, and the glyph it leaves on the ground
+DOC_INTEL = {"paybook": 0, "notebook": 1, "field_orders": 2, "marked_map": 3, "op_orders": 4}
+INTEL_GLYPH = {"bunker": "B", "mg_nest": "M", "trench": "·", "foxhole": "·", "hq": "H", "depot": "D",
+               "artillery": "A", "aa": "F", "aid": "+", "motor_pool": "P", "airfield": "W", "fortress": "#",
+               "naval_base": "N", "inf": "·"}
+FORT_DAYS = 1800            # how long pencil notes are worth acting on
+
+
+def _note(game, player, x, y, kind, age=0):
+    """A pencilled position on the player's map, deduplicated against what he already has."""
+    notes = player.ai.setdefault("map_intel", [])
+    for n in notes:
+        if n["kind"] == kind and max(abs(n["x"] - x), abs(n["y"] - y)) <= 2:
+            n["turn"] = max(n["turn"], game.turn - age)
+            return
+    notes.append(dict(x=x, y=y, kind=kind, turn=game.turn - age))
+    if len(notes) > 240:
+        del notes[:-240]
+
+
+def map_intel(game, player):
+    """The notes still worth trusting, freshest first."""
+    return [n for n in player.ai.get("map_intel", ()) if game.turn - n["turn"] <= FORT_DAYS]
+
+
+def study(game, player, it) -> list[str]:
+    """Read a captured paper.  Returns what it told you, level by level."""
+    from .brain import Contact
+    d = it.data or {}
+    enemy = d.get("side")
+    if not enemy or enemy == player.side:
+        return ["Ours, not theirs. Nothing on it you don't already know."]
+    if (it.data or {}).get("studied_by") == player.id and game.turn - (it.data or {}).get("studied", 0) < 600:
+        return ["You've read this one already; the pencil hasn't changed."]
+    level = DOC_INTEL.get(it.tid, 0)
+    rng = game.rng
+    out = []
+    brain = game.brains[player.side]
+    written = d.get("written", game.turn)
+    # everyone's papers say whose they are
+    if d.get("unit"):
+        out.append(f"the unit: {d['unit']}")
+    elif level >= 1:
+        out.append("their section and its job")
+    # the positions written into it, with the error of a hurried pencil
+    positions = d.get("positions") or ()
+    if level >= 2 and positions:
+        placed = 0
+        for aid, x, y in positions[:60]:
+            sx = x + rng.randint(-2, 2)
+            sy = y + rng.randint(-2, 2)
+            brain.contacts[aid] = Contact(aid, sx, sy, max(0, written - 60), "inf")
+            _note(game, player, sx, sy, "inf", age=60)
+            placed += 1
+        if placed:
+            out.append(f"{placed} of their positions still roughly where they were written")
+    # a marked map carries the defensive layout of this very field
+    if level >= 3:
+        here = game.sector
+        found = 0
+        for rec in game.map.gen_positions:
+            if rec.get("side") != enemy or rec.get("destroyed"):
+                continue
+            kind = rec.get("kind", "inf")
+            sx = rec["x"] + rng.randint(-1, 1)
+            sy = rec["y"] + rng.randint(-1, 1)
+            _note(game, player, sx, sy, kind, age=rng.randint(0, 120))
+            if kind in ("bunker", "mg_nest", "hq", "depot", "artillery", "aa", "motor_pool", "airfield", "fortress"):
+                cid = -1 - len(brain.contacts)
+                brain.contacts[cid] = Contact(cid, sx, sy, max(0, written - 120),
+                                              {"mg_nest": "mg", "hq": "inf", "aid": "inf"}.get(kind, "bunker"
+                                                                                               if kind == "bunker"
+                                                                                               else "atgun"
+                                                                                               if kind in ("artillery",
+                                                                                                           "aa")
+                                                                                               else "inf"))
+            found += 1
+        for (mx, my), mn in game.map.mines.items():
+            if mn.side == enemy:
+                mn.known.add(player.side)
+        for i, ob in enumerate(game.map.objectives):
+            reports = game.map.__dict__.setdefault("objective_reports", {s: {} for s in SIDES})[player.side]
+            if ob.owner is not None:
+                reports[i] = ob.owner
+                ob.__dict__.setdefault("reported_owners", {})[player.side] = ob.owner
+        if found:
+            out.append(f"their defences: {found} posts, holding posts and obstacles on this field")
+        # and the situation round here, as their staff wrote it
+        from copy import deepcopy
+        reports = {}
+        for s in game.strategic.neighbors(here) + [here]:
+            snap = _snapshot(game.strategic, s, enemy, written)
+            reports[(s.x, s.y)] = snap
+        for report in reports.values():
+            report["source"] = "captured map"
+            report["enemy_known"] = True
+        merge_map(player, deepcopy(reports))
+        out.append("their strength in the neighbouring sectors")
+    # operation orders: what they mean to do next
+    if level >= 4:
+        from .logistics import _enemy_plan
+        plan = _enemy_plan(game, player.side)
+        if plan:
+            out.append(plan)
+        for s in game.strategic.sectors():
+            if s.control == enemy:
+                n = _snapshot(game.strategic, s, enemy, written)
+                n["source"] = "captured operation orders"
+                n["enemy_known"] = True
+                merge_map(player, {(s.x, s.y): n})
+        out.append("every sector they hold, marked with what is in it")
+    if it.data is None:
+        it.data = {}
+    it.data["studied"] = game.turn
+    it.data["studied_by"] = player.id
+    return out
+
+
 def merge_map(actor, reports):
     """A delayed packet cannot erase newer notes already on a carried map."""
     known = actor.ai.setdefault("map_reports", {})

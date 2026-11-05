@@ -91,7 +91,7 @@ def aim_time(a, t) -> int:
     elif t.weight > 6 and a.stance == 0:
         c *= 1.3                                   # a heavy gun held up offhand
     c *= 1 + a.body.aim_penalty() * 0.25
-    if getattr(a, "stamina", 100.0) < 35:
+    if a.stamina < 35:
         c *= 1.3                                   # chest heaving, the sights won't settle
     if a.suppression > 30:
         c *= 1 + (a.suppression - 30) / 70
@@ -211,6 +211,8 @@ def describe_chance(p: float) -> tuple[str, tuple]:
 
 def fire_weapon(game, shooter, weapon, tx: int, ty: int, target=None, *, mode=None,
                 area=False) -> int:
+    if shooter.is_player and game.__dict__.get("drill"):
+        game.stats["drill_shots"] += 1
     from .conduct import attack
     with attack(game, shooter, (tx, ty), target):
         return _fire_weapon(game, shooter, weapon, tx, ty, target, mode=mode, area=area)
@@ -351,7 +353,7 @@ def trace_projectile(game, ox: int, oy: int, ang: float, max_range: float, dmg: 
             energy = dmg * through * max(0.25, 1 - dist / max_range)
         # ---- creatures
         a = game.soldier_at.get((x, y))
-        if a is not None and getattr(a, "z", 0) < 0:
+        if a is not None and a.z < 0:
             a = None                                  # (under the floor: nothing flying reaches the cellar)
         if a is not None and (a is not shooter or from_explosion or ricochets) and a.alive:
             cx, cy = x + 0.5 - sx, y + 0.5 - sy
@@ -513,6 +515,8 @@ def suppress_line(game, x0, y0, x1, y1, amount, shooter_side, exclude=None):
 def hit_actor(game, a, dmg, kind, attacker, source, from_pos=None, part=None, silent=False):
     if not a.alive:
         return None
+    if a.ai.get("drill_target") and game.__dict__.get("drill"):
+        game.stats["drill_hits"] += 1
     rng = game.rng
     covered = False
     if from_pos is not None and a.stance > 0:
@@ -878,7 +882,7 @@ def _explode(game, x, y, power, radius, *, frags=0, frag_dmg=20, pen=0, attacker
             f = max(0.0, 1 - dist / (radius + 1)) ** 1.6
             dmg = power * 0.55 * f
             a.ai["shelled"] = game.turn
-            if getattr(a, "z", 0) < 0:
+            if a.z < 0:
                 dmg *= 0.08                          # in the cellar: dust, a ringing in the ears, and alive
                 f *= 0.3
             st = 2 if a.downed else a.stance

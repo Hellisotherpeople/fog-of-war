@@ -1053,6 +1053,89 @@ def menu(gen):
     return m
 
 
+def clutter(gen):
+    """The ordinary stuff of a working place, where fire can get at it: hay by the farm, drums and gas by the
+    works, coal by the line, crates round the houses. A few small explosions waiting to happen."""
+    r = gen.rng
+    b = gen.m.biome
+    if b in ("sea",):
+        return
+    pool = ["crates", "timber"]
+    if b in ("farmland", "farmland_light", "bocage", "village", "steppe"):
+        pool += ["hay", "hay", "fuel_drums"]
+    if b in ("factory", "town", "city_ruins", "abbey"):
+        pool += ["fuel_drums", "gas_cylinders", "coal_heap", "crates"]
+    if b in ("hills", "mountain", "forest"):
+        pool += ["timber", "coal_heap"]
+    spots = [(x, y) for road in gen.roads[:3] for x, y in road[::17]]
+    r.shuffle(spots)
+    for x, y in spots[:r.randint(2, 5)]:
+        for _ in range(r.randint(2, 4)):
+            xx, yy = x + r.randint(-2, 2), y + r.randint(-2, 2)
+            if _in(gen, xx, yy) and not gen.protected[xx, yy] and T.WALK[gen.m.t[xx, yy]] \
+                    and not T.WATER[gen.m.t[xx, yy]] and gen.m.building_at(xx, yy) is None:
+                put(gen, xx, yy, r.choice(pool))
+
+
+def historical(gen, site):
+    """A place with a history: a burnt village, a ravine, a ruin - and the marker that tells it."""
+    from .data.history import SITES
+    r = gen.rng
+    kind = site["kind"]
+    at = spot(gen, 26, 18, dense_ok=0.7, depth=(0.3, 0.8))
+    if at is None:
+        return False
+    x0, y0 = at
+    t = gen.m.t
+    ground_key = "rubble_light" if kind in ("burnt_village", "great_ruin", "ruin_marker") else ground(gen)
+    clear(gen, x0, y0, 26, 18, ground_key)
+    mx, my = x0 + 13, y0 + 9
+    if kind == "burnt_village":
+        for k in range(6):
+            bx, by = x0 + 2 + (k % 3) * 8, y0 + 2 + (k // 3) * 9
+            _building(gen, bx, by, r.randint(5, 7), r.randint(4, 6), "house", ruin=r.uniform(0.65, 0.95),
+                      rooms=False)
+        _building(gen, x0 + 9, y0 + 6, 8, 6, "church", ruin=0.7)
+        for _ in range(10):
+            put(gen, r.randint(x0 + 1, x0 + 24), r.randint(y0 + 1, y0 + 16), r.choice(("rubble", "rubble_wood")))
+    elif kind == "ravine":
+        for x in range(x0 + 2, x0 + 24):
+            yy = y0 + 7 + int(3 * math.sin((x - x0) / 4.0))
+            for dy in range(-1, 3):
+                put(gen, x, yy + dy, "crater")
+            put(gen, x, yy + 1, "dirt")
+        rise(gen, x0 + 13, y0 + 9, -5.0, 30)
+        for _ in range(16):
+            put(gen, r.randint(x0 + 3, x0 + 22), r.randint(y0 + 6, y0 + 13), "grave")
+        mx, my = x0 + 13, y0 + 6
+    elif kind == "great_ruin":
+        _building(gen, x0 + 4, y0 + 3, 18, 12, "chateau" if r.random() < 0.5 else "factory", ruin=0.6)
+        for _ in range(12):
+            put(gen, r.randint(x0 + 1, x0 + 24), r.randint(y0 + 1, y0 + 16), r.choice(("rubble", "rubble_light")))
+        mx, my = x0 + 13, y0 + 16
+    elif kind == "ruin_marker":
+        _building(gen, x0 + 8, y0 + 3, 10, 8, "house", ruin=0.85)
+        for _ in range(14):
+            put(gen, r.randint(x0 + 2, x0 + 23), r.randint(y0 + 2, y0 + 16), "rubble")
+        mx, my = x0 + 13, y0 + 14
+    elif kind == "cemetery_marker":
+        for x in range(x0 + 3, x0 + 23, 2):
+            for y in range(y0 + 4, y0 + 15):
+                if r.random() < 0.4:
+                    put(gen, x, y, "grave")
+        clear(gen, x0 + 3, y0 + 7, 20, 2, "gravel")
+        mx, my = x0 + 13, y0 + 8
+    else:                                  # marker_village
+        for k in range(3):
+            _building(gen, x0 + 3 + k * 8, y0 + 3, 5, 4, "house", ruin=r.uniform(0.2, 0.6), rooms=False)
+    put(gen, mx, my, "marker")
+    gen.protected[max(0, mx - 1):mx + 2, max(0, my - 1):my + 2] = True
+    gen.positions.append(dict(kind="history", side=None, x=mx, y=my, name=site["name"], note=site["note"]))
+    poi(gen, site["name"], mx, my, 12)
+    protect(gen, x0, y0, 26, 18)
+    return True
+
+
 def place(gen):
     """Build this sector's landmarks (mapgen.Gen.run calls this once the ground, the villages and the rivers
     are down, before the defences are dug)."""
@@ -1060,7 +1143,20 @@ def place(gen):
     gen.rng = random.Random((gen.seed * 1000003 + 77) & 0x7FFFFFFF)
     try:
         r = gen.rng
+        from .data.history import SITES
+        for site in SITES.get(gen.spec.get("theatre") or "", ()):
+            if r.random() < min(0.9, site["weight"] * 0.3) and historical(gen, site):
+                break
+        from . import varia
+        if r.random() < 0.16 + min(0.2, gen.k * 0.05):
+            rare = varia.rare(gen)
+            if rare is not None:
+                try:
+                    rare(gen)
+                except (IndexError, ValueError):
+                    pass
         opts = menu(gen)
+        opts += varia.menu(gen)
         n = int(round(1 + gen.k * 0.9 + r.random() * 0.8))
         done = 0
         while opts and done < n:
@@ -1076,6 +1172,7 @@ def place(gen):
                     done += 1
             except (IndexError, ValueError):
                 pass
+        clutter(gen)
         dress(gen)
     finally:
         gen.rng = saved

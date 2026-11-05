@@ -279,6 +279,11 @@ class PlayState:
             top.print(0, 0, f" {hint} ", fg=(20, 20, 20), bg=(170, 200, 230))
             if self.overlay is not None:
                 self.overlay.rgba["bg"][: len(hint) + 2, 0, 3] = 255
+        drill = g.__dict__.get("drill")
+        if drill is not None:
+            drill.update(self)
+            if self.inv_screen is None and self.mode != "target":
+                drill.draw(con, self)
 
     # ------------------------------------------------------------ the camera
     def _view_tiles(self, gfx):
@@ -565,8 +570,9 @@ class PlayState:
         if lines and self.cam.on_screen(cx, cy):
             m = g.map
             box = draw_look_tooltip(con, self.cam.to_text(cx, cy), lines, title,
-                                    art=self._look_art(cx, cy, m.visible[cx, cy], math.hypot(cx - ox, cy - oy))
-                                    if self.mode in ("look", "nearby") else [])
+                                    pic=self._look_pic(cx, cy, m.visible[cx, cy], math.hypot(cx - ox, cy - oy))
+                                    if self.mode in ("look", "nearby") else None,
+                                    art=self._parked_sketch(cx, cy, m.visible[cx, cy]))
             if self.mode == "target":
                 self._sight_picture(con, cx, cy, box)
 
@@ -627,7 +633,8 @@ class PlayState:
                 p = g.player
                 ox, oy = (p.vehicle.x, p.vehicle.y) if p.vehicle is not None else (p.x, p.y)
                 draw_look_tooltip(con, self.cam.to_text(x, y), lines, title,
-                                  art=self._look_art(x, y, g.map.visible[x, y], math.hypot(x - ox, y - oy)))
+                                  pic=self._look_pic(x, y, g.map.visible[x, y], math.hypot(x - ox, y - oy)),
+                                  art=self._parked_sketch(x, y, g.map.visible[x, y]))
             return
         if not g.map.explored[x, y]:
             return
@@ -712,9 +719,9 @@ class PlayState:
                 cond = []
                 if a.moved_turn >= g.turn - 1 and a.ai.get("pace_now") in ("run", "sprint"):
                     cond.append(a.ai["pace_now"] + "ing" if a.ai["pace_now"] == "sprint" else "running")
-                if getattr(a, "stamina", 100) < 20:
+                if a.stamina < 20:
                     cond.append("gasping for breath")
-                elif getattr(a, "fatigue", 0) > 70:
+                elif a.fatigue > 70:
                     cond.append("worn out")
                 t = getattr(a.body, "temp", 37.0)
                 if t < 34.5:
@@ -791,6 +798,13 @@ class PlayState:
             if tdesc and not brief:
                 import textwrap
                 lines += [(ln, UI_DIM) for ln in textwrap.wrap(tdesc, 58)[:4]]
+            if not brief:
+                note = next((rec.get("note") for rec in getattr(m, "gen_positions", ())
+                             if rec.get("kind") == "history" and abs(rec["x"] - x) <= 1
+                             and abs(rec["y"] - y) <= 1 and rec.get("note")), None)
+                if note:
+                    import textwrap
+                    lines += [(ln, (210, 200, 170)) for ln in textwrap.wrap(note, 58)[:7]]
             from .relief import words as height_words
             hw = height_words(g, x, y)
             if hw:
@@ -812,18 +826,17 @@ class PlayState:
             lines.append((yards(d), UI_TEXT))
         return lines, title
 
-    def _look_art(self, x, y, vis, d):
-        """What a look at that tile shows you: the thing itself, drawn (in-world, not a menu)."""
-        from .itemart import look_lines
-        from . import itemart
+    def _look_pic(self, x, y, vis, d):
+        """The thing itself, as a picture, when you look at it: the gun a man holds, the kit on the ground."""
+        from . import icons
         g = self.game
         m = g.map
-        if not vis:
-            return []
+        if not vis or not icons.on():
+            return None
         a = g.soldier_at.get((x, y))
         if a is not None and a.weapon is not None and a.weapon.t.kind == "gun" and \
                 player_can_see_actor(g, a) and (d < 25 or g.player_binoculars):
-            return look_lines(a.weapon, itemart.MAX_W)
+            return icons.item_key(a.weapon)
         items = m.items_at(x, y)
         if items:
             top = min(items, key=lambda i: {"gun": 0, "explosive": 1, "grenade": 1, "melee": 2}.get(i.t.kind, 3))
@@ -831,17 +844,25 @@ class PlayState:
                 from .entities import visible_body_items
                 for kit, _loc in visible_body_items(top, d):
                     if kit.t.kind == "gun":
-                        return look_lines(kit, itemart.MAX_W, dim=True)
-                return []
-            return look_lines(top, itemart.MAX_W, dim=True)
-        if m.in_bounds(x, y) and T.DEFS[int(m.t[x, y])].key.startswith("ac_"):
-            from .parked import at as ac_at, sketch as ac_sketch
-            rec = ac_at(m, x, y)
-            if rec is not None and ac_at is not None:
-                rows = ac_sketch(rec["model"], rec.get("folded", False))
-                pad = " " * max(0, (itemart.MAX_W - max(len(r) for r in rows)) // 2)
-                return [(pad + r, (150, 152, 140)) for r in rows]
-        return []
+                        return icons.item_key(kit)
+                return None
+            return icons.item_key(top)
+        return None
+
+    def _parked_sketch(self, x, y, vis):
+        """An aircraft on the ground still shows as a pencilled planform (there is no picture of every model)."""
+        from . import icons
+        g = self.game
+        m = g.map
+        if not vis or icons.on() and self._look_pic(x, y, vis, 0) is not None:
+            return ()
+        if not m.in_bounds(x, y) or not T.DEFS[int(m.t[x, y])].key.startswith("ac_"):
+            return ()
+        from .parked import at as ac_at, sketch as ac_sketch
+        rec = ac_at(m, x, y)
+        if rec is None:
+            return ()
+        return [(r, (150, 152, 140)) for r in ac_sketch(rec["model"], rec.get("folded", False))]
 
     # ================================================================== animation / ticking
     def realtime_enabled(self):
@@ -1521,6 +1542,11 @@ class PlayState:
         p = g.player
         if g.map is None:
             return                                    # (between worlds: the sky view or the camp is coming)
+        if g.__dict__.get("drill") is not None:
+            if key.sym == E.KeySym.F10:
+                g.drill.skip(self)
+                return
+            g.drill.key(self, key)
         if key.sym == E.KeySym.F7 and not self.popups and self.inv_screen is None:
             return self.cmd_objective_travel()
         if key.sym == E.KeySym.F6 and not self.popups and self.inv_screen is None:
@@ -3362,7 +3388,130 @@ class PlayState:
                 opts.append((f"{g.name_of(a)} - {self._hurt_words(a)}", a, (240, 120, 100) if a.downed else None, True))
             self.open_popup(Popup("Patch up who?", opts, self._screen_anchor()), self._patch_menu)
             return
+        if p.body.wounds or p.body.infection() > 15 or p.body.__dict__.get("shock", 0) > 40:
+            return self._self_treat_menu()
         self._patch_up(p)
+
+    def _self_treat_menu(self):
+        """Your own body, laid out: what's bleeding, what's broken, what's going bad."""
+        from . import medical as MED
+        from .body import PART_NAME
+        g = self.game
+        p = g.player
+        b = p.body
+        opts = [("Treat what's worst on me (auto)", "auto", (240, 200, 120), True)]
+        lines = [(f"{MED.skill_name(MED.skill(p))}. {len(b.wounds)} wound{'s' if len(b.wounds) != 1 else ''}, "
+                  f"{b.blood:.0f} ml blood.", UI_DIM)]
+        for w in b.wounds:
+            if w.tourniquet:
+                continue
+            name = PART_NAME[w.part]
+            state = "spurting" if w.arterial else "gushing" if w.bleed > 5 else "bleeding" if w.bleed > 1 else \
+                "oozing" if w.burn or w.bleed > 0.2 else "clotted"
+            if w.fracture and not b.splinted_at(w.part):
+                state = "broken and " + state
+            if getattr(w, "infection", 0) > 40:
+                state += ", infected"
+            if getattr(w, "necrosis", False):
+                state += ", blackening"
+            if w.bandaged:
+                age = g.turn - getattr(w, "dress_turn", 0)
+                opts.append((f"Change the dressing on the {name} ({state})", ("redress", w.part),
+                             None if age < 900 else (240, 170, 110), True))
+                continue
+            item = (p.medical("burn") if w.burn else p.medical("pressure") if w.arterial
+                    else p.medical("bandage"))
+            if item is not None:
+                opts.append((f"Dress the {name} ({state})", ("dress", item, w.part), None, True))
+            if w.arterial and p.medical("tourniquet") is not None:
+                opts.append((f"Tourniquet the {name}", ("tour", p.medical("tourniquet")), (240, 180, 160), True))
+        for part, until in b.__dict__.get("splint_turn", {}).items():
+            if g.turn > until and any(w.part == part and w.fracture for w in b.wounds) and \
+                    p.find(lambda i: i.t.tool == "splint"):
+                opts.append((f"Re-splint the broken {PART_NAME[part]}", ("splint", part), None, True))
+        for part in PART_NAME:
+            if any(w.part == part and w.fracture and not b.splinted_at(part) for w in b.wounds) and \
+                    p.find(lambda i: i.t.tool == "splint"):
+                opts.append((f"Splint the broken {PART_NAME[part]}", ("splint", part), None, True))
+                break
+        if b.infection() > 20:
+            if p.medical("penicillin"):
+                opts.append(("Take a shot of penicillin", ("pen", p.medical("penicillin")), (235, 235, 180), True))
+            elif p.medical("sulfa"):
+                opts.append(("Dust the wounds with sulfa", ("sulfa", p.medical("sulfa")), (235, 235, 180), True))
+            elif p.find(lambda i: i.t.tool == "antiseptic"):
+                opts.append(("Clean the wounds with antiseptic", ("antiseptic", p.find(lambda i: i.t.tool == "antiseptic")),
+                             (235, 235, 180), True))
+        if b.__dict__.get("shock", 0) > 55:
+            opts.append(("Lie flat, feet up, and keep warm", "warm", (190, 205, 225), True))
+        if b.effective_pain() > 70 and p.medical("morphine") and b.morphine < 90:
+            opts.append(("Take morphine", ("morph", p.medical("morphine")), (200, 200, 245), True))
+        lines.append((f"Triage: {MED.TRIAGE[MED.triage(b)]}.", UI_DIM))
+        self.open_popup(Popup("Your injuries", opts, self._screen_anchor(), lines=lines), self._self_treat_do)
+
+    def _self_treat_do(self, what):
+        from . import medical as MED
+        g = self.game
+        p = g.player
+        b = p.body
+        if what == "auto":
+            return self._patch_up(p)
+        if what == "warm":
+            b.warm(720)
+            if p.stance == 0:
+                p.stance = 2
+            g.msg("You lie flat, feet propped, and wrap up against the cold. The grey recedes a little.", "good")
+            return self.act(200)
+        if isinstance(what, tuple):
+            kind = what[0]
+            if kind == "dress":
+                c = A.treat(g, p, p, what[1], part=what[2])
+                if c:
+                    self.act(c)
+                return
+            if kind == "redress":
+                part = what[1]
+                for w in b.wounds:
+                    if w.part == part:
+                        w.bandaged = False
+                item = b.bleeding_wound(part)
+                item = (p.medical("burn") if item is not None and item.burn else p.medical("pressure")) \
+                    or p.medical("bandage")
+                if item is None:
+                    g.msg("You've no dressing left to change it with.", "warn")
+                    return
+                c = A.treat(g, p, p, item, part=part)
+                if c:
+                    self.act(c)
+                return
+            if kind == "tour":
+                c = A.treat(g, p, p, what[1])
+                if c:
+                    self.act(c)
+                return
+            if kind == "splint":
+                it = p.find(lambda i: i.t.tool == "splint")
+                if it is None or not b.splint(what[1], g.turn, it.condition):
+                    return
+                if it.t.uses:
+                    from .actions import _consume
+                    _consume(p, it)
+                g.msg(f"You brace the broken {what[1].replace('l_', 'left ').replace('r_', 'right ')}. "
+                      f"The grinding stops.", "good")
+                return self.act(420)
+            if kind in ("pen", "sulfa", "morph"):
+                c = A.treat(g, p, p, what[1])
+                if c:
+                    self.act(c)
+                return
+            if kind == "antiseptic":
+                it = what[1]
+                n = b.antisepsis(it.condition, g.turn)
+                from .actions import _consume
+                _consume(p, it)
+                g.msg(f"You clean {n} wound{'s' if n != 1 else ''} and pack them with clean dressing. "
+                      f"It stings.", "good")
+                return self.act(400)
 
     def _prisoner(self, who, what):
         """A prisoner of yours: search him, tell him what to do, patch him up, hand him on."""
@@ -3779,6 +3928,8 @@ class PlayState:
 
     def cmd_overmap(self):
         from .ui import OvermapState
+        if self.game.__dict__.get("drill"):
+            self.game.__dict__["drill_map"] = True
         self.app.push(OvermapState(self.app, self.game))
 
     def cmd_log(self):
@@ -4424,19 +4575,25 @@ class PlayState:
         return (p.x, p.y)
 
     def examine(self, it):
+        from . import icons
         lines = self.examine_lines(it)
         self.open_popup(Popup(it.name, [("Close", None, None, True)], self._screen_anchor(), lines=lines,
-                              width=58), lambda v: None)
+                              width=58, pic=icons.item_key(it)), lambda v: None)
 
     def examine_lines(self, it):
         """What you see when you look an item over: what it is, its story, and this one's particulars."""
         t = it.t
-        from .itemart import art_lines
-        art = art_lines(t, 56)
-        lines = list(art)
         import textwrap
+        from . import quality as Q
+        lines = []
         for l in textwrap.wrap(t.desc or "Nothing remarkable.", 52):
             lines.append((l, UI_TEXT))
+        if t.kind == "gun":
+            lines.append(("", None))
+            lines.append((Q.words(t), Q.color(t)))
+            against = Q.against(t, getattr(self.game.player.weapon, "t", None))
+            if against:
+                lines.append((against, UI_DIM))
         from .data.lore import LORE
         lore = LORE.get(t.id)
         if lore:
@@ -4463,17 +4620,25 @@ class PlayState:
                 lines.append(("Can punch through armour.", UI_DIM))
         if t.kind == "grenade":
             lines.append((f"Fuse about {t.fuse} seconds." if t.fuse > 1 else "Explodes on impact.", UI_DIM))
+        if it.tid in ("marked_map", "op_orders", "field_orders", "notebook", "paybook") and \
+                (it.data or {}).get("side") not in (None, self.game.player.side):
+            from .intelligence import DOC_INTEL
+            lines.append(("", None))
+            lines.append(("Captured from the enemy. Use it to read what they wrote; hand it to intelligence for "
+                          "credit.", (200, 190, 150)))
+            if (it.data or {}).get("studied") is not None:
+                lines.append(("You've copied what matters out of it.", UI_DIM))
+            elif DOC_INTEL.get(it.tid, 0) >= 2:
+                lines.append(("Worth a few minutes with a pencil.", UI_DIM))
         if t.kind == "corpse" and it.data:
             d = it.data
-            lines = art + [(f"{d.get('name', 'Unknown')}", UI_HI),
+            lines = [(f"{d.get('name', 'Unknown')}", UI_HI),
                      (f"{NATIONS[d['nation']]['adj']} {d.get('role', 'soldier').replace('_', ' ')}", UI_TEXT),
                      (f"Killed by {d.get('cause') or 'unknown causes'}.", UI_DIM)]
         lines.append((f"Weight {it.weight:.1f} kg.", UI_DIM))
         from .equipment import description
         for line in description(it):
             lines.extend((s, UI_DIM) for s in textwrap.wrap(line, 52))
-        if art and len(lines) + 1 > VIEW_H - 6:
-            lines = lines[len(art):]                     # (the words matter more than the picture, if both won't fit)
         return lines
 
     def _personal_use(self, it):
@@ -4554,6 +4719,16 @@ class PlayState:
         p = g.player
         tool = it.t.tool
         rng = g.rng
+        from .intelligence import DOC_INTEL, study
+        if it.tid in DOC_INTEL and (it.data or {}).get("side") not in (None, p.side):
+            if not p.has_tool("map") or p.has_tool("map") is it or it.t.tool == "map":
+                g.msg("You spread it out and read what they marked.", "info")
+            for what in study(g, p, it):
+                g.msg(f"From the {it.name}: {what}.", "radio" if DOC_INTEL[it.tid] >= 3 else "info")
+            self.act(400)
+            if tool == "map":
+                return self.cmd_overmap()
+            return
         if tool in ("antiseptic", "splint", "blanket", "gun_oil", "fuel", "repair", "spares"):
             from .sustain import use
             return use(self, it)
@@ -4913,7 +5088,7 @@ class PlayState:
     # what can be used where it lies, without picking it up first: dressings, syrettes, food, water, a smoke, a
     # letter to read (the rest - a rifle, a radio - you take up)
     IN_PLACE = {"canteen", "flask", "cigarettes", "ration", "chocolate", "stimulant", "gum", "letter", "photo",
-                "newspaper", "document", "watch", "compass"}
+                "newspaper", "document", "watch", "compass", "map"}
 
     def usable_here(self, it) -> bool:
         return it.t.kind == "medical" or (it.t.kind == "tool" and it.t.tool in self.IN_PLACE)

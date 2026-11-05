@@ -160,7 +160,10 @@ class MainMenuState(MenuState):
         from .game import SAVE_DIR
         if os.path.exists(os.path.join(SAVE_DIR, "save.pkl")):
             opts.insert(0, ("Continue", "continue", "Return to your war.", UI_HI))
-        opts += [("How to play", "help", "Keys, mouse and a few hard-won lessons.", None),
+        opts += [("Drill (learn on the range)", "drill",
+                  "A safe range behind the line with an instructor: movement, looking, cover, fire, a dressing "
+                  "and the kit - or a trial of the job you pick. Nothing there shoots back.", None),
+                 ("How to play", "help", "Keys, mouse and a few hard-won lessons.", None),
                  ("Options", "options", "The sound mixer, display, safe mode, battlefield size, autosave.", None),
                  ("Memorial", "memorial", "The fallen.", None),
                  ("Quit", "quit", "Go home.", None)]
@@ -236,8 +239,46 @@ class MainMenuState(MenuState):
             r = rng.random()
             service = "air" if r < 0.08 else "navy" if r < 0.13 else "army"
             app.start_game(th, nat, None, dict(scenario="random", service=service))
+        elif v == "drill":
+            app.push(DrillMenuState(app))
         elif v == "new":
             app.push(CreatorState(app))
+
+
+DRILL_NATIONS = [("American", "usa"), ("British", "uk"), ("German", "germany"), ("Soviet", "ussr")]
+DRILL_ROLES = [("Rifleman", "rifleman"), ("Sniper", "sniper"), ("Medic", "medic"),
+               ("Light machine gunner", "lmg_gunner"), ("Engineer", "engineer"), ("Officer", "officer")]
+
+
+class DrillMenuState(MenuState):
+    """The range: the basic drills, or the trial of a job."""
+
+    def __init__(self, app):
+        opts = [("Basic training", "basic", "Movement, looking, cover, the weapon, fire, a reload, a dressing, "
+                                             "the kit and the map. Ten minutes, and no one shooting at you.", None),
+                ("Your role's trial", "role", "The same range from inside the job you pick: a sniper's long shot, "
+                                              "a medic's casualty, a gunner's bursts. Uses that role's kit.", None)]
+        super().__init__(app, "THE RANGE", opts, self.choose,
+                         subtitle="A corner of the rear. The instructor has done this before; the dummies have not.",
+                         width=40)
+
+    def choose(self, mode):
+        if mode not in ("basic", "role"):
+            return
+        self.app.push(MenuState(
+            self.app, "YOUR ARMY", [(n, v, "", None) for n, v in DRILL_NATIONS],
+            lambda nat: self._pick_role(nat, mode), width=40))
+
+    def _pick_role(self, nat, mode):
+        if mode == "basic":
+            return self._start(nat, "rifleman", "basic")
+        self.app.push(MenuState(
+            self.app, "YOUR JOB", [(n, v, "", None) for n, v in DRILL_ROLES],
+            lambda role: self._start(nat, role, "role"), width=40))
+
+    def _start(self, nat, role, mode):
+        self.app.start_game("bocage44", nat, role,
+                            dict(scenario="drill", drill=mode, service="army", battlefield="standard"))
 
 
 # ====================================================================== the character & scenario creator
@@ -1410,13 +1451,30 @@ class StatusState:
         wounds = [w for w in b.wounds]
         con.print(2, y, f"Wounds ({len(wounds)})" if wounds else "No open wounds.", fg=UI_HI if wounds else UI_DIM)
         y += 1
+        shock = b.__dict__.get("shock", 0.0)
+        if shock > 5:
+            con.print(4, y, "In shock" + (" - going grey" if shock > 100 else " - cold and shaking" if shock > 60
+                                          else " - a little") + (f" ({int(shock)})" if nums else ""),
+                      fg=(190, 205, 230))
+            y += 1
         for w in wounds[:7]:
             state = "tourniquet on" if w.tourniquet else "dressed" if w.bandaged else \
-                ("bleeding hard" if w.bleed >= 3 else "bleeding" if w.bleed > 0.2 else "oozing")
+                ("arterial, spurting" if w.arterial else "bleeding hard" if w.bleed >= 3 else
+                 "bleeding" if w.bleed > 0.2 else "oozing")
+            if w.fracture:
+                state += ", bone broken" if not b.splinted_at(w.part) else ", splinted"
+            if getattr(w, "infection", 0) > 40:
+                state += ", infected" if getattr(w, "infection", 0) < 75 else ", suppurating"
+            if getattr(w, "necrosis", False):
+                state += ", blackening"
             con.print(4, y, f"{w.kind} wound, {PART_NAME.get(w.part, w.part)}: {state}"
                       + (f" ({w.bleed:.1f} ml/s)" if nums and not (w.bandaged or w.tourniquet) else ""),
-                      fg=(240, 120, 100) if state.startswith("bleed") else UI_TEXT)
+                      fg=(240, 120, 100) if "bleed" in state or "arterial" in state else
+                      (230, 170, 100) if "infect" in state else UI_TEXT)
             y += 1
+        from . import medical as MED
+        con.print(4, y, f"Triage: {MED.TRIAGE[MED.triage(b)]}.", fg=UI_DIM)
+        y += 1
         from .medical import needs_surgery
         try:
             if needs_surgery(p):

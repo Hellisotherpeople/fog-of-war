@@ -393,6 +393,7 @@ the English sounds his language lacks swapped for its nearest ones (`neural_voic
 | `mapgen.py`, `gamemap.py`, `tiles.py` | battlefield generation, map arrays, tile definitions |
 | `spawn.py`, `entities.py` | creating soldiers, squads, vehicles; the classes |
 | `ai.py`, `brain.py`, `commander.py` | squad/soldier/vehicle AI, Dijkstra maps, side commanders |
+| `plan.py` | the company plan per sector: main effort, supporting attack, fire support, reserve, bounds and a limit of advance; outposts, main line, counterattack; objective kinds and values; holding the ground decides the sector |
 | `actions.py`, `combat.py`, `body.py` | verbs, ballistics and blasts, wounds |
 | `senses.py`, `stealth.py`, `pace.py`, `thermal.py` | sight and hearing, being noticed, movement and breath, cold and heat |
 | `inventory.py`, `ammo.py`, `invui.py`, `loot.py`, `familiar.py` | Tarkov-style grid kit, magazines, the kit screen, what's lying around, knowing your weapon |
@@ -408,7 +409,11 @@ the English sounds his language lacks swapped for its nearest ones (`neural_voic
 | `medevac.py` | calling stretcher-bearers, the evacuation chain, hospital time, back to duty |
 | `agents.py`, `data/agents.py`, `data/items_special.py` | the secret war: careers, covers, agent and resistance missions, the wireless and direction-finding, supply drops from special-duties squadrons, the special weapons and gadgets |
 | `relief.py`, `floors.py` | the heightmap (generation, viewsheds, crest checks, slope costs, hillshade) and building floors (stairs, cellars, open tops, falls, AI use) |
-| `itemart.py` | the ASCII drawing of each item (`assets/art/*.txt`), shown at the top of the look-it-over box |
+| `quality.py` | how good a gun is and how rare, shown in the kit and the look-it-over box and used by the AI |
+| `drill.py` | the training range: the instructor's lessons, the role trial, and their overlay |
+| `tableaux.py` | battlefield scenes laid before the fighting: a convoy, a dump, a crash, a burning farm |
+| `varia.py` | country furniture and rare set pieces: sidings, canals, sunken lanes, kilns, camps, crossings, strip and flood |
+| `data/history.py` | the historical places a sector may hold, and what happened there (shown when looked at) |
 | `icons.py` | pictures in the interface: painters (kit, body, stance, rounds, sky, map sheet, sight picture...), keys, and the per-frame picture list that `gfx.present` paints, caches and draws under, over and above the consoles |
 | `rear.py` | the living rear: convoys, columns and posts on the supply roads; destroying them cuts the road on the war map (`Strategic.interdict`, supply parents and traffic in `compute_supply`) |
 | `orders.py` | the orders book (all the orders you hold, who gave them, rewards and punishments, carried out) |

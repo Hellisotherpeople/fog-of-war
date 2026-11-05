@@ -18,7 +18,7 @@ FEMALE_NAMES = {"Lyudmila", "Roza", "Nina", "Maria", "Natalya", "Klavdiya", "Mar
 
 # where an item can be carried, and how long it takes to get it out (moves)
 LOCATIONS = ("hands", "sling", "belt", "pockets", "pack", "worn", "carried")
-from .inventory import ACCESS as ACCESS_COST  # noqa: E402,F401  (actions imports it from here)
+from .inventory import ACCESS as ACCESS_COST, _VER as INV_VERSION  # noqa: E402,F401  (actions imports it from here)
 LOC_NAME = {"hands": "in your hands", "primary": "slung", "secondary": "on your back", "holster": "in the holster",
             "melee": "on your belt", "rig": "in your webbing", "pockets": "in your pockets", "pack": "in your pack",
             "head": "worn", "body": "worn", "carried": "in your hands", "ground": "on the ground"}
@@ -26,12 +26,12 @@ LOC_NAME = {"hands": "in your hands", "primary": "slung", "secondary": "on your 
 
 class Item:
     __slots__ = ("tid", "count", "loaded", "jammed", "heat", "uses", "mode", "data", "where",
-                 "iid", "known_rounds", "grid", "gpos", "rot", "mag_item")
+                 "iid", "known_rounds", "grid", "gpos", "rot", "mag_item", "t")
 
     def __init__(self, tid: str, count: int = 1, full: bool = True):
         self.iid = next(_ids)
         self.tid = tid
-        t = ITEMS[tid]
+        t = self.t = ITEMS[tid]
         self.count = count
         self.loaded = 0
         self.mag_item = None
@@ -58,9 +58,13 @@ class Item:
         self.where = "ground"
         self.known_rounds = True
 
-    @property
-    def t(self):
-        return ITEMS[self.tid]
+    def __getstate__(self):
+        return {k: getattr(self, k) for k in self.__slots__ if k != "t"}
+
+    def __setstate__(self, st):
+        for k, v in st.items():
+            setattr(self, k, v)
+        self.t = ITEMS[self.tid]
 
     def dims(self, rot=None):
         from .inventory import item_size
@@ -106,7 +110,10 @@ class Item:
     def condition(self, value):
         if self.data is None:
             self.data = {}
+        old = self.data.get("condition", 1.)
         self.data["condition"] = max(0., min(1., float(value)))
+        if self.data["condition"] != old:
+            INV_VERSION[0] += 1              # (kit caches and reach lookups take the change)
 
     @property
     def functional(self) -> bool:
@@ -250,7 +257,26 @@ def make_corpse(actor) -> Item:
 
 class Actor:
     """A soldier."""
-    z = 0                               # (saves from before there were floors)
+    __slots__ = ("__dict__", "id", "nation", "side", "role", "rank", "name", "x", "y", "stance", "z",
+                 "body", "invent", "weapon", "skill", "bravery", "morale", "suppression", "moves", "squad",
+                 "vehicle", "is_player", "state", "kills", "xp", "aim_target", "aim_turns", "recoil",
+                 "moved_turn", "fired_turn", "entangled", "carrying", "ai", "deployed", "hit_turn",
+                 "dig_progress", "fatigue", "stamina", "face", "downed_state", "stats")
+    _stream_dormant = False
+    peek = None
+
+    def __getstate__(self):
+        st = self.__dict__.copy()
+        for k in self.__slots__:
+            if k != "__dict__" and hasattr(self, k):
+                st[k] = getattr(self, k)
+        return st
+
+    def __setstate__(self, st):
+        for k in self.__slots__:
+            if k != "__dict__" and k in st:
+                setattr(self, k, st.pop(k))
+        self.__dict__.update(st)
 
     def __init__(self, nation: str, role: str, rank: int, name: str, x: int = 0, y: int = 0):
         self.id = next(_ids)
@@ -360,12 +386,13 @@ class Actor:
     def active(self) -> bool:
         """Alive, conscious, not surrendered - can act."""
         b = self.body                                 # (body.alive and body.conscious, without the calls:
-        return not self.__dict__.get("_stream_dormant", False) and not b.dead and b.unconscious <= 0 and self.state == "ok"    # this is asked millions of times)
+        return not self._stream_dormant and not b.dead and b.unconscious <= 0 and self.state == "ok"    # this is asked millions of times)
 
     @property
     def downed(self) -> bool:
         b = self.body
-        return b.dead or b.unconscious > 0 or b.downed()
+        return b.dead or b.unconscious > 0 or b.hp["l_leg"] <= 0 or b.hp["r_leg"] <= 0 or \
+            b.pain - b.morphine >= 120 or b.blood < 3400
 
     @property
     def pos(self):
@@ -459,10 +486,31 @@ class Actor:
                 and not (i.data and i.data.get("dud"))]
 
     def has_tool(self, tool: str) -> Item | None:
-        for i in self.inv:
-            if (i.t.tool == tool or (tool == "shovel" and i.tid == "shovel")) and i.functional:
-                return i
-        return None
+        """The first such tool carried, in reach order - without building the whole kit list each time."""
+        inv = self.invent
+        cache = inv.__dict__.get("_tool_cache")
+        key = (INV_VERSION[0], tool, inv.hands, tuple(inv.slots.values()))
+        if cache is not None and cache[0] == key:
+            return cache[1]
+        shovel = tool == "shovel"
+        found = None
+        for i in inv.slots.values():
+            if i is not None and (i.t.tool == tool or (shovel and i.tid == "shovel")) and i.functional:
+                found = i
+                break
+        if found is None:
+            for g, _loc in inv.grids():
+                for i in g.items:
+                    if (i.t.tool == tool or (shovel and i.tid == "shovel")) and i.functional:
+                        found = i
+                        break
+                if found is not None:
+                    break
+        if found is None and inv.hands is not None and \
+                (inv.hands.t.tool == tool or (shovel and inv.hands.tid == "shovel")) and inv.hands.functional:
+            found = inv.hands
+        inv.__dict__["_tool_cache"] = (key, found)
+        return found
 
     def wield(self, item: Item | None) -> bool:
         """Take an item into your hands.  It lives in a weapon slot (or your hands)."""
@@ -516,16 +564,40 @@ class Actor:
         return max(0.35, 1.0 - (w - cap) * 0.02)
 
     def speed(self, turn: int | None = None) -> int:
-        breath = 0.6 + 0.4 * min(1.0, getattr(self, "stamina", 100.0) / 30.0)
+        b0 = self.body
+        key = None
+        if turn is not None:
+            key = (turn, turn // 10, self.stance, self.stamina, self.fatigue,
+                   b0.hp["l_leg"], b0.hp["r_leg"], b0.pain, b0.morphine,
+                   b0.blood, b0.__dict__.get("shock", 0.0), len(b0.wounds), b0.__dict__.get("temp"))
+            c = self.__dict__.get("_spd")
+            if c is not None and c[0] == key:
+                return c[1]
+        breath = 0.6 + 0.4 * min(1.0, self.stamina / 30.0)
         cold = 1.0
-        if "temp" in self.body.__dict__:
-            from .thermal import speed_mult
-            cold = speed_mult(self)
-        tired = 1.0 - max(0.0, self.__dict__.get("fatigue", 0.0) - 60) / 200.0
-        injury = self.body.speed_mult()
+        t = self.body.__dict__.get("temp")
+        if t is not None:                             # (the heat and the cold, inline: this is the hot path)
+            if t < 34.5:
+                cold -= 0.15
+            if t < 33.0:
+                cold -= 0.2
+            if t > 39.5:
+                cold -= 0.15
+        tired = 1.0 - max(0.0, self.fatigue - 60) / 200.0
+        b = self.body
+        injury = 1.0
+        for leg in ("l_leg", "r_leg"):
+            injury -= (1 - b.hp[leg] / b.max[leg]) * 0.25
+        injury -= max(0.0, b.pain - b.morphine - 40) / 300
+        if b.blood < 4000:
+            injury -= (4000 - b.blood) / 4000
+        injury = max(0.25, injury)
         if self.ai.get("splinted") and injury < 1:
             injury = min(1., injury * 1.12)
-        return int(BASE_SPEED * injury * self.encumbrance(turn) * breath * cold * tired)
+        out = int(BASE_SPEED * injury * self.encumbrance(turn) * breath * cold * tired)
+        if key is not None:
+            self.__dict__["_spd"] = (key, out)
+        return out
 
     def weight_now(self, turn: int) -> float:
         """Carried weight, recomputed every few seconds (it doesn't change often)."""
@@ -537,7 +609,7 @@ class Actor:
         return w
 
     def breath_word(self) -> str | None:
-        st = getattr(self, "stamina", 100.0)
+        st = self.stamina
         if st < 8:
             return "Exhausted"
         if st < 20:
@@ -568,6 +640,10 @@ def riding(a) -> bool:
 
 
 class Vehicle:
+    _stream_dormant = False
+    z = 0
+    peek = None
+
     def __init__(self, vid: str, side: str, nation: str, x: int, y: int, facing: int = 0):
         self.id = next(_ids)
         self.vid = vid
@@ -693,7 +769,7 @@ class Vehicle:
 
     @property
     def active(self) -> bool:
-        return not self.__dict__.get("_stream_dormant", False) and not self.dead and not self.abandoned and self.crew > 0
+        return not self._stream_dormant and not self.dead and not self.abandoned and self.crew > 0
 
     @property
     def static(self) -> bool:

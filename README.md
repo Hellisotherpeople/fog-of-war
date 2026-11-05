@@ -194,7 +194,8 @@ and whatever's beside you, in bold. Every other key is a section or a search awa
 <tr>
 <td width="50%"><img src="docs/media/kit.gif" alt="The kit screen and health"><br>
 <b>Kit and body.</b> A Tarkov-style grid for webbing, pack and pockets; searching the dead; and a
-body with no hit points: wounds, blood, pain, breath, cold and heat.</td>
+body with no hit points: wounds, blood, pain, breath, cold and heat - and dirt, infection, fractures,
+shock, soaked dressings and tourniquets that cost a limb if left too long.</td>
 <td width="50%"><img src="docs/media/creator.gif" alt="The character creator"><br>
 <b>The creator.</b> Side, battle, nation, service, battle type, role, rank up to five stars,
 name, traits, weapon and kit. Leave any of it to chance.</td>
@@ -205,7 +206,7 @@ name, traits, weapon and kit. Leave any of it to chance.</td>
 
 - **26 battles, 1939-1945**, from the Bzura to Berlin, Guadalcanal to Kohima, playable on either
   side; **16 nations**, each with its own rank ladder, names, decorations, doctrine and language.
-- **Period kit, filtered by nation and date**: 130 small arms that jam, overheat and ping; AT
+- **Period kit, filtered by nation and date**: over 120 small arms that jam, overheat and ping; AT
   weapons, flamethrowers, mortars, mines; 135 vehicles and guns; 56 aircraft; 45 classes of ship from PT boats
   to fleet carriers.
 - **A seamless, endless land world.** A circular tactical simulation follows the player across
@@ -217,15 +218,19 @@ name, traits, weapon and kit. Leave any of it to chance.</td>
 - **The lie of the land**: every sector has real relief (balkas on the steppe, the hills the maps
   named, a volcano on Iwo Jima), so crests hide men and high ground sees over the hedges. Buildings
   have floors: snipers in church towers, machine guns at upstairs windows, cellars against the
-  shelling.
+  shelling. No two are the same shape: longhouses and lean-tos, L, T and U plans, courtyards,
+  chamfered corners, terraced rows and back alleys; roughly one field in six holds a rare set piece
+  (an overrun airstrip, a flooded crossing, a field hospital, a burnt wood).
 - **Places worth fighting over**: every sector has its landmarks, by country - a windmill on its rise,
   a railway halt with goods wagons on the siding, a château behind its park wall, the village cemetery,
   a brickworks chimney, a quarry, a slag heap, the grain elevator and the kolkhoz on the steppe, a
   coconut plantation and a mission church in the Solomons, a shrine behind its torii on Okinawa, a
   pagoda, a desert fort and a marabout's tomb, a castle on its hill, a lighthouse above the beach, a
   Würzburg radar station, a landing ground, an oasis, a sawmill, a tank farm that goes up in flames.
-  Calvaries stand at the crossroads, the memorial to the last war in the square. They're real terrain
-  and they're the objectives.
+  Calvaries stand at the crossroads, the memorial to the last war in the square. Between them lie the
+  country's own furniture: rail sidings and junctions, canals and lock gates, sunken lanes, kilns and
+  charcoal burns, sheepfolds and hop gardens, terraces and floodwater, supply points, aid posts and
+  prisoner cages. They're real terrain and they're the objectives.
 - **Ground you can read**: what you can't walk through stands up out of the ground with a dark rim and
   a shadow (trees, palms, hedgerows, walls, wagons); undergrowth, crops and rubble lie flat. The look
   says the going ("Very slow going (x2.6 the time) - you can't see into it"), and `X → Read the ground` tints the ground:
@@ -251,12 +256,16 @@ name, traits, weapon and kit. Leave any of it to chance.</td>
   cover; smoke goes down in front of a machine gun; defenders hold their fire until the attack is
   close; tanks keep pace with their infantry and turn their front armour toward the gun that can
   kill them.
-- **Kinds of war**: front-line battles, the big push, holding the line, tank battles, night patrols,
+- **Kinds of war**: front-line battles, the big push, holding the line, tank battles, street fighting,
+  river crossings, counter-attacks, road ambushes, tank hunting, mine clearance, night patrols,
   commando raids, agents behind the lines (SOE, OSS, Jedburghs, the Cichociemni, partisan organisers,
   Abwehr and Greif) with covers, silenced weapons, suitcase radios, detector cars and night supply
   drops from real special-duties squadrons, resistance bands, encirclement, the
   rearguard, captivity and escape; at sea, surface actions, carrier battles, convoys and submarine
   patrols; in the air, fighter sweeps, interceptions and bomber raids.
+- **Basic training on a real range**: the main menu's **Drill** puts an instructor and three dummies
+  in the rear and teaches movement, looking, cover, the weapon, fire, reloading, a dressing and the map,
+  then gives each role its own trial with the kit you chose. It is a whole battle type, not a slideshow.
 - **Waiting without mashing keys**: `Z` waits until something happens, for a set time, till dawn or
   till new orders. **Pass time regardless of events...** continues for up to a day despite combat,
   wounds or orders. Every second is simulated for everyone, with drawing batched for speed.
