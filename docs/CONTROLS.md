@@ -583,7 +583,7 @@ The load comes from the departure sector's stores; wind and visibility affect ho
 | help | up / down (or Tab, or a click) the sections; a letter jumps to the next section starting with it; PgUp / PgDn or the wheel scroll; `/` search (type, Enter keeps it, Esc clears); Esc, `?` or `q` close |
 | the log, chain of command | up / down, PgUp / PgDn, the wheel; Esc, Enter or `q` close |
 | prison camp | Enter or Space a day, `w` a week, `e` try to escape, Esc the menu |
-| game over | Enter, Space, Esc or a click: back to the main menu |
+| game over | Enter, Space, Esc or a click: back to the main menu; Tab its pages; `M` the ground you fought over |
 
 ## Papers checks, body searches and damaged kit
 
