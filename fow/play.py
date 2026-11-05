@@ -5632,7 +5632,13 @@ class PlayState:
         g = self.game
         p = g.player
         sq = p.squad
-        if self.__dict__.get("_queue_mode") and what in ("move", "attack", "flank", "suppress"):
+        if self.__dict__.get("_queue_mode") and isinstance(what, tuple) and what[0] == "rally_at":
+            from .orders import queue_order
+            queue_order(sq, "rally", what[1], 4)
+            g.msg(f"You point out the marker: 'Rally there, after this.' ({len(sq.rep['queue'])} queued)", "shout")
+            self._queue_mode = False
+            return self.act(30)
+        if self.__dict__.get("_queue_mode") and what in ("move", "attack", "flank", "suppress", "rally"):
             from .cmdui import choose_target
             from .orders import queue_order
 

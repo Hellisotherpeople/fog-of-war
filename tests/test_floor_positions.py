@@ -35,6 +35,34 @@ def test_store_leaves_the_remaining_duplicate():
     assert g.actor_at(p.x, p.y, 2) is a
 
 
+def test_man_on_the_stairs_takes_the_upper_floor_when_holding():
+    import numpy as np
+    from fow import floors, tiles as T
+    g = make()
+    m = g.map
+    p = g.player
+    a = next(x for x in g.actors if x is not g.player)
+    spot = None
+    for x, y in np.argwhere(m.t == T.ID["stairs"]):
+        b = m.building_at(int(x), int(y))
+        if b is not None and b[1] > 1 and floors.tile_at(m, int(x), int(y), 1) is not None and \
+                g.actor_at(int(x), int(y), 1) is None:
+            spot = (int(x), int(y))
+            break
+    assert spot is not None
+    g.pop_actor_at(a)
+    a.x, a.y, a.z = spot[0], spot[1], 0
+    g.set_actor_at(a)
+    if a.squad is not None:
+        a.squad.order.kind = "hold"
+    for _ in range(80):
+        floors.ai_act(g, a, None, a.squad if a.squad is not None else None)
+        if a.z:
+            break
+    assert a.z >= 1
+    assert g.actor_at(a.x, a.y, a.z) is a
+
+
 def test_carried_man_is_put_back_in_the_store():
     from fow import actions as A
     g = make()

@@ -628,7 +628,22 @@ def ai_act(game, a, vis, sq):
         if a.suppression < 20 and game.turn - a.ai.get("shelled", -999) > 60:
             return A.climb(game, a, 1)
         return 100
-    d = tile_at(m, a.x, a.y, z)
+    if z == 0:
+        # standing at the stairs: get above the ground floor when it's the safer or ordered thing
+        if m.tile(a.x, a.y).key == "stairs":
+            b = m.building_at(a.x, a.y)
+            up = b is not None and b[1] > 1 and tile_at(m, a.x, a.y, 1) is not None and \
+                game.actor_at(a.x, a.y, 1) is None
+            if up:
+                hold = order in ("hold", "defend", "ambush", "dig")
+                squad_up = sq is not None and any(o is not a and o.alive and o.z > 0 for o in sq.members)
+                if (hold and a.suppression < 60 and game.rng.random() < 0.3) or \
+                        (moving and squad_up and game.rng.random() < 0.5) or \
+                        ((a.suppression > 55 or m.fire[a.x, a.y] > 0) and game.rng.random() < 0.35):
+                    return A.climb(game, a, 1)
+        d = m.tile(a.x, a.y)
+    else:
+        d = tile_at(m, a.x, a.y, z)
     if d is not None and (d.key == "floor_hole" or d.key == "floor_broken"):
         # step off the hole, or across the broken edge, if there is somewhere good to go
         c = step_path(game, a, a.x, a.y + 1) or step_path(game, a, a.x + 1, a.y)

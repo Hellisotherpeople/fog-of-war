@@ -103,6 +103,7 @@ def test_enemy_seen_is_remembered_then_fades():
     p.visible = [enemy]
     MK.remember_enemies(g)
     assert MK.sightings(g)
+    assert any("seen here" in line for line, _c in MK.look_lines(g, enemy.x, enemy.y))
     g.turn += MK.REMEMBER + 1
     assert not MK.sightings(g)
 

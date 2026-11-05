@@ -1164,7 +1164,8 @@ def soldier_act(game, a) -> int:
         g = grappling(game, a)
         if g is not None:
             return attack(game, a, g)                 # locked together: nothing else exists
-    if a.z or (a.suppression > 70 and ai.get("shelled", -999) >= game.turn - 20):
+    if a.z or (a.suppression > 70 and ai.get("shelled", -999) >= game.turn - 20) or \
+            (not a.z and game.map.tile(a.x, a.y).key in ("stairs", "trapdoor")):
         from .floors import ai_act
         c = ai_act(game, a, None, a.squad)            # the stairs, the cellar
         if c:

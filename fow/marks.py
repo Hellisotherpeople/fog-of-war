@@ -160,6 +160,10 @@ def age_words(turns):
 
 def look_lines(game, x, y):
     out = []
+    for sx, sy, rec, col in sightings(game):
+        if (sx, sy) == (x, y):
+            what = "A vehicle was" if rec.get("v") else "An enemy was"
+            out.append((f"{what} seen here {age_words(max(0, game.turn - rec['turn']))}.", col))
     for mk in at(game, x, y):
         glyph, name, _col = KINDS[mk["kind"]]
         age = age_words(max(0, game.turn - mk.get("turn", game.turn)))
