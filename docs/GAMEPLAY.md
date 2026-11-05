@@ -71,6 +71,14 @@ follow the real date.
   or for the vehicle you're in), amber where it's slow, deeper the slower. `X` again turns it off; it's
   also in Options.
 
+**Marks on the map.** The pencil is the player's: `1`-`5` while looking or on the battlefield map
+(`M`) write a danger, a rally point, a firing position, a cache or a casualty, and `0` rubs one out.
+A mark belongs to the ground, not to the sheet, so it survives walking away, a save and the moving
+world; only ground actually seen can be marked. The section uses them - a broken squad falls back on
+the nearest rally point without waiting for an order, and stretcher-bearers work through marked
+casualties first - and the map screen shows the marks beside the ground, the objectives and the
+things you know.
+
 **Landmarks.** Every sector has a few places men steered by and fought over, chosen by its country,
 climate and ground (`landmarks.py`). They're candidate objectives, preferred over a nameless field, and
 they're real terrain:

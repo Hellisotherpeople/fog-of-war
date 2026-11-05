@@ -68,7 +68,7 @@ def check(game, turn):
             if not in_crew and not dormant and anyone_up:
                 return f"squad {sq.id} leader {sq.leader.id} not in the squad or its crews"
         if sq.order.kind not in ("hold", "move", "attack", "assault", "defend", "ambush", "flank",
-                                 "suppress", "retreat", "follow", "regroup", "dig", "resupply"):
+                                 "suppress", "retreat", "follow", "regroup", "dig", "resupply", "rally"):
             return f"squad {sq.id} unknown order {sq.order.kind}"
     for i, o in enumerate(m.objectives):
         if o.owner is not None and o.owner not in ("allies", "axis"):

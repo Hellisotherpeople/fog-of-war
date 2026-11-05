@@ -325,6 +325,22 @@ def _medic(game, a, vis, sq, near_enemy):
             continue
         if best is None or d < best[0]:
             best = (d, o)
+    # a casualty the player pencilled on the map: a stretcher-bearer works through those first, further off
+    from . import marks as MK
+    marked = None
+    for x, y, mk in MK.on_map(game, a.side):
+        if mk["kind"] != "casualty":
+            continue
+        for o in game.near(x, y, 3, a.side):
+            if not o.alive or o.state != "ok" or o is a or o.vehicle is not None or o.ai.get("carried_by") is not None:
+                continue
+            if not o.downed and not MED.needs_care(o.body):
+                continue
+            d = math.hypot(o.x - a.x, o.y - a.y)
+            if d <= 140 and (marked is None or d < marked[0]):
+                marked = (d, o)
+    if marked is not None:
+        best = marked
     if best is not None:
         o = best[1]
         card(game, "sweep", f"Sweeping for {game.name_of(o)}, down ahead", (o.x, o.y))

@@ -149,6 +149,10 @@ def _comrade(ps, who, said):
             opts.append(("Can I see the photograph?", "photo", None, True))
     opts.append(("How are you holding up?", "state", None, True))
     opts.append(("Seen anything out there?", "seen", None, True))
+    from . import marks as MK
+    near_mark = MK.nearest(g, p.x, p.y, None, 10, p.side)
+    if near_mark is not None:
+        opts.append((f"What's that marked on the map? ({MK.KINDS[near_mark[3]['kind']][1]})", "mark", None, True))
     if not fighting:
         opts.append(("What's the word?", "rumour", None, True))
         ld = who.squad.leader if who.squad is not None else None
@@ -218,6 +222,19 @@ def _comrade_choice(ps, who, v):
         say = _state_words(g, who)
     elif v == "seen":
         say = _seen_words(ps, who)
+    elif v == "mark":
+        from . import marks as MK
+        mk = MK.nearest(g, p.x, p.y, None, 10, p.side)
+        if mk is not None:
+            who.ai["knows_marks"] = True
+            kind = mk[3]["kind"]
+            say = {"rally": "The rally point. If it goes wrong, that's where I'll be, and I won't be the only one.",
+                   "danger": "I've seen it. We keep off that ground.",
+                   "cover": "Good cover there. I'll use it if I get the chance.",
+                   "cache": "I know where it is. If we run dry, that's where I'm going.",
+                   "casualty": "One of ours, down there. The stretcher-bearers will get to him."}.get(kind,
+                   "I've got it marked in my head now.")
+            PP.like(g, who, 1)
     elif v == "rumour":
         say = _rumour(g, who)
     elif v == "leader":

@@ -1392,8 +1392,20 @@ class Game:
         if z:
             if self.soldier_at_z.get((x, y, z)) is a:
                 del self.soldier_at_z[(x, y, z)]
+                # Two men can end up on one tile when a frame reframes under them: leave the store with
+                # whichever of them is still standing there.
+                alt = next((o for o in self.actors if o is not a and o.alive and o.vehicle is None
+                            and getattr(o, "z", 0) == z and o.x == x and o.y == y
+                            and o.ai.get("carried_by") is None), None)
+                if alt is not None:
+                    self.soldier_at_z[(x, y, z)] = alt
         elif self.soldier_at.get((x, y)) is a:
             del self.soldier_at[(x, y)]
+            alt = next((o for o in self.actors if o is not a and o.alive and o.vehicle is None
+                        and getattr(o, "z", 0) == 0 and o.x == x and o.y == y
+                        and o.ai.get("carried_by") is None), None)
+            if alt is not None:
+                self.soldier_at[(x, y)] = alt
 
     def add_actor(self, a):
         if a not in self.actors:
@@ -3340,6 +3352,8 @@ class Game:
         self.clock += 1
         from .afteraction import sample as _after_sample
         _after_sample(self)
+        from .marks import remember_enemies as _remember_enemies
+        _remember_enemies(self)
         if self.turn % 3 == 0:
             from .coach import tick as _coach_tick
             _coach_tick(self)

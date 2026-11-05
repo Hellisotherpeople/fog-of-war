@@ -205,6 +205,9 @@ SECTIONS = [
     ]),
     ("Looking around", [
         ("k", "x|;", "look: move the cursor ({Enter}: walk there); {Esc} done - or just rest the mouse on something"),
+        ("k", "1|2|3|4|5", "while looking or on the map: pencil a danger, rally point, firing position, cache or casualty"),
+        ("k", "0", "while looking or on the map: rub a mark out"),
+        ("k", "M", "the battlefield map: {Enter} walk there, {o} send the section, {r} rally on the spot, {/} find"),
         ("k", "V", "everything around you in a list, nearest first: the men and vehicles you can see, the sounds"),
         ("k", "", "you've heard, what's lying in sight"),
         ("h", "In the V list"),

@@ -88,7 +88,7 @@ def receive(game, sq, job) -> bool:
     if ld is None or ld.is_player:
         return True
     kind = job.get("kind")
-    if kind not in ("move", "attack", "assault", "flank", "defend", "hold", "ambush", "retreat", "regroup",
+    if kind not in ("move", "attack", "assault", "flank", "defend", "hold", "ambush", "retreat", "regroup", "rally",
                     "follow", "suppress"):
         return True
     rng = game.rng

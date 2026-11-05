@@ -456,5 +456,6 @@ the English sounds his language lacks swapped for its nearest ones (`neural_voic
 | `naval.py` | the navy between battles: new orders or back to base, the refit, liberty ashore, sailing orders |
 | `base.py` | friendly bases: the staff at their posts, what they do for you, the adjutant's orders |
 | `nearby.py` | `V`: everything around you in a list |
+| `marks.py`, `mapui.py` | the player's grease-pencil marks (danger, rally, cover, cache, casualty) in world coordinates, and the battlefield map sheet that writes them |
 | `settings.py`, `constants.py` | persistent settings, layout and tuning constants |
 | `data/` | nations, ranks, items, vehicles and aircraft, ships, theatres, roles, special units, commanders, phrases, banter |

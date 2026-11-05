@@ -16,6 +16,7 @@ You can turn it off in Options ("Key hints").
 - [The kit screen](#the-kit-screen)
 - [Vehicles](#vehicles)
 - [Command: O, C, R, Y](#command-o-c-r-y)
+- [The battlefield map (M)](#the-battlefield-map-m)
 - [The war map (m)](#the-war-map-m)
 - [The staff screen (G)](#the-staff-screen-g)
 - [Bases](#bases)
@@ -136,7 +137,9 @@ decorations, with an explicit notice when their original citation was not record
 | key | |
 |---|---|
 | `x` or `;` | look: a cursor to move about; or just rest the mouse on something |
+| `1`-`5` | while looking (or on the map): pencil a danger, rally point, firing position, cache or casualty; `0` rubs one out |
 | `V` | everything around you in a list ([below](#the-v-list-everything-around-you)) |
+| `M` | the battlefield map ([below](#the-battlefield-map-m)) |
 | `m` | the war map |
 | `@` | yourself: your body in detail; Tab for your skills, then your service record and chain of command |
 | `P` | the message log |
@@ -373,6 +376,31 @@ sergeant) fires your rounds himself, and it counts against you.
   surrender.
 
 Orders travel by voice, hand signal, radio, relay or runner, and take time to arrive.
+
+## The battlefield map (M)
+
+The sheet in your hand: every yard you've walked in this sector, the marks you've pencilled, the
+objectives and what you've been told about the place. Unexplored ground stays blank; an enemy is
+on it only while you can see him, and for a few minutes after as a faded `×` where he went to ground.
+
+| key | |
+|---|---|
+| direction keys | move the cursor (Shift: five tiles; PgUp / PgDn: ten) |
+| Home or `@` | back to where you stand |
+| `1` `2` `3` `4` `5` | mark danger / rally point / firing position / cache / casualty |
+| `0` | rub out the marks under the cursor |
+| `n` / `Shift+n` | jump to the next / previous mark, nearest first |
+| `x` | look at the ground under the cursor |
+| `/` | find a label, an objective or your own mark |
+| Enter or a double click | walk there |
+| `o` | send the section there |
+| `r` | rally the section there - they fall back in pairs, by bounds, and hold |
+| `f` / `s` | with a radio: a fire mission / smoke at the cursor |
+| Esc, `M`, `m`, `q` or a click off the sheet | close |
+
+Marks are yours alone. A section that breaks falls back on the nearest rally point you've left,
+without waiting for the order, and stretcher-bearers work through marked casualties before
+anything else. Only ground you have seen can be marked.
 
 ## The war map (m)
 

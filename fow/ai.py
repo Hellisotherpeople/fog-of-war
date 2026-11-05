@@ -86,7 +86,7 @@ class Order:
                 "hold": "Hold this position", "retreat": "Fall back", "follow": "Follow the leader",
                 "assault": f"Assault {name}", "suppress": f"Suppress {name}", "flank": f"Flank {name}",
                 "ambush": f"Ambush at {name}", "dig": "Dig in", "mount": "Mount up",
-                "dismount": "Dismount", "regroup": "Regroup on the leader",
+                "dismount": "Dismount", "regroup": "Regroup on the leader", "rally": "Rally on that point",
                 "resupply": "Draw ammunition"}.get(self.kind, self.kind)
 
 
@@ -694,8 +694,8 @@ def squad_update(game, sq: Squad):
             sq.state = "hold" if sq.arrived else "advance"
         else:
             sq.state = "engaged" if t - sq.last_contact < 6 else "follow"
-    elif o.kind == "retreat":
-        sq.state = "retreat"
+    elif o.kind in ("retreat", "rally"):
+        sq.state = "retreat" if not sq.arrived else "hold"
     elif sq.player_led and o.kind in ("move", "attack", "assault") and t - sq.last_contact >= 8:
         sq.state = "hold" if sq.arrived else "advance"
     elif sq.morale < 5 and cas > 0.45:
@@ -884,11 +884,23 @@ def rally(game, sq):
     anc = sq.anchor()
     if anc is None:
         return
+    if sq.order.kind == "rally" and sq.order.target is not None:
+        sq.rally = {"from": 0, "start": t, "at": tuple(sq.order.target)}
+        return
     brain = game.brains[sq.side]
     home = brain.home
     if home is None:
         return
     if ral is None:
+        from . import marks as MK
+        fall = MK.nearest(game, anc[0], anc[1], "rally", 70, sq.side)
+        if fall is not None:
+            # a marker already left on the ground is where the section goes when it breaks
+            sq.rally = {"from": int(home[anc[0], anc[1]]), "start": t, "at": (fall[1], fall[2])}
+            lead = sq.leader
+            if lead is not None and lead.active and not lead.is_player:
+                lead.say(phrase(game.rng, lead.nation, "o_regroup"), t)
+            return
         sq.rally = {"from": int(home[anc[0], anc[1]]), "start": t, "at": None}
         return
     if ral.get("at") is None:
@@ -903,7 +915,7 @@ def rally(game, sq):
 
 def leashed(sq) -> bool:
     """A squad the player leads in person keeps to the player - unless sent off with an order."""
-    return sq.player_led and sq.order.kind in ("follow", "hold", "defend", "dig", "ambush", "regroup")
+    return sq.player_led and sq.order.kind in ("follow", "hold", "defend", "dig", "ambush", "regroup", "rally")
 
 
 def _ambush_sprung(game, sq) -> bool:
@@ -2033,7 +2045,10 @@ def retreat_act(game, a, vis) -> int:
     if brain.home is None:
         return 100
     sq = a.squad
+    order = sq.order if sq is not None else None
     ral = sq.__dict__.get("rally") if sq is not None else None
+    if order is not None and order.kind == "rally" and order.target is not None:
+        ral = {"at": order.target}
     if ral is not None and ral.get("at") is not None:
         rx, ry = ral["at"]
         if max(abs(a.x - rx), abs(a.y - ry)) > 3:
@@ -2156,6 +2171,8 @@ def downed_act(game, a) -> int:
             if carrier is not None and carrier.carrying is a:
                 A.put_down(game, carrier)
             a.ai.pop("carried_by", None)
+            if a.alive and a.vehicle is None:
+                game.set_actor_at(a)
     if a.ai.get("carried_by") is not None or a.ai.get("surgery") is not None or a.ai.get("at_aid") is not None:
         return 100
     if b.bleed_rate() > 0.4:

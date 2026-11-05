@@ -354,7 +354,7 @@ def unit_menu(ps, squads, title, formation=None):
 # ====================================================================== where: proposed targets
 TARGET_TITLE = {"move": "Advance to where?", "attack": "Attack what?", "assault": "Assault what?",
                 "flank": "Flank what?", "suppress": "Suppress what?", "defend": "Defend where?",
-                "ambush": "Ambush where?"}
+                "ambush": "Ambush where?", "rally": "Rally on where?"}
 KIND_WORD = {"hmg": "heavy machine gun", "mg": "machine gun", "atgun": "anti-tank gun", "tank": "tank",
              "vehicle": "vehicle", "sniper": "sniper", "mortar": "mortar", "officer": "officer",
              "infantry": "enemy rifleman", "soldier": "enemy soldier"}

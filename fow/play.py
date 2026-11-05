@@ -469,6 +469,18 @@ class PlayState:
             cx, cy = x0 + o.x // bw, y0 + o.y // bh
             if x0 <= cx < x0 + W and y0 <= cy < y0 + H:
                 con.print(cx, cy, "ABCDEFGH"[i % 8], fg=(250, 220, 120), bg=tuple(int(c) for c in cols[cx - x0, cy - y0]))
+        from . import marks as MK
+        for mx, my, mk in MK.on_map(g, p.side):
+            if not m.explored[mx, my]:
+                continue
+            cx, cy = x0 + mx // bw, y0 + my // bh
+            if x0 <= cx < x0 + W and y0 <= cy < y0 + H:
+                ch = MK.KINDS[mk["kind"]][0]
+                con.print(cx, cy, ch, fg=MK.color(mk, g.turn), bg=tuple(int(c) for c in cols[cx - x0, cy - y0]))
+        for mx, my, _rec, col in MK.sightings(g):
+            cx, cy = x0 + mx // bw, y0 + my // bh
+            if x0 <= cx < x0 + W and y0 <= cy < y0 + H:
+                con.print(cx, cy, "×", fg=col, bg=tuple(int(c) for c in cols[cx - x0, cy - y0]))
         px, py = (p.vehicle.x, p.vehicle.y) if p.vehicle is not None else (p.x, p.y)
         con.print(x0 + px // bw, y0 + py // bh, "@", fg=(255, 255, 120), bg=(40, 40, 10))
         # the part of the field on screen
@@ -853,6 +865,9 @@ class PlayState:
             mn = m.mines.get((x, y))
             if mn is not None and p.side in mn.known:
                 lines.append(("A mine is buried here.", (255, 80, 80)))
+        if m.explored[x, y]:
+            from . import marks as MK
+            lines += MK.look_lines(g, x, y)
         if targeting and not lines:
             lines.append((yards(d), UI_TEXT))
         return lines, title
@@ -1650,7 +1665,7 @@ class PlayState:
         if g.__dict__.get("succession_pending") and self.popups:
             return self.popup_key(key)             # (who carries on: the dead man can still choose)
         if self.realtime_busy() and key.sym != E.KeySym.ESCAPE:
-            inspecting = not self.popups and self.inv_screen is None and (key.char in ("/", "?", "m", "x", ";", "T", "@", "P", "+", "-", "=") or \
+            inspecting = not self.popups and self.inv_screen is None and (key.char in ("/", "?", "m", "M", "x", ";", "T", "@", "P", "+", "-", "=") or \
                 key.sym in (E.KeySym.F1, E.KeySym.HOME, E.KeySym.F5) or \
                 (self.mode in ("look", "target") and key.move() is not None))
             if not inspecting:
@@ -1664,7 +1679,7 @@ class PlayState:
             # on autopilot: A or Esc takes him back; looking, the map, the books and the help still work
             if key.char == "A" or key.sym == E.KeySym.ESCAPE:
                 return self.cmd_autopilot()
-            if key.char not in ("/", "?", "m", "x", ";", "T", "@", "P", "V", "G", "C", "+", "-", "=", "X") and \
+            if key.char not in ("/", "?", "m", "M", "x", ";", "T", "@", "P", "V", "G", "C", "+", "-", "=", "X") and \
                     key.sym not in (E.KeySym.F1, E.KeySym.F2, E.KeySym.F3, E.KeySym.F4, E.KeySym.F5, E.KeySym.HOME):
                 g.msg("Your soldier's on autopilot. (A to take over)", "info")
                 return
@@ -1743,7 +1758,7 @@ class PlayState:
             "+": lambda: self.zoom(1), "=": lambda: self.zoom(1), "-": lambda: self.zoom(-1),
             "G": self.cmd_staff, "W": self.cmd_pace, "!": self.cmd_safe_mode, "'": self.cmd_ignore_danger,
             "T": self.cmd_orders_book, "A": self.cmd_autopilot, "E": self.cmd_talk, "X": self.cmd_contacts,
-            "N": self.cmd_sleep, "J": self.cmd_diary, "K": self.cmd_manual,
+            "N": self.cmd_sleep, "J": self.cmd_diary, "K": self.cmd_manual, "M": self.cmd_map,
         }.get(c)
         if handler:
             return handler()
@@ -2989,6 +3004,7 @@ class PlayState:
         self.pending = pending or {}
 
     def mode_key(self, key: Key):
+        from . import marks as MK
         g = self.game
         if key.sym == E.KeySym.F1 or key.char == "?":
             return self.cmd_help()                  # (the mode stays: help opens on the section for it)
@@ -3018,6 +3034,14 @@ class PlayState:
             self.mode = "normal"
             self.cursor = None
             self.pending = None
+            return
+        if self.mode == "look" and key.char in ("0",) + tuple(MK.KEY):
+            x, y = self.cursor
+            if key.char == "0":
+                n = MK.clear_at(g, x, y)
+                g.msg(f"You rub out {n} mark{'s' if n != 1 else ''}." if n else "Nothing marked there.", "info")
+            else:
+                MK.announce(g, x, y, MK.KEY[key.char], g.player)
             return
         if self.mode in ("place", "peek") and mv:
             p = g.player
@@ -4036,6 +4060,11 @@ class PlayState:
             self.__dict__["sleeping_auto"] = True
             self.stop_auto()
 
+    def cmd_map(self):
+        """M: the battlefield map in your hand - ground walked, marks, what you've been told of."""
+        from .mapui import open_map
+        open_map(self.app, self.game, self)
+
     def cmd_overmap(self):
         from .ui import OvermapState
         if self.game.__dict__.get("drill"):
@@ -4091,7 +4120,8 @@ class PlayState:
             "target": [("f|t|Enter", "fire"), ("Tab|Shift+Tab", "next / previous target"),
                        ("a|A", "aim longer / aim fully and fire"), ("Esc", "stop aiming")],
             "throw": [("t|f|Enter", "throw"), ("c", f"cook it (now {self.cook} s)"), ("Esc", "don't")],
-            "look": [("move keys", "move the cursor"), ("x|Esc", "done")],
+            "look": [("move keys", "move the cursor"), ("1|2|3|4|5", "mark danger / rally / cover / cache / casualty"),
+                     ("0", "rub out a mark"), ("x|Esc", "done")],
             "nearby": [("up|down", "pick one"), ("Tab", "soldiers / items"), ("f|Enter", "fire / go to it"),
                        ("x|b", "look / binoculars"), ("Esc", "close")],
             "order_target": [("move keys", "pick the spot"), ("Enter", "order it"), ("Esc", "cancel")],
@@ -5579,6 +5609,7 @@ class PlayState:
                 ("Advance to...", "move", None, True), ("Assault...", "attack", (240, 170, 90), True),
                 ("Flank...", "flank", None, True), ("Suppress...", "suppress", None, True),
                 ("Dig in", "dig", None, True), ("Ambush - down, and hold your fire", "ambush", None, True),
+                ("Rally on... (fall back in pairs, by bounds)", "rally", (150, 220, 140), True),
                 ("Fall back!", "retreat", None, True),
                 ("Fire at will" + (" (now)" if roe == "free" else ""), "roe_free", (180, 200, 230), True),
                 ("Return fire only" + (" (now)" if roe == "return" else ""), "roe_return", (180, 200, 230), True),
@@ -5629,6 +5660,14 @@ class PlayState:
         elif what == "retreat":
             sq.order = Order("retreat", issued=g.turn)
             text = "Fall back! Fall back!"
+        elif what == "rally":
+            from .cmdui import choose_target
+            from . import marks as MK
+            start = (p.x, p.y)
+            fall = MK.nearest(g, p.x, p.y, "rally", 90, p.side)
+            if fall is not None:
+                start = (fall[1], fall[2])
+            return choose_target(self, "rally", [sq], self._order_rally, start, "rally")
         elif what == "tasks":
             from . import tasks as TK
             self.open_popup(Popup("Tasks for the squad", TK.menu_options(g, sq, (p.x, p.y)), self._screen_anchor(),
@@ -5703,6 +5742,22 @@ class PlayState:
         p.say(text, g.turn, voice=self._native_order("move"))
         g.msg(f"You point and shout: '{text}'", "shout")
         self._squad_follow_order(sq)
+        self.act(50)
+
+    def _order_rally(self, pos):
+        g = self.game
+        p = g.player
+        sq = p.squad
+        from . import marks as MK
+        MK.place(g, *pos, "rally", p)          # the point is written down as well as shouted
+        sq.order = Order("rally", target=pos, radius=4, issued=g.turn)
+        sq.arrived = False
+        sq.player_led = True
+        sq.__dict__.pop("rally", None)
+        text = "Rally on me! Back by bounds, in pairs!"
+        p.say(text, g.turn, voice=self._native_order("retreat"))
+        g.msg(f"You point it out and shout: '{text}'", "shout")
+        g.emit_sound(p.x, p.y, 55, "shout", text, p.side, p)
         self.act(50)
 
     def _order_attack(self, pos):

@@ -38,7 +38,7 @@ ROLE_ECHELON = {"company_commander": "company", "battalion_commander": "battalio
 REACH = {R.COLONEL: 1, R.BRIGADIER: 1, R.MAJ_GEN: 2, R.LT_GEN: 3, R.GENERAL: 5, R.MARSHAL: 99}
 
 # orders that can be passed by hand signal
-SIGNAL_OK = {"move", "attack", "assault", "hold", "retreat", "regroup", "come", "dig", "flank", "follow"}
+SIGNAL_OK = {"move", "attack", "assault", "hold", "retreat", "regroup", "come", "dig", "flank", "follow", "rally"}
 # drills that a hand can wave across the noise (the rest need a voice, a set or a runner)
 SIGNAL_DRILLS = {"follow_me", "cover_me", "watch", "consolidate", "probe", "break_contact", "banzai",
                  "fire_and_movement", "stoss"}
@@ -1719,7 +1719,8 @@ class CommandState:
 ORDER_TEXT = {"move": "move up", "attack": "take that position", "assault": "assault, go now",
               "flank": "work around the flank", "suppress": "suppress that position", "defend": "hold that ground",
               "hold": "hold where you are", "dig": "dig in", "ambush": "set an ambush and hold your fire",
-              "retreat": "fall back", "regroup": "close up on your leader", "come": "on me, to my position",
+              "retreat": "fall back", "rally": "rally on that point, by bounds",
+              "regroup": "close up on your leader", "come": "on me, to my position",
               "mount": "mount up", "dismount": "dismount", "roe": "change of fire orders",
               "report": "report your status", "release": "carry on, use your own judgement",
               "attach": "you're under my command", "resupply": "go back and draw ammunition",

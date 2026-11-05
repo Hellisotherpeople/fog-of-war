@@ -3119,6 +3119,12 @@ class OvermapState:
                     if s.fort:
                         con.print(x + self.CW - 3, y + 2, "##"[: s.fort], fg=(230, 150, 120) if s.control != p.side
                                   else (150, 190, 240), bg=bg)
+                    from . import marks as _MK
+                    own_marks = _MK.in_sector(g, s.x, s.y)
+                    if own_marks:
+                        con.print(x + 1, y + 3, "⚑" if any(mk["kind"] == "rally" for mk in own_marks) else "!",
+                                  fg=(150, 220, 140) if any(mk["kind"] == "rally" for mk in own_marks)
+                                  else (255, 120, 95), bg=bg)
             else:
                 con.print(x + self.CW // 2 - 1, y + 1, "?", fg=(70, 70, 70), bg=bg)
             if s is not None and (s.x, s.y) == (g.sector.x, g.sector.y):
@@ -3205,6 +3211,14 @@ class OvermapState:
                             lines.append((f"  {'our' if side == p.side else 'enemy'} {k.replace('_', ' ')}", UI_DIM))
                     if s.fort:
                         lines.append((f"Fortified ({s.fort}/3)", (230, 150, 120)))
+                    from . import marks as _MK
+                    marked = _MK.in_sector(g, s.x, s.y)
+                    if marked:
+                        lines.append(("Your marks:", UI_TEXT))
+                        for mk in marked[:4]:
+                            lines.append((f"  {_MK.KINDS[mk['kind']][1]} "
+                                          f"({mk['wx'] % g.map_w}, {mk['wy'] % g.map_h})",
+                                          _MK.color(mk, g.turn)))
         else:
             lines.append(("Unknown ground", UI_DIM))
             lines.append((where, UI_DIM))

@@ -61,7 +61,7 @@ def ai_pace(game, a) -> str:
         want = "sprint" if a.suppression < 70 else "run"
     elif st in ("retreat", "flank", "resupply"):
         want = "run"
-    elif st in ("advance", "follow", "move", "regroup"):
+    elif st in ("advance", "follow", "move", "regroup", "rally"):
         ld = sq.leader if sq is not None else None
         if ld is not None and ld is not a and max(abs(ld.x - a.x), abs(ld.y - a.y)) > 7:
             want = "run"                      # catching up

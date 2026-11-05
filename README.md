@@ -117,6 +117,9 @@ Then:
   slow the pace equally for everyone; menus pause, aiming does not.
 - Move with the arrow keys, numpad or `hjklyubn`; left-click to walk somewhere. `c` crouch, `p`
   go prone. **Get down behind something that stops bullets.**
+- **M** is the map in your hand: ground you've walked, and a pencil. `1`-`5` mark a danger, a rally
+  point, a firing position, a cache or a casualty; `0` rubs one out. Your section falls back on a
+  marked rally without being told and stretcher-bearers go to marked casualties first.
 - `f` to aim and fire (`a` aims longer), `r` reload, `t` throw, `B` bandage, `Y` shout for a medic.
   `F9` is Follow me: one key, no menu, they come on your heels. `F8` lays the order trace over the
   ground. Every key can be rebound in Options > Rebind keys.

@@ -20,7 +20,8 @@ A WWII roguelike on python-tcod. About 83,000 lines of Python in `fow/`, so read
   `weather_director.py`, packs in `packs.py`. Storeys are separate plans in `floors.py` (`soldier_at` is the
   ground store only; `soldier_at_z` and `actor_at/set_actor_at/pop_actor_at` carry upper floors). Difficulty is
   `difficulty.py`; run slots are `runs.py`/`runcode.py`; the after-action record is `reportcard.py`; the first
-  hour is `enlist.py`. Saves are versioned (`Game._migrate_save`, `.bak` fallback): bump
+  hour is `enlist.py`; map marks and the map sheet are `marks.py`/`mapui.py` (marks live on `game.map_marks`
+  in world coordinates). Saves are versioned (`Game._migrate_save`, `.bak` fallback): bump
   `SAVE_VERSION` when adding a field an old save needs. Re-run
   `tools/longplay.py 2000` after AI or simulation changes.
 - **Speed:** `tools/benchmark_world.py --save ~/.fogofwar/save.pkl --turns 150 [--profile out.prof]` copies a

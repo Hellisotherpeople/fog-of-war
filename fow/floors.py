@@ -539,15 +539,17 @@ def move_z(game, a, dx, dy):
     if other is not None and other is not a and other.z == a.z:
         return None
     from . import actions as A
-    c = A.step(game, a, nx, ny)
+    c = A.move(game, a, dx, dy)
     if c is None:
         return None
     if d.key == "floor_hole":
         fall(game, a)
     elif d.key in ("upper_window_broken",) and a.z > 0:
         # out of the window: the ground below
+        game.pop_actor_at(a, a.x, a.y, a.z)
         a.z = 0
         a.stance = 2
+        game.set_actor_at(a, a.x, a.y, 0)
         game.note_move(a)
         if a.is_player:
             game.msg("You swing out of the window and drop to the street.", "info")
@@ -621,7 +623,7 @@ def ai_act(game, a, vis, sq):
     m = game.map
     z = a.z
     order = sq.order.kind if sq is not None else "hold"
-    moving = order in ("move", "attack", "assault", "retreat", "flank", "follow", "mount", "regroup")
+    moving = order in ("move", "attack", "assault", "retreat", "flank", "follow", "mount", "regroup", "rally")
     if z < 0:
         if a.suppression < 20 and game.turn - a.ai.get("shelled", -999) > 60:
             return A.climb(game, a, 1)

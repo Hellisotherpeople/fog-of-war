@@ -498,6 +498,16 @@ def draw_overlays(con, game, cam, ui, sprites=False):
                 (tx, ty), _ = edge_text(o.x, o.y)
                 for offset, char in enumerate(letter):
                     put(con, tx + offset, ty, char, col, (20, 20, 20))
+    # your own grease pencil: rally points, dangers, cover, caches, casualties
+    from . import marks as MK
+    for x, y, mk in MK.on_map(game, p.side):
+        if not m.explored[x, y] or not cam.on_screen(x, y):
+            continue
+        if game.soldier_at.get((x, y)) is not None or game.vehicle_at.get((x, y)) is not None:
+            continue
+        ch = MK.KINDS[mk["kind"]][0]
+        tx, ty = cam.to_text(x, y)
+        put(con, tx, ty, ch, MK.color(mk, game.turn), (20, 20, 20))
     # pencil marks from captured papers: where their posts were, as last written down
     if p.ai.get("map_intel"):
         from .intelligence import INTEL_GLYPH, FORT_DAYS

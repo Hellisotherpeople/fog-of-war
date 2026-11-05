@@ -176,8 +176,10 @@ def move(game, a, dx: int, dy: int, allow_swap=True):
     if z != 0 and T.DEFS[tid].key == "floor_hole":
         FLOORS.fall(game, a)
     elif z != 0 and T.DEFS[tid].key == "upper_window_broken" and game.rng.random() < 0.12:
+        game.pop_actor_at(a, nx, ny, z)
         a.z = 0
         a.stance = 2
+        game.set_actor_at(a, nx, ny, 0)
         game.note_move(a)
         if a.is_player:
             game.msg("You swing out of the window and drop to the street.", "info")
@@ -539,7 +541,9 @@ def put_down(game, a, spot=None):
         if game.soldier_at.get((c.x, c.y)) is c:
             del game.soldier_at[(c.x, c.y)]
         c.x, c.y = spot
-        game.soldier_at[spot] = c
+    if c.alive and c.vehicle is None:
+        game.set_actor_at(c)             # (a carried man keeps no tile of his own until he's put down)
+    if spot is not None and c.alive:
         game.note_move(c)
 
 
