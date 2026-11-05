@@ -419,9 +419,11 @@ class Bank:
 
     def _field_loop(self, rng):
         dur = 6.0
-        x = _filter(_noise(int(SR * dur), rng), lo=2500, hi=7000, circular=True) * 0.05
-        for _ in range(8):
-            x = self._chirp(rng, x, rng.uniform(4200, 6800), dur=0.03, gain=0.03)
+        x = _filter(_noise(int(SR * dur), rng), lo=1800, hi=5200, circular=True) * 0.045
+        for _ in range(10):                       # grasshoppers: low, dry, and in double ticks
+            f = rng.uniform(2600, 4100)
+            x = self._chirp(rng, x, f, dur=0.035, gain=0.022)
+            x = self._chirp(rng, x, f * 0.97, dur=0.03, gain=0.018)
         return _norm(x, 0.22)
 
     def _town_loop(self, rng):
