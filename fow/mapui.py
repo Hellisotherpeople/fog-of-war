@@ -86,6 +86,8 @@ class MapState:
                 ch = chr(int(T.GLYPHS[t, int(m.var[x, y]) % T.MAXV]))
                 bg = tuple(int(c) for c in T.BG[t]) if not m.visible[x, y] else \
                     tuple(int(min(255, int(c) * 1.25)) for c in T.BG[t])
+                if x % 10 == 0 or y % 10 == 0:
+                    bg = tuple(min(255, c + 16) for c in bg)          # the grid, for reporting a place
                 con.print(ox + vx, oy + vy, ch, fg=tuple(int(c) for c in T.FG[t]), bg=bg)
         # things on it
         for a in g.actors:

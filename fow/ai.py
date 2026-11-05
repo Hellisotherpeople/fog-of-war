@@ -785,6 +785,11 @@ def designate(game, sq):
                 bs, best = sc, e
     if best is None:
         return
+    if sq.side == game.player.side and contact_kind(best) in ("mg", "hmg", "atgun", "tank", "sniper") and \
+            t - sq.rep.get("pencilled", -999) > 30:
+        from . import marks as MK
+        if MK.place(game, best.x, best.y, "danger", sq.leader if sq.leader is not None and sq.leader.active else None):
+            sq.rep["pencilled"] = t
     old = sq.__dict__.get("focus")
     sq.focus = (best.id, t)
     lead = sq.leader

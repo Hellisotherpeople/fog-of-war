@@ -98,9 +98,12 @@ def available(game, sq, origin):
             n = len(_piles(game, k, man, ox, oy))
             out[k] = (n, f"{n} bod{'y' if n == 1 else 'ies'} or pile{'s' if n != 1 else ''} within reach" if n
                       else "nothing within reach")
+    from . import marks as MK
+    flagged = {o.id for x, y, mk in MK.on_map(game, side) if mk["kind"] == "casualty"
+               for o in game.near(x, y, 3, side)}
     wounded = [a for a in game.actors if a.side == side and a.alive and a.downed and a.vehicle is None and
                a.ai.get("carried_by") is None and a.ai.get("at_aid") is None and
-               math.hypot(a.x - ox, a.y - oy) <= RADIUS + 10]
+               (a.id in flagged or math.hypot(a.x - ox, a.y - oy) <= RADIUS + 10)]
     out["casevac"] = (len(wounded), f"{len(wounded)} wounded down" if wounded else "no wounded down near them")
     pws = [a for a in game.actors if a.alive and a.state == "surrendered" and a.side != side and
            math.hypot(a.x - ox, a.y - oy) <= RADIUS and _unguarded(game, a)]
@@ -381,9 +384,13 @@ def _casevac(game, a, sq, t):
         a.ai.pop("task_wounded", None)
         taken = {o.ai.get("task_wounded") for o in game.actors if o is not a}
         moved = t.setdefault("carried", set())      # (with no aid post, a man set down in cover stays there)
+        from . import marks as MK
+        flagged = {o.id for x, y, mk in MK.on_map(game, a.side) if mk["kind"] == "casualty"
+                   for o in game.near(x, y, 3, a.side)}
         cands = [o for o in game.actors if o.side == a.side and o.alive and o.downed and o.vehicle is None and
                  o.ai.get("carried_by") is None and o.ai.get("at_aid") is None and o.id not in taken and
-                 o.id not in moved and math.hypot(o.x - home[0], o.y - home[1]) <= RADIUS + 10]
+                 o.id not in moved and (o.id in flagged or
+                                        math.hypot(o.x - home[0], o.y - home[1]) <= RADIUS + 10)]
         if not cands:
             a.ai["task_done"] = True
             _maybe_finished(game, sq)
