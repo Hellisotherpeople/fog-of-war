@@ -53,6 +53,14 @@ def lines(game) -> list[tuple[str, str]]:
     tr = trade.summary(game)
     if tr:
         out.append(("Trade: " + ", ".join(tr) + ".", ""))
+    marks = game.__dict__.get("map_marks") or []
+    if marks:
+        from .marks import KINDS
+        counts = {}
+        for mk in marks:
+            counts[mk["kind"]] = counts.get(mk["kind"], 0) + 1
+        out.append(("Pencilled on the map: " + ", ".join(f"{n} {KINDS[k][1]}" for k, n in counts.items() if k in KINDS)
+                    + ".", "dim"))
     if game.__dict__.get("diary"):
         out.append(("", ""))
         out.append(("From the diary:", "dim"))

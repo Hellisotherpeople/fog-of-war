@@ -157,6 +157,10 @@ def test_report_card_lines_and_export(tmp_path, monkeypatch):
     monkeypatch.setattr(rc, "REPORTS", str(tmp_path))
     g = Game("bocage44", "usa", "rifleman", seed=96)
     assert any("Time on the ground" in t for t, _ in reportcard.lines(g))
+    from fow import marks as MK
+    g.map.explored[:] = True
+    MK.place(g, g.player.x + 1, g.player.y, "danger")
+    assert any("Pencilled on the map" in t for t, _ in reportcard.lines(g))
     path = reportcard.export(g)
     assert path and os.path.exists(path)
 

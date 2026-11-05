@@ -1632,7 +1632,7 @@ class PlayState:
                 sleep.wake(g, p, "order")
                 self.__dict__["sleeping_auto"] = False
                 return
-            if key.char not in ("/", "?", "m", "x", ";", "T", "@", "P", "+", "-", "="):
+            if key.char not in ("/", "?", "m", "M", "x", ";", "T", "@", "P", "+", "-", "="):
                 from . import sleep
                 sleep.wake(g, p, "order")          # (any other key: you're up, and it does what it does)
                 self.__dict__["sleeping_auto"] = False
