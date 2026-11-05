@@ -59,6 +59,13 @@ PAGES = {
                             "Stand-to is not a rest. It is the ten minutes that decides the day."],
                      do="up before dawn", dont="sleep through the grey",
                      art=["  o o o", "  | | |", "  ======"]),
+    "map": dict(title="The map and the pencil", unlock="map",
+                lines=["Ground you've seen, and what you put on it: a danger, a rally point, cover worth having, "
+                       "a cache, a casualty.",
+                       "A mark outlives the moment. A rally point is where the section goes when it breaks; a "
+                       "danger mark is ground to cross carefully. Write them while it's quiet, not after."],
+                do="mark early, mark small", dont="rely on memory under fire",
+                art=["  R   !   +", "  |___|___|", "  rally danger casualty"]),
     "prisoners": dict(title="Prisoners", unlock="prisoner",
                       lines=["Hands up doesn't mean empty. Search him from behind, gun out of reach, before anything.",
                              "Send them back in twos with a guard. A prisoner alone behind you is a problem."],
@@ -66,9 +73,10 @@ PAGES = {
                       art=["  o_/", "  /|", "  / \\"]),
 }
 ORDER = ("cover", "fire_move", "dead_ground", "shells", "armour", "stretcher", "wire", "water", "stand_to",
-         "prisoners")
+         "map", "prisoners")
 TRIGGERS = {"contact": "fire_move", "shelled": "shells", "vehicle": "armour", "medevac": "stretcher",
-            "thirst": "water", "night": "stand_to", "prisoner": "prisoners", "wire": "wire", "cover": "cover"}
+            "thirst": "water", "night": "stand_to", "prisoner": "prisoners", "wire": "wire", "cover": "cover",
+            "map": "map"}
 
 
 def unlocked(game) -> list[str]:

@@ -388,6 +388,7 @@ on it only while you can see him, and for a few minutes after as a faded `×` wh
 | direction keys | move the cursor (Shift: five tiles; PgUp / PgDn: ten) |
 | Home or `@` | back to where you stand |
 | `1` `2` `3` `4` `5` | mark danger / rally point / firing position / cache / casualty |
+| `e` | a word on the mark: MG, mines, tank, sniper, wounded, gap, dead ground (again cycles, then clears it) |
 | `0` | rub out the marks under the cursor |
 | `n` / `Shift+n` | jump to the next / previous mark, nearest first |
 | `x` | look at the ground under the cursor |

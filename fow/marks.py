@@ -78,12 +78,32 @@ def place(game, x, y, kind, by=None):
             mk["turn"] = game.turn
             mk["by"] = (by or p).id
             return mk
+    if by is None or by is p:
+        from .manual import unlock
+        unlock(game, "map")
     mk = dict(wx=wx, wy=wy, kind=kind, side=(by or p).side, by=(by or p).id, turn=game.turn)
     marks = _marks(game)
     marks.append(mk)
     if len(marks) > MAX:
         del marks[:len(marks) - MAX]
     return mk
+
+
+NOTES = ("", "MG", "mines", "tank", "sniper", "wounded", "gap", "dead ground")
+
+
+def cycle_note(game, x, y):
+    """A word beside the pencil mark - the difference between a tick and a warning."""
+    here = at(game, x, y)
+    if not here:
+        return None
+    mk = here[0]
+    try:
+        i = (NOTES.index(mk.get("note", "")) + 1) % len(NOTES)
+    except ValueError:
+        i = 1
+    mk["note"] = NOTES[i]
+    return mk["note"]
 
 
 def clear_at(game, x, y, radius=1):
@@ -167,7 +187,8 @@ def look_lines(game, x, y):
     for mk in at(game, x, y):
         glyph, name, _col = KINDS[mk["kind"]]
         age = age_words(max(0, game.turn - mk.get("turn", game.turn)))
-        out.append((f"{glyph} You marked this as a {name} {age}.", color(mk, game.turn)))
+        note = f" ('{mk['note']}')" if mk.get("note") else ""
+        out.append((f"{glyph} You marked this as a {name} {age}{note}.", color(mk, game.turn)))
     return out
 
 

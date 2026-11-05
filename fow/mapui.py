@@ -140,11 +140,12 @@ class MapState:
         for i, (x, y, mk) in enumerate(rows[: SCREEN_H - 7]):
             d = max(abs(x - px), abs(y - py))
             glyph, name, _c = MK.KINDS[mk["kind"]]
-            con.print(sx, 2 + i, f"{glyph} {name[:14]}  {d * 2}m ({x},{y})"[:29], fg=MK.color(mk, g.turn))
+            label = f"{name} '{mk['note']}'" if mk.get("note") else name
+            con.print(sx, 2 + i, f"{glyph} {label[:14]}  {d * 2}m ({x},{y})"[:29], fg=MK.color(mk, g.turn))
         # the edge of the sheet
         con.print(1, SCREEN_H - 4, MK.LINE + "  × / ▮ last seen", fg=UI_DIM)
         con.print(1, SCREEN_H - 3, "0 rub out   Enter walk there   o send the section   r rally here   "
-                  "f fire mission   s smoke   n marks   x look   / find   Esc close", fg=UI_DIM)
+                  "e note   f fire mission   s smoke   n marks   x look   / find   Esc close", fg=UI_DIM)
         if self.inspect is not None and self.play is not None:
             lines, _title = self.play.describe_tile(self.inspect[0], self.inspect[1], brief=True)
             y = SCREEN_H - 3 - min(6, len(lines)) - 1
@@ -208,6 +209,10 @@ class MapState:
         if c == "0":
             n = MK.clear_at(self.game, self.cx, self.cy)
             self.note = f"Rubbed out {n} mark{'s' if n != 1 else ''}." if n else "Nothing marked there."
+            return
+        if c == "e":
+            note = MK.cycle_note(self.game, self.cx, self.cy)
+            self.note = f"Note: {note}" if note else "Nothing marked there."
             return
         if c in ("n", "N"):
             p = self.game.player
@@ -276,6 +281,15 @@ class MapState:
         return out
 
     def on_click(self, tx, ty, b):
+        if tx >= SCREEN_W - 30:
+            p = self.game.player
+            rows = sorted(MK.on_map(self.game, p.side),
+                          key=lambda t: max(abs(t[0] - p.x), abs(t[1] - p.y)))
+            i = ty - 2
+            if 0 <= i < len(rows) and b == 1:
+                self.cx, self.cy = rows[i][0], rows[i][1]
+                self._speak()
+            return
         ox, oy = 2, 2
         vw, vh = self._view_size()
         x, y = self.vx0 + tx - ox, self.vy0 + ty - oy

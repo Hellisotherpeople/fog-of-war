@@ -50,6 +50,13 @@ def test_same_kind_nearby_is_one_mark():
     assert MK.at(g, p.x + 1, p.y)
 
 
+def test_first_mark_opens_the_manual_page():
+    g = make()
+    p = g.player
+    MK.place(g, p.x + 1, p.y, "rally")       # no by: the player
+    assert "map" in g.__dict__.get("manual", [])
+
+
 def test_unexplored_ground_cannot_be_marked():
     g = make()
     p = g.player
@@ -83,6 +90,8 @@ def test_map_screen_marks_and_clears_and_walks():
     st.on_key(Key(char="0"))
     assert not g.map_marks
     st.on_key(Key(char="1"))
+    st.on_key(Key(char="e"))
+    assert g.map_marks[-1]["note"] == "MG"
     before = (st.cx, st.cy)
     st.on_key(Key(sym=E.KeySym.RIGHT))
     assert (st.cx, st.cy) != before
