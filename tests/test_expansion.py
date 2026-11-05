@@ -282,10 +282,11 @@ def test_supplies_limit_resupply_healing_repairs_and_fuel():
     for it in sources(p, p.weapon):
         p.invent.remove(it)
     stock["ammo"] = .17
-    before = p.ammo_count(p.weapon)
+    guns = [i for i in p.inv if i.t.kind == "gun" and i.t.cal]   # (resupply fills every gun he has)
+    before = sum(p.ammo_count(g_) for g_ in guns)
     g.map.add_item(p.x, p.y, Item("ammo_crate"))
     resupply(g, p)
-    added = p.ammo_count(p.weapon) - before
+    added = sum(p.ammo_count(g_) for g_ in guns) - before
     assert 0 < added <= 17 and abs(stock["ammo"] - (.17 - added / 100)) < 1e-6
     stock["ammo"] = 0
     assert resupply(g, p) is None

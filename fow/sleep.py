@@ -52,7 +52,7 @@ def debt(a) -> float:
 def can(game, a) -> tuple[bool, str]:
     if game.__dict__.get("domain", "land") != "land":
         return False, "not here"
-    if a.vehicle is not None:
+    if a.vehicle is not None and a.vehicle.moved_turn >= game.turn - 1:
         return False, "not from a moving vehicle"
     if _state(a) is not None:
         return False, "already asleep"

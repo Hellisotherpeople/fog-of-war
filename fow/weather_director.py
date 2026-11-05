@@ -73,15 +73,16 @@ def stand_to(game, hour: int) -> None:
     dawn = hour < 12
     from . import sleep
     woke = 0
-    for a in game.near(p.x, p.y, 40, p.side):
+    people = {id(a): a for a in game.near(p.x, p.y, 40, p.side)}
+    people[id(p)] = p                       # (a man in a vehicle is off the packed grid)
+    if game.player.squad is not None:
+        people.update({id(m): m for m in game.player.squad.members})
+    for a in people.values():
         if a.ai.get("sleeping") is not None:
             sleep.wake(game, a, "order")
             woke += 1
         a.stance = 1 if dawn else a.stance
         a.ai["stand_to"] = game.turn + 900
-    if game.player.squad is not None:
-        for m in game.player.squad.members:
-            m.ai["stand_to"] = game.turn + 900
     game.msg("Stand-to: the section is up, weapons off the ground, watching the light." if dawn else
              "Stand-to at last light. Sentries out; the rest stand by their weapons.", "info")
     if woke:

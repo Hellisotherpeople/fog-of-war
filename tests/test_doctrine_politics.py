@@ -119,6 +119,9 @@ def test_interrogation_gives_papers_and_plans():
     en.ai["searched"] = True
     en.ai["interrogation"] = dict(rounds=0, methods=[], gave=set(), done=False)
     p.skills["languages"] = 9
+    if p.invent.slots["pack"] is None:          # (a man without a pack has nowhere to put the map)
+        from fow.entities import Item
+        p.invent.slots["pack"] = Item("backpack")
 
     class PS:
         def __init__(self):
@@ -126,7 +129,7 @@ def test_interrogation_gives_papers_and_plans():
         def act(self, c):
             self.cost = c
     ps = PS()
-    for _ in range(10):
+    for _ in range(30):
         interrogation._do(ps, en, "ask")
         if "map" in en.ai["interrogation"]["gave"] or "orders" in en.ai["interrogation"]["gave"]:
             break

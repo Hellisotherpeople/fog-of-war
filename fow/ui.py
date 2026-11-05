@@ -38,11 +38,114 @@ TITLE_ART = [
     "██       ██████   ██████       ██████  ██           ███ ███  ██   ██ ██   ██ ",
 ]
 
-SCENE = [
-    "      ♣♣            §§§§§§§§§§§§           +   +          ≡≡≡≡          ♣     ",
-    "   ♣♣♣♣♣  ░░░░░░░░░░░░░░░░░░░░░░░░░░   + + + +  o   ▲  ≡▒▒▒▒≡   ♣♣  ♣♣♣    ",
-    "  ♣♣♣♣♣♣♣ ░ @ ░ @ ░  ░ @ ░░░ @ ░ @ ░    +   +     ▲▲▲ ≡▒@▒▒≡  ♣♣♣♣ ♣♣♣♣   ",
-]
+# The title backdrop: a few small scenes, drawn from arithmetic and a frame number.  Nothing here touches
+# the game - no map, no turn, no simulation - so the menu stays instant on any machine.
+SCENE_W = 100
+SCENES = ("night patrol", "dawn barrage", "the road in the rain", "snow", "the sea", "a ruined street")
+
+
+def _scene(name: str, f: float, seed: int):
+    import random as _r
+    r = _r.Random(seed)
+    w = SCENE_W
+    sky = (60, 60, 70)
+    g = [[(" ", sky) for _ in range(w)] for _ in range(5)]
+
+    def put(x, y, ch, col):
+        if 0 <= x < w and 0 <= y < len(g):
+            g[y][x] = (ch, col)
+
+    if name == "night patrol":
+        for _ in range(28):                                     # stars, some of them blinking
+            x, y = r.randrange(w), r.randrange(3)
+            put(x, y, "·" if (f + x) % 17 else "✦", (120, 120, 140))
+        put(84, 0, "☾", (225, 215, 170))
+        for x in range(w):                                      # the hedge line
+            put(x, 4, "♣", (34, 62, 36) if (x + seed) % 5 else (48, 80, 46))
+        for k in range(4):                                      # a patrol, walking
+            x = int((f * 7 + k * 13 + seed) % (w + 12)) - 6
+            put(x, 3, "@", (205, 195, 155))
+            put(x + 1, 3, "†", (150, 145, 120))
+        if int(f) % 13 == 0:
+            put(int(f * 7 + 40) % w, 1, "✳", (255, 240, 180))
+    elif name == "dawn barrage":
+        for y in range(3):
+            for x in range(w):
+                put(x, y, " ", (0, 0, 0))
+        for x in range(w):                                      # the horizon, and the flashes on it
+            put(x, 4, "▁", (80, 70, 60))
+        for k in range(6):
+            x = (k * 19 + seed) % w
+            put(x, 3, "≡" if (int(f) + k) % 7 else "▲", (70, 64, 58))
+            if (int(f) + k) % 6 < 2:
+                put(x, 2, "✳", (255, 190, 110))
+        for k in range(5):                                      # smoke columns, drifting
+            x = (k * 23 + int(f * 0.6) + seed) % w
+            for y in (0, 1, 2):
+                put(x + (y % 2), y, "░", (78, 74, 70))
+        put(int(f * 0.6 + 18) % w, 0, "☀", (250, 190, 120))
+    elif name == "the road in the rain":
+        for x in range(w):
+            for y in range(5):
+                if (x * 7 + y * 13 + seed) % 5 == 0:
+                    put(x, y, "╱", (100, 120, 150))
+        for x in range(w):
+            put(x, 4, "═", (68, 66, 62))
+        for k in range(3):
+            x = (k * 31 + seed) % w
+            put(x, 3, "▬", (90, 92, 96))
+            put(x + 1, 3, "▬", (90, 92, 96))
+            put(x + 2, 2, "▄", (78, 80, 84))
+        for k in range(5):
+            put((k * 29 + int(f * 3)) % w, 4, "≈", (90, 110, 135))
+    elif name == "snow":
+        for _ in range(30):
+            x = r.randrange(w)
+            y = (r.randrange(5) + int(f)) % 5
+            put(x, y, "*" if (x + seed) % 9 else "❄", (215, 220, 230))
+        for x in range(w):
+            put(x, 4, "▁", (180, 185, 195))
+        for k in range(4):
+            x = (k * 27 + seed) % w
+            put(x, 3, "♣", (70, 76, 78))
+            put(x + 1, 3, "♣", (80, 86, 88))
+        put(46, 3, "▄", (70, 72, 76))                           # a wreck, half drifted in
+        put(47, 3, "▄", (78, 80, 84))
+        put(48, 3, "▄", (70, 72, 76))
+    elif name == "the sea":
+        for y in range(5):
+            for x in range(w):
+                put(x, y, "~" if (x + y * 3 + int(f * 2)) % 7 else "≈", (54 + y * 10, 84 + y * 12, 120 + y * 10))
+        for x in range(w):
+            put(x, 4, "▂", (46, 70, 100))
+        x = int(f * 3 + seed) % (w + 40) - 20                    # a destroyer on the horizon
+        for dx, ch in enumerate("▄▄▄▄▄▄▄"):
+            put(x + dx, 2, ch, (110, 112, 110))
+        put(x + 3, 1, "▄", (128, 130, 126))
+        put(x + 3, 0, "│", (128, 130, 126))
+        for k in range(3):
+            put((k * 37 + int(f * 5) + seed) % w, (k + 1) % 3, "ᵛ", (200, 205, 210))
+    else:                                                       # a ruined street
+        for _ in range(4):
+            x = r.randrange(w)
+            h = r.randrange(2, 5)
+            for y in range(5 - h, 5):
+                put(x, y, "█", (74, 68, 62))
+                if (x + y + seed) % 4 == 0:
+                    put(x, y, "▒", (52, 48, 44))
+            put(x, 5 - h, "▄", (86, 80, 72))
+        for x in range(w):
+            put(x, 4, "▂", (58, 54, 50))
+        for k in range(4):                                      # smoke, and ash falling
+            x = (k * 25 + int(f * 1.5) + seed) % w
+            for y in range(2, 5):
+                put(x + (y % 2), y, "░", (80, 76, 72))
+        for _ in range(8):
+            x, y = (r.randrange(w) + int(f)) % w, r.randrange(5)
+            put(x, y, "·", (120, 116, 110))
+        if int(f) % 4 < 2:
+            put(int(f * 11 + 20) % w, 1, "-", (255, 210, 120))  # a tracer, going somewhere
+    return ["".join(ch for ch, _c in row) for row in g], [[c for _ch, c in row] for row in g]
 
 
 class MenuState:
@@ -185,37 +288,66 @@ class MainMenuState(MenuState):
         super().__init__(app, "", opts, self.choose, searchable=False)
         if first:
             self.sel = next((i for i, o in enumerate(opts) if o[1] == "enlist"), 0)
+        self._scene_i = random.randrange(len(SCENES))
+        self._scene_seed = random.randrange(9999)
+        self._scene_t = time.monotonic()
+        self._quote_t = time.monotonic()
+        from . import quotes
+        self._quote = quotes.pick(None, context=False)
+
+    def wants_tick(self):
+        return True                                     # the backdrop moves; nothing else is simulated
+
+    def _rotate(self):
+        now = time.monotonic()
+        if now - self._scene_t > 26:
+            self._scene_t = now
+            self._scene_i = (self._scene_i + 1 + random.randrange(2)) % len(SCENES)
+            self._scene_seed = random.randrange(9999)
+        if now - self._quote_t > 20:
+            from . import quotes
+            self._quote_t = now
+            self._quote = quotes.pick(None, context=False)
 
     def render(self, con):
         con.clear()
+        self._rotate()
+        f = time.monotonic() * 2.0
+        name = SCENES[self._scene_i]
         for i, line in enumerate(TITLE_ART):
-            con.print((SCREEN_W - len(line)) // 2, 3 + i, line, fg=(200, 170, 90))
-        con.print((SCREEN_W - len(SUBTITLE)) // 2, 9, SUBTITLE, fg=UI_DIM)
-        for i, line in enumerate(SCENE):
-            x = (SCREEN_W - len(line)) // 2
+            con.print((SCREEN_W - len(line)) // 2, 2 + i, line, fg=(200, 170, 90))
+        con.print((SCREEN_W - len(SUBTITLE)) // 2, 7, SUBTITLE, fg=UI_DIM)
+        # the backdrop: a small scene, moving, costing arithmetic only
+        lines, cols = _scene(name, f, self._scene_seed)
+        x0 = (SCREEN_W - SCENE_W) // 2
+        for i, (line, row) in enumerate(zip(lines, cols)):
             for j, ch in enumerate(line):
-                col = {"♣": (50, 120, 50), "§": (150, 150, 150), "░": (120, 100, 60), "@": (220, 200, 140),
-                       "+": (170, 170, 160), "≡": (200, 180, 120), "▒": (90, 90, 90), "▲": (130, 120, 110),
-                       "o": (110, 90, 70)}.get(ch, (60, 60, 60))
-                con.print(x + j, 11 + i, ch, fg=col)
-        from . import quotes
-        if not hasattr(self, "_quote"):
-            self._quote = quotes.pick(None, context=False)
-        con.print(10, 33, "─" * 100, fg=(60, 56, 44))
-        quotes.render(con, 12, 34, 96, self._quote, max_rows=8)
-        y = 16
+                if ch != " ":
+                    con.print(x0 + j, 9 + i, ch, fg=row[j])
+        cap = f" {name} "
+        con.print(SCREEN_W - len(cap) - 10, 8, cap, fg=(90, 85, 70))
+        # menu: a plain left column, one row each - every choice visible, every time
+        y = 15
         self.item_rows = {}
+        mx = 6
         for i, (label, value, desc, col) in enumerate(self.options):
+            if y >= SCREEN_H - 7:
+                break
             sel = i == self.sel
-            x = (SCREEN_W - 40) // 2
-            con.print(x, y, " " * 40, bg=UI_SEL_BG if sel else None)
-            con.print(x + 2, y, f"{'abcdefghij'[i]})  {label}", fg=col or (UI_HI if sel else UI_TEXT),
+            con.print(mx, y, " " * 52, bg=UI_SEL_BG if sel else None)
+            con.print(mx + 2, y, f"{'abcdefghijklmnopqrstuvwxyz'[i]})  {label}", fg=col or (UI_HI if sel else UI_TEXT),
                       bg=UI_SEL_BG if sel else None)
             self.item_rows[y] = i
-            y += 2
+            y += 1
         desc = self.options[self.sel][2]
-        for i, line in enumerate(textwrap.wrap(desc, 70)):
-            con.print((SCREEN_W - 70) // 2, y + 1 + i, line, fg=UI_DIM)
+        for i, line in enumerate(textwrap.wrap(desc, 50)[:4]):
+            con.print(mx + 4, y + 1 + i, line, fg=UI_DIM)
+        # the quote, in its own box on the right, so no menu can ever run into it
+        from . import quotes
+        qx, qw = 64, SCREEN_W - 68
+        con.draw_frame(qx - 1, 14, qw + 2, 27, clear=False, fg=(62, 58, 46))
+        con.print(qx, 14, " FROM THE WAR ", fg=(110, 100, 78))
+        quotes.render(con, qx, 16, qw, self._quote, max_rows=23)
         con.print(2, SCREEN_H - 2, "A turn-based war simulator in the spirit of Cataclysm: DDA. Built on libtcod.",
                   fg=(80, 75, 60))
 
@@ -928,17 +1060,55 @@ R_COMMAND = {0: "The lowest of the low.", 1: "A private who's lasted.", 2: "Lead
              17: "Commands an army.", 18: "Commands an army group - or a whole front."}
 
 
+def _intro_scene(game):
+    """The picture for this briefing's ground: weather first, then the hour, then the country."""
+    th = game.theatre
+    climate = (game.map.climate if game.map is not None else th.get("climate")) or "temperate"
+    if game.__dict__.get("domain") == "sea" or th.get("sea"):
+        return "the sea"
+    if climate in ("winter", "arctic"):
+        return "snow"
+    if game.weather in ("rain", "storm"):
+        return "the road in the rain"
+    hour = th.get("date", (1944, 6, 6, 6, 0))[3]
+    if climate in ("desert",):
+        return "dawn barrage"
+    if game.map is not None and game.map.biome in ("town", "city_ruins", "factory", "village"):
+        return "a ruined street"
+    if hour < 8:
+        return "dawn barrage"
+    if hour >= 21 or hour < 5:
+        return "night patrol"
+    return "dawn barrage"
+
+
 class BriefingState:
     def __init__(self, app, game):
         self.app = app
         self.game = game
+        self._seed = random.randrange(9999)
+        self._t = time.monotonic()
         # the briefing is written before the moving world places the player: take the ways up from where he is
         if game.scenario not in ("pow",) and not game.scenario.startswith(("air:", "sea:")):
             from .scenarios import approaches
             game.approaches = approaches(game)
 
+    def wants_tick(self):
+        return True
+
     def render(self, con):
         con.clear()
+        f = (time.monotonic() - self._t) * 2.0
+        th = self.game.theatre
+        name = _intro_scene(self.game)
+        lines_, cols_ = _scene(name, f, self._seed)
+        x0 = (SCREEN_W - SCENE_W) // 2
+        for i, (line, row) in enumerate(zip(lines_, cols_)):
+            for j, ch in enumerate(line):
+                if ch != " ":
+                    con.print(x0 + j, 1 + i, ch, fg=row[j])
+        head = f" {th['name']} - {th['date'][2]} {th['date'][1]}.{th['date'][0]}, {th['date'][3]:02d}:00 "
+        con.print(SCREEN_W - len(head) - 2, 6, head, fg=(190, 175, 130))
         lines = []
         for l in self.game.briefing:
             if not l:
@@ -949,7 +1119,7 @@ class BriefingState:
                 lines.append((w, col))
         opts = self.game.__dict__.get("approaches") or []
         foot = ("1-3: choose a way up   " if opts else "") + "Enter: begin   ?: how to play"
-        draw_center_box(con, "Briefing", lines, width=SCREEN_W - 10, footer=foot)
+        draw_center_box(con, "Briefing", lines, width=SCREEN_W - 10, height=SCREEN_H - 10, top=7, footer=foot)
         if opts and not any("Way up: " in l for l, _c in lines):
             chosen = self.game.__dict__.get("approach_taken")
             if chosen:
@@ -2436,6 +2606,9 @@ class OptionsState:
             ("Hit chances as numbers", "show_numbers", "toggle", "Percentages instead of words when aiming.", None),
             ("Pictures in the interface", "pictures", "toggle", "Your kit, your body, your watch and the sky, the "
              "map sheet: drawn as well as named. Off: words only, as in a terminal.", None),
+            ("What a look shows", "tell", "cycle", "both: the thing itself first, and the words about it once "
+             "you've rested on it a moment. pictures: the picture and a name, no prose. words: the text at once, "
+             "as a terminal game. Marks, keys and warning lines still show in every mode.", ("both", "pictures", "words")),
             ("CONTROLS", None, "head", "", None),
             ("Rebind keys...", "keys", "action", "Move the keys for anything on the battlefield. The help and the "
              "hints print the key you set.", None),
@@ -3489,12 +3662,27 @@ class GeneratingState:
         self.args = (theatre, nation, role)
         self.setup = setup
         self.done = False
+        self._seed = random.randrange(9999)
 
     def render(self, con):
         con.clear()
         th = THEATRES[self.args[0]]
+        climate = th.get("climate", "temperate")
+        hour = th["date"][3]
+        name = "the sea" if th.get("sea") else "snow" if climate == "winter" else \
+            "the road in the rain" if climate in ("rain", "storm") else \
+            "a ruined street" if climate in ("town", "city_ruins") else \
+            "night patrol" if hour >= 21 or hour < 5 else "dawn barrage"
+        lines_, cols_ = _scene(name, 0.0, self._seed)
+        x0 = (SCREEN_W - SCENE_W) // 2
+        for i, (line, row) in enumerate(zip(lines_, cols_)):
+            for j, ch in enumerate(line):
+                if ch != " ":
+                    con.print(x0 + j, 14 + i, ch, fg=row[j])
         msg = f"{th['name']}, {th['date'][0]}. Moving up to the line..."
-        con.print((SCREEN_W - len(msg)) // 2, SCREEN_H // 2, msg, fg=UI_TEXT)
+        con.print((SCREEN_W - len(msg)) // 2, 22, msg, fg=UI_TEXT)
+        dots = "." * (1 + int(time.monotonic() * 2) % 3)
+        con.print((SCREEN_W - len(dots)) // 2, 24, dots, fg=(180, 160, 110))
 
     def wants_tick(self):
         return True
