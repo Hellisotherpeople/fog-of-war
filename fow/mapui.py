@@ -59,7 +59,7 @@ class MapState:
         ox, oy = 2, 2
         vw, vh = self._view_size()
         self._scroll(vw, vh)
-        con.print(2, 0, f"BATTLEFIELD MAP - {m.name}", fg=UI_HI)
+        con.print(2, 0, f"BATTLEFIELD MAP - {m.name} ({g.time_feel()}, {g.weather})", fg=UI_HI)
         sheet = "with a map sheet" if p.has_tool("map") is not None else "from what you remember of the walk"
         px, py = (p.vehicle.x, p.vehicle.y) if p.vehicle is not None else (p.x, p.y)
         dx, dy = self.cx - px, self.cy - py
@@ -119,10 +119,10 @@ class MapState:
                 continue
             ch = MK.KINDS[mk["kind"]][0]
             con.print(ox + x - self.vx0, oy + y - self.vy0, ch, fg=MK.color(mk, g.turn))
-        for x, y, _rec, col in MK.sightings(g):
+        for x, y, rec, col in MK.sightings(g):
             if not (self.vx0 <= x < self.vx0 + vw and self.vy0 <= y < self.vy0 + vh):
                 continue
-            con.print(ox + x - self.vx0, oy + y - self.vy0, "×", fg=col)
+            con.print(ox + x - self.vx0, oy + y - self.vy0, "▮" if rec.get("v") else "×", fg=col)
         # cursor
         if self.vx0 <= self.cx < self.vx0 + vw and self.vy0 <= self.cy < self.vy0 + vh:
             t = int(m.t[self.cx, self.cy])
@@ -140,7 +140,7 @@ class MapState:
             glyph, name, _c = MK.KINDS[mk["kind"]]
             con.print(sx, 2 + i, f"{glyph} {name[:14]}  {d * 2}m ({x},{y})"[:29], fg=MK.color(mk, g.turn))
         # the edge of the sheet
-        con.print(1, SCREEN_H - 4, MK.LINE + "  × last seen", fg=UI_DIM)
+        con.print(1, SCREEN_H - 4, MK.LINE + "  × / ▮ last seen", fg=UI_DIM)
         con.print(1, SCREEN_H - 3, "0 rub out   Enter walk there   o send the section   r rally here   "
                   "f fire mission   s smoke   n marks   x look   / find   Esc close", fg=UI_DIM)
         if self.inspect is not None and self.play is not None:
@@ -197,6 +197,8 @@ class MapState:
     def on_key(self, key):
         c = key.char
         mv = key.move()
+        if key.sym == E.KeySym.F1 or c == "?":
+            return self.play.cmd_help() if self.play is not None else None
         if c == "/":
             return self._search()
         if c in MK.KEY:

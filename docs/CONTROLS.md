@@ -339,7 +339,7 @@ sergeant) fires your rounds himself, and it counts against you.
 
 - **`O`** gives orders to the squad you lead (if you don't lead one, `O` opens `C`). The orders:
   - movement: Follow me!, Hold here, Advance to..., Assault..., Flank..., Suppress..., Dig in,
-    Ambush, Fall back!;
+    Ambush, Rally on... (a marked point, or one you pick), Fall back!;
   - fire: fire at will / return fire only / hold your fire;
   - *Give the crew a hand*, when a friendly vehicle close by needs a track or shells;
   - *Command other units...*.

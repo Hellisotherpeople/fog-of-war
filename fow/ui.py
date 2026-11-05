@@ -3122,7 +3122,7 @@ class OvermapState:
                     from . import marks as _MK
                     own_marks = _MK.in_sector(g, s.x, s.y)
                     if own_marks:
-                        con.print(x + 1, y + 3, "⚑" if any(mk["kind"] == "rally" for mk in own_marks) else "!",
+                        con.print(x + 1, y + 3, "R" if any(mk["kind"] == "rally" for mk in own_marks) else "!",
                                   fg=(150, 220, 140) if any(mk["kind"] == "rally" for mk in own_marks)
                                   else (255, 120, 95), bg=bg)
             else:

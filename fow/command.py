@@ -969,6 +969,9 @@ class CommandState:
         fails = []
         runner_jobs = {}
         chans_used = set()
+        if kind == "rally" and target is not None:
+            from . import marks as MK
+            MK.place(game, target[0], target[1], "rally", p)
         from . import doctrine
         ring = doctrine.ring_points(target, squads) if drill == "motti" and target is not None else None
         for i, sq in enumerate(squads):

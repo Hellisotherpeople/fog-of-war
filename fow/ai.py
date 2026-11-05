@@ -687,7 +687,7 @@ def squad_update(game, sq: Squad):
             sq.state = "flank"
         else:
             sq.state = "assault"
-    elif sq.player_led and o.kind not in ("move", "attack", "assault", "retreat"):
+    elif sq.player_led and o.kind not in ("move", "attack", "assault", "retreat", "rally"):
         if o.kind == "hold":
             sq.state = "hold"
         elif o.kind == "defend":
@@ -2047,8 +2047,21 @@ def retreat_act(game, a, vis) -> int:
     sq = a.squad
     order = sq.order if sq is not None else None
     ral = sq.__dict__.get("rally") if sq is not None else None
-    if order is not None and order.kind == "rally" and order.target is not None:
+    rallying = order is not None and order.kind == "rally" and order.target is not None
+    if rallying:
         ral = {"at": order.target}
+        # back by bounds: half the section moves while the other half keeps the enemy's head down
+        ph = sq.__dict__.setdefault("rph", [a.id % 2, game.turn])
+        if game.turn - ph[1] >= 5:
+            ph[0] ^= 1
+            ph[1] = game.turn
+        if a.id % 2 != ph[0] and not a.is_player:
+            fix_stance(game, a, 2 if vis else 1)
+            if vis and a.weapon is not None and a.weapon.t.kind == "gun" and a.weapon.loaded > 0:
+                t = choose_target(game, a, vis)
+                if t is not None:
+                    return safe_fire(game, a, t.x, t.y, t)
+            return 100
     if ral is not None and ral.get("at") is not None:
         rx, ry = ral["at"]
         if max(abs(a.x - rx), abs(a.y - ry)) > 3:

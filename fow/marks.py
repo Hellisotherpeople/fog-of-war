@@ -13,9 +13,9 @@ MERGE = 2                        # the same kind within two tiles is one mark, m
 
 KINDS = {
     "danger": ("!", "danger", (255, 110, 90)),
-    "rally": ("⚑", "rally point", (150, 220, 140)),
-    "cover": ("○", "firing position", (170, 195, 255)),
-    "cache": ("▣", "cache", (235, 210, 120)),
+    "rally": ("R", "rally point", (150, 220, 140)),
+    "cover": ("o", "firing position", (170, 195, 255)),
+    "cache": ("C", "cache", (235, 210, 120)),
     "casualty": ("+", "casualty", (240, 160, 160)),
 }
 ORDER = tuple(KINDS)
@@ -175,10 +175,13 @@ def remember_enemies(game):
     p = game.player
     seen = game.__dict__.setdefault("enemy_seen", {})
     for a in getattr(p, "visible", ()) or ():
-        if a.side == p.side or not a.alive or a.vehicle is not None or a.ai.get("civilian"):
+        if a.side == p.side or not getattr(a, "alive", not getattr(a, "dead", False)) or \
+                getattr(a, "vehicle", None) is not None or (getattr(a, "ai", None) or {}).get("civilian"):
             continue
         wx, wy = world_of(game, a.x, a.y)
-        seen[a.id] = dict(wx=wx, wy=wy, turn=game.turn, kind=a.role_name if hasattr(a, "role_name") else "soldier")
+        kind = a.vt.name if getattr(a, "vt", None) is not None else \
+            (a.role_name if hasattr(a, "role_name") else "soldier")
+        seen[a.id] = dict(wx=wx, wy=wy, turn=game.turn, kind=kind, v=getattr(a, "vt", None) is not None)
     dead = [i for i, s in seen.items() if game.turn - s["turn"] > REMEMBER]
     for i in dead:
         del seen[i]

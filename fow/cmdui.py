@@ -20,7 +20,7 @@ HEAD = (200, 180, 120)
 CHAN_SHORT = {"direct": "here", "voice": "voice", "signal": "signal", "radio": "radio", "relay": "relay",
               "runner": "runner"}
 COST = {"direct": 50, "voice": 60, "signal": 60, "radio": 200, "relay": 200, "runner": 120}
-TARGETED = ("move", "attack", "assault", "flank", "suppress", "defend", "ambush_at")
+TARGETED = ("move", "attack", "assault", "flank", "suppress", "defend", "ambush_at", "rally")
 
 
 def _state_color(sq, stale=False):
@@ -316,6 +316,7 @@ def unit_menu(ps, squads, title, formation=None):
             ("Ambush at...", "ambush_at", None, can("ambush")),
             ("Come to me", "come", None, can("come")),
             ("Regroup on your leader", "regroup", None, can("regroup")),
+            ("Rally on... (fall back by bounds)", "rally", (150, 220, 140), can("move")),
             ("Fall back!", "retreat", None, can("retreat"))]
     if mounted:
         opts.append(("Dismount", "dismount", None, can("dismount")))
@@ -409,6 +410,12 @@ def proposals(game, kind, squads, origin) -> list:
         a = game.turn - c.turn
         return "just now" if a < 20 else f"{a // 60 or 1} min ago" if a < 3600 else "a while ago"
     hot, cool, obj_col = (250, 170, 110), (230, 210, 150), (180, 220, 160)
+    if kind == "rally":
+        from . import marks as MK
+        marks = sorted(MK.on_map(game, side), key=lambda t: dist(t[0], t[1]))
+        for x, y, mk in marks:
+            if mk["kind"] == "rally":
+                add(f"Your rally point, {where(x, y)}", x, y, (150, 220, 140))
     if kind in ("move", "attack", "assault", "flank", "ambush") and nxt is not None:
         add(f"{nxt.name}: the next objective ({state(nxt)}), {where(nxt.x, nxt.y)}", nxt.x, nxt.y, obj_col)
     if kind in ("flank", "attack", "assault", "suppress"):

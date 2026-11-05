@@ -120,6 +120,57 @@ def test_rally_order_writes_a_marker_and_sets_the_order():
     assert any(m["kind"] == "rally" for m in g.map_marks)
 
 
+def test_order_menu_offers_the_nearest_rally_marker():
+    g = make()
+    app = FakeApp()
+    ps = PlayState(app, g)
+    app.push(ps)
+    p = g.player
+    sq = p.squad
+    MK.place(g, p.x - 8, p.y, "rally", p)
+    ps.cmd_orders()
+    vals = [o[1] for o in ps.popups[-1].options]
+    assert ("rally_at", (p.x - 8, p.y)) in vals
+    ps._order(("rally_at", (p.x - 8, p.y)))
+    assert sq.order.kind == "rally" and sq.order.target == (p.x - 8, p.y)
+
+
+def test_rally_order_puts_the_section_into_retreat():
+    from fow import ai
+    g = make()
+    app = FakeApp()
+    ps = PlayState(app, g)
+    app.push(ps)
+    p = g.player
+    sq = p.squad
+    ps._order_rally((p.x - 12, p.y))
+    sq.arrived = False
+    ai.squad_update(g, sq)
+    assert sq.state in ("retreat", "hold")
+
+
+def test_rally_bounds_by_halves():
+    from fow import ai
+    from fow.ai import Order
+    g = make()
+    app = FakeApp()
+    ps = PlayState(app, g)
+    app.push(ps)
+    p = g.player
+    sq = p.squad
+    sq.order = Order("rally", target=(p.x - 10, p.y), issued=g.turn)
+    act = [a for a in sq.members if a.active and a is not p]
+    assert len(act) >= 2
+    one = act[0]
+    two = next(a for a in act if a.id % 2 != one.id % 2)
+    one_pos, two_pos = (one.x, one.y), (two.x, two.y)
+    ai.retreat_act(g, one, [])
+    ai.retreat_act(g, two, [])
+    # one team moves on the first bound, the other holds as overwatch
+    assert (one.x, one.y) != one_pos
+    assert (two.x, two.y) == two_pos
+
+
 def test_run_through_rally_places_men_on_the_mark():
     from fow import ai
     g = make()

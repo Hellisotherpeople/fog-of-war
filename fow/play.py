@@ -477,10 +477,11 @@ class PlayState:
             if x0 <= cx < x0 + W and y0 <= cy < y0 + H:
                 ch = MK.KINDS[mk["kind"]][0]
                 con.print(cx, cy, ch, fg=MK.color(mk, g.turn), bg=tuple(int(c) for c in cols[cx - x0, cy - y0]))
-        for mx, my, _rec, col in MK.sightings(g):
+        for mx, my, rec, col in MK.sightings(g):
             cx, cy = x0 + mx // bw, y0 + my // bh
             if x0 <= cx < x0 + W and y0 <= cy < y0 + H:
-                con.print(cx, cy, "×", fg=col, bg=tuple(int(c) for c in cols[cx - x0, cy - y0]))
+                con.print(cx, cy, "▮" if rec.get("v") else "×", fg=col,
+                          bg=tuple(int(c) for c in cols[cx - x0, cy - y0]))
         px, py = (p.vehicle.x, p.vehicle.y) if p.vehicle is not None else (p.x, p.y)
         con.print(x0 + px // bw, y0 + py // bh, "@", fg=(255, 255, 120), bg=(40, 40, 10))
         # the part of the field on screen
@@ -5614,6 +5615,11 @@ class PlayState:
                 ("Fire at will" + (" (now)" if roe == "free" else ""), "roe_free", (180, 200, 230), True),
                 ("Return fire only" + (" (now)" if roe == "return" else ""), "roe_return", (180, 200, 230), True),
                 ("Hold your fire" + (" (now)" if roe == "hold" else ""), "roe_hold", (180, 200, 230), True)]
+        from . import marks as MK
+        fall = MK.nearest(g, p.x, p.y, "rally", 90, p.side)
+        if fall is not None:
+            opts.insert(8, (f"Rally on the marker ({fall[0] * 2} m)", ("rally_at", (fall[1], fall[2])),
+                            (150, 220, 140), True))
         opts.append(("Tasks... (scavenge, the wounded, prisoners, a hand for the tanks)", "tasks", (220, 200, 140),
                      True))
         from .cmdui import command_units
@@ -5639,6 +5645,8 @@ class PlayState:
                 self.act(30)
             return choose_target(self, what, [sq], put, (p.x, p.y), what)
         self._queue_mode = False
+        if isinstance(what, tuple) and what[0] == "rally_at":
+            return self._order_rally(what[1])
         if what == "follow":
             sq.order = Order("follow", issued=g.turn)
             sq.arrived = False
