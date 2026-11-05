@@ -339,15 +339,30 @@ def cycle_mode(a) -> str:
     return w.mode_name
 
 
+def launching(a, item) -> bool:
+    """A rifle grenade wants a rifle in the hands and its cup on the muzzle; a bottle is a bottle."""
+    return bool(item.t.get("launch")) and a.weapon is not None and a.weapon.t.kind == "gun" \
+        and a.weapon.t.cat in ("rifle", "carbine", "smg", "sniper", "assault")
+
+
 def throw_range(a, item) -> int:
     t = item.t
-    base = 13 + t.throw
+    if t.get("launch"):
+        # fired, not thrown: a rifle grenade carries about fifty yards, and no further from the shoulder
+        base = 24 if launching(a, item) else 7
+        if a.stance == 2:
+            base -= 6
+        elif a.stance == 1:
+            base -= 2
+    else:
+        base = 13 + t.throw
     if t.weight > 1.0:
         base -= int((t.weight - 1.0) * 5)
-    if a.stance == 2:
-        base -= 4
-    elif a.stance == 1:
-        base -= 1
+    if not t.get("launch"):
+        if a.stance == 2:
+            base -= 4
+        elif a.stance == 1:
+            base -= 1
     if a.body.hp["r_arm"] <= 0 and a.body.hp["l_arm"] <= 0:
         base = 2
     elif a.body.hp["r_arm"] <= 0 or a.body.hp["l_arm"] <= 0:
@@ -367,6 +382,13 @@ def _throw(game, a, item, tx, ty, cook=0):
     if t.kind not in ("grenade", "explosive"):
         return None
     rng = game.rng
+    launch = launching(a, item)
+    if t.get("launch") and not launch:
+        if a.is_player:
+            game.msg("No rifle in your hands: you can only lob the grenade a few yards.", "warn")
+    elif launch:
+        from .familiar import learn
+        learn(game, a, a.weapon.t, 0.02)
     maxr = throw_range(a, item)
     dx, dy = tx - a.x, ty - a.y
     dist = math.hypot(dx, dy)
@@ -375,7 +397,8 @@ def _throw(game, a, item, tx, ty, cook=0):
         tx, ty = a.x + int(round(dx * s)), a.y + int(round(dy * s))
         dist = maxr
     # scatter
-    sig = 0.5 + dist * 0.09 + (8 - a.skill) * 0.12 + a.suppression / 35
+    sig = 0.35 + dist * 0.06 + (8 - a.skill) * 0.09 + a.suppression / 45 if launch else \
+        0.5 + dist * 0.09 + (8 - a.skill) * 0.12 + a.suppression / 35
     if a.stance == 2:
         sig += 0.6
     lx = int(round(tx + rng.gauss(0, sig)))
@@ -386,6 +409,7 @@ def _throw(game, a, item, tx, ty, cook=0):
     ox, oy = (a.x + pk[0], a.y + pk[1]) if pk else (a.x, a.y)     # thrown from round the corner
     path = tcod.los.bresenham((ox, oy), (lx, ly))
     land = (ox, oy)
+    broke = False
     for i in range(1, len(path)):
         x, y = int(path[i][0]), int(path[i][1])
         if not m.in_bounds(x, y):
@@ -395,7 +419,9 @@ def _throw(game, a, item, tx, ty, cook=0):
         if d.window and d.key == "window":
             m.set(x, y, "window_broken")
             m.refresh()
-            game.emit_sound(x, y, 35, "glass", "breaking glass", a.side, a)
+            if not broke:                 # one smash to hear, however many panes it goes through
+                game.emit_sound(x, y, 35, "glass", "breaking glass", a.side, a)
+                broke = True
         if not d.walk and not d.window:
             # a solid wall stops it dead (it drops back where it last was); a hedge or a tree mostly does;
             # a low wall or a sandbag parapet it sails over - but it never comes to rest on top of one
@@ -403,6 +429,14 @@ def _throw(game, a, item, tx, ty, cook=0):
                 break
             continue
         land = (x, y)
+    armed = True
+    if launch:
+        # a rifle grenade arms a few yards out: fire one into the next room and it's a dud on the floor
+        game.emit_sound(a.x, a.y, 55, "rifle", "the crack of a rifle grenade", a.side, a)
+        game.effect_flash(a.x, a.y)
+        game.effect_tracer(ox, oy, land[0], land[1], rocket=True)
+        if max(abs(land[0] - ox), abs(land[1] - oy)) < 4:
+            armed = False
     # take it out of inventory
     access = a.access_cost(item)
     thrown = a.remove_item(item, 1) if item.count > 1 else a.remove_item(item)
@@ -414,21 +448,35 @@ def _throw(game, a, item, tx, ty, cook=0):
         if floors.tile_at(m, land[0], land[1], a.z) is not None:
             lz = a.z
     thrown.data = dict(thrown.data or {}, z=lz)
+    v = game.vehicle_at.get(land)
+    if v is not None and not v.dead and t.charge in ("magnetic", "bundle"):
+        thrown.data["on_vehicle"] = v.id          # a magnetic charge thrown onto a hull goes off on it
+        if a.is_player:
+            game.msg(f"The {t.name} claps onto the {v.vt.name}, fuse burning!", "warn")
     a.stats["grenades"] += 1
     if a.is_player:
-        game.msg(f"You throw the {t.name}.", "combat")
+        if launch:
+            game.msg(f"You slip the {t.name} over the muzzle and fire.", "combat")
+            if not armed:
+                game.msg("Too close - it won't have armed.", "warn")
+        else:
+            game.msg(f"You throw the {t.name}.", "combat")
     elif game.can_see(a.x, a.y):
-        game.msg(f"{cap(game.name_of(a))} throws a grenade!", "warn", a.pos)
-    a.say(game.shout(a, "grenade"), game.turn)
-    game.effect_throw(a.x, a.y, land[0], land[1])
+        game.msg(f"{cap(game.name_of(a))} fires a rifle grenade!" if launch else
+                 f"{cap(game.name_of(a))} throws a grenade!", "warn", a.pos)
+    if not launch:
+        a.say(game.shout(a, "grenade"), game.turn)
+        game.effect_throw(a.x, a.y, land[0], land[1])
     if thrown.data and thrown.data.get("live") is not None:
         # throwing back a live grenade: the same fuse keeps burning
         game.drop_live(thrown, land[0], land[1])
         game.map.add_item(land[0], land[1], thrown)
     else:
+        if not armed:
+            thrown.data = dict(thrown.data or {}, dud=True)
         game.land_explosive(thrown, land[0], land[1], a, cook)
     a.fired_turn = game.turn
-    return 140 + access // 2
+    return (220 if launch else 140) + access // 2
 
 
 def place_charge(game, a, item, x, y) -> int | None:

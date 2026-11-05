@@ -707,6 +707,42 @@ grenade("chinese_stick", "Chinese stick grenade", "stick", ["china"], (1930, 195
         power=45, radius=3, frags=10, throw=2, dud=0.1,
         desc="Locally made stick grenade. Quality varies.")
 
+# Rifle grenades: fired from a cup on the muzzle of a rifle, not thrown. They arm after a few yards
+# and the recoil has to be taken standing or kneeling, so a man firing one is a target for a moment.
+def rifle_grenade(id, name, gtype, nations, years, *, power, radius, pen=0, frags=0,
+                  weight=0.7, dud=0.08, freq=4, launch=True, desc=""):
+    return _reg(ItemType(
+        id, name, kind="grenade", gtype=gtype, nations=tuple(nations), years=years, fuse=1,
+        blast=power, blast_r=radius, pen=pen, frags=frags, frag_dmg=18, dud=dud, throw=-5,
+        weight=weight, volume=0.5, freq=freq, glyph="*", color=(170, 180, 140), stack=1,
+        launch=launch, desc=desc,
+    ))
+
+
+rifle_grenade("no68", "No. 68 AT rifle grenade", "rifle_at", ["uk", "canada", "australia", "newzealand",
+                                                              "india"], (1943, 1950),
+              power=45, radius=2, pen=55, weight=0.9, desc="Hollow charge on a stick. The grenade every "
+                                                           "infantry section wanted when a tank appeared.")
+rifle_grenade("m9a1", "M9A1 rifle grenade", "rifle_at", ["usa"], (1942.9, 1950),
+              power=45, radius=2, pen=60, desc="Shaped charge fired from the M7 grenade launcher.")
+rifle_grenade("gew_pzgr40", "Gewehr-Panzergranate 40", "rifle_at", ["germany"], (1941.6, 1950),
+              power=40, radius=2, pen=45, dud=0.1, freq=3,
+              desc="Anti-tank rifle grenade for the Schiessbecher cup.")
+rifle_grenade("gew_sprgr40", "Gewehr-Sprenggranate 40", "rifle_he", ["germany"], (1942.5, 1950),
+              power=70, radius=3, frags=18, desc="Bursting rifle grenade, for a machine-gun nest or a window.")
+rifle_grenade("vpg_dya", "VPG-Dyakonov grenade", "rifle_at", ["ussr"], (1928, 1950),
+              power=40, radius=2, pen=40, weight=0.8, freq=3, dud=0.12,
+              desc="Old rifle grenade on a rod, still in the racks of every rifle section.")
+rifle_grenade("type100_gr", "Type 100 rifle grenade", "rifle_he", ["japan"], (1940, 1950),
+              power=55, radius=3, frags=14, dud=0.12, desc="Fired from the Type 100 discharger.")
+rifle_grenade("vb_tromblon", "VB rifle grenade", "rifle_he", ["france", "poland"], (1916, 1940),
+              power=60, radius=3, frags=12, weight=0.9, freq=3,
+              desc="First-war tromblon grenade. The cup lives on the rifle, the grenade in the pouches.")
+rifle_grenade("no73", "No. 73 AT grenade", "at", ["uk"], (1940, 1950),
+              power=55, radius=2, pen=45, weight=1.0, freq=2, launch=False,
+              desc="The 'thermos'. A glass flask of nitroglycerine in a tin; it goes off on the tank.")
+
+
 
 def explosive(id, name, charge, nations, years, *, fuse=10, power=250, radius=4, frags=12,
               pen=0, weight=5.0, freq=10, desc=""):

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import math
 import random
+import threading
 
 import numpy as np
 import tcod
@@ -1833,35 +1834,45 @@ class SpriteBank:
         self.next_cp = DYN_BASE
         self.size = None
         self.tileset = None
+        self.tilesets: dict[int, object] = {}      # every size built (the preloader builds them on another thread)
+        self.lock = threading.RLock()
         for tid in range(T.NUM):
             for v in range(VARIANTS):
                 self.master[TERRAIN_BASE + tid * VARIANTS + v] = paint_terrain(tid, v)
 
-    def _scale(self, arr):
-        if self.size == M:
+    def _scale(self, arr, size=None):
+        size = self.size if size is None else size
+        if size == M:
             return arr
-        img = Image.fromarray(arr, "RGBA").resize((self.size, self.size), Image.LANCZOS)
+        img = Image.fromarray(arr, "RGBA").resize((size, size), Image.LANCZOS)
         return np.asarray(img, np.uint8)
 
     def build(self, size: int):
-        self.size = size
-        ts = tcod.tileset.Tileset(size, size)
-        for cp, arr in self.master.items():
-            ts[cp] = self._scale(arr)
-        self.tileset = ts
-        return ts
+        with self.lock:
+            self.size = size
+            ts = self.tilesets.get(size)
+            if ts is None:
+                ts = tcod.tileset.Tileset(size, size)
+                for cp, arr in self.master.items():
+                    ts[cp] = self._scale(arr, size)
+                self.tilesets[size] = ts
+            self.tileset = ts
+            return ts
 
     def _get(self, key, painter):
-        cp = self.keys.get(key)
-        if cp is None:
-            cp = self.next_cp
-            self.next_cp += 1
-            self.keys[key] = cp
-            arr = painter()
-            self.master[cp] = arr
-            if self.tileset is not None:
-                self.tileset[cp] = self._scale(arr)
-        return cp
+        with self.lock:
+            cp = self.keys.get(key)
+            if cp is None:
+                cp = self.next_cp
+                self.next_cp += 1
+                self.keys[key] = cp
+                arr = painter()
+                self.master[cp] = arr
+                # a sprite painted after the fact goes into every atlas already built, not just the
+                # current one: the preloader may have moved on to another size
+                for size, ts in self.tilesets.items():
+                    ts[cp] = self._scale(arr, size)
+            return cp
 
     # ---- public lookups
     def terrain(self, tid, var):

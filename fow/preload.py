@@ -71,12 +71,28 @@ def _warm(mode):
 
 def _pictures(fonts):
     """Paint every picture the interface can name, at a size big enough to be scaled down sensibly."""
-    from . import icons
-    keys = []
+    from . import icons, tiles as T
     from .data.items import ITEMS
-    for key in ITEMS:
-        keys.append(f"item:{key}")
-    keys += ["unit:rifle|1", "unit:mg|1", "unit:tank|1", "doll|head:1:torso:1:l_arm:1:r_arm:1:l_leg:1:r_leg:1"]
+    from .data.nations import NATIONS
+    from .entities import Item
+    keys = []
+    for tid in ITEMS:
+        try:
+            k = icons.item_key(Item(tid))
+        except Exception:
+            k = None
+        if k:
+            keys.append(k)
+    for tid in range(T.NUM):
+        for v in range(4):
+            keys.append(f"ground|{tid}|{v}")
+    for n in NATIONS:
+        for role in ("rifleman", "squad_leader", "medic", "lmg_gunner", "officer", "tank_crew"):
+            for flags in ("", "blood,soot", "down"):
+                for side in ("friend", "enemy"):
+                    keys.append(f"face|{n}|{role}|{flags}|{side}")
+    keys += ["unit:rifle|#a0a0a0", "unit:mg|#a0a0a0", "unit:tank|#a0a0a0",
+             "doll|head:1:torso:1:l_arm:1:r_arm:1:l_leg:1:r_leg:1"]
     for k in keys:
         try:
             icons.paint(k, 32, 32)

@@ -355,10 +355,12 @@ def build_kit(rng: random.Random, nation: str, year: float, role: str, *, para: 
             add_ammo(wield, 5)
         atg = pick_grenade(rng, nation, year, ("at", "gammon", "molotov"))
         if atg:
-            add(atg, rng.randint(1, 2))
+            add(atg, rng.randint(1, 3))
         mag = pick_explosive(rng, nation, year, ("magnetic", "bundle"))
-        if mag and rng.random() < 0.4:
+        if mag and rng.random() < 0.6:
             add(mag)
+        if rng.random() < 0.4:
+            add(pick_grenade(rng, nation, year, ("molotov",)), rng.randint(1, 2))
         grenades = rng.randint(0, 2)
     elif role == "medic":
         # Arms and the red cross.  In Europe and Africa, American and Commonwealth medics went unarmed
@@ -557,6 +559,9 @@ def build_kit(rng: random.Random, nation: str, year: float, role: str, *, para: 
         b = pick_explosive(rng, nation, year, ("bangalore",))
         if b and rng.random() < 0.25:
             add(b)
+        haz = pick_explosive(rng, nation, year, ("magnetic",))
+        if haz and rng.random() < 0.35:
+            add(haz)
         add("mine_detector" if rng.random() < 0.1 else None)
         grenades = rng.randint(2, 4)
     elif role == "mortarman":
@@ -642,6 +647,14 @@ def build_kit(rng: random.Random, nation: str, year: float, role: str, *, para: 
         add(g, grenades)
     if role in ("rifleman", "smg_gunner", "squad_leader", "engineer") and rng.random() < 0.15:
         add(pick_grenade(rng, nation, year, ("smoke", "wp")))
+    # a section's rifle grenadier: one man with the cup on his muzzle and a couple of bombs in his pouches
+    rg_chance = {"uk": 0.45, "canada": 0.4, "australia": 0.4, "newzealand": 0.4, "india": 0.3,
+                 "usa": 0.35, "germany": 0.35, "ussr": 0.3, "japan": 0.4, "france": 0.2,
+                 "poland": 0.2}.get(nation, 0.08)
+    if role in ("rifleman", "smg_gunner", "squad_leader") and rng.random() < rg_chance:
+        add(pick_grenade(rng, nation, year, ("rifle_at", "rifle_he")), rng.randint(1, 2))
+    if role in ("partisan", "volkssturm") or (nation in ("ussr", "finland") and role == "rifleman"):
+        add(pick_grenade(rng, nation, year, ("molotov",)), rng.randint(1, 3))
 
     # common kit
     add("bandage", 1 + (rng.random() < 0.5))

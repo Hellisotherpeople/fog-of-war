@@ -1456,6 +1456,9 @@ def engage_act(game, a, vis, sq, sstate) -> int:
     td = dist(a, target)
     cover = in_cover_from(game, a, target.x, target.y)
     if sstate not in ("assault", "banzai"):
+        c = assault_tank(game, a, vis)
+        if c:
+            return c
         c = hide_from_tanks(game, a, vis)
         if c:
             return c
@@ -1592,6 +1595,69 @@ def fire_position(game, a, target, cover_now) -> int | None:
     return do_step(game, a, best) if best is not None else None
 
 
+def assault_munition(game, a):
+    """What he's carrying that can be put on a tank by hand: a magnetic charge, a bundle, an AT grenade or a
+    bottle.  (Best first: a hollow charge, then the thrown stuff.)"""
+    for it in a.inv:
+        if it.t.kind == "explosive" and it.t.charge in ("magnetic", "bundle") and it.functional:
+            return it
+    for it in a.inv:
+        if it.t.kind == "grenade" and it.t.gtype in ("at", "molotov") and it.functional:
+            return it
+    return None
+
+
+def assault_tank(game, a, vis) -> int | None:
+    """A tank his rifle can't hurt, close enough to run at: get alongside and put a charge on it - or a
+    bottle on the engine deck.  (Real infantry killed tanks this way, into the flank at ten yards, and it
+    was the bravest thing on the field.)"""
+    if a.vehicle is not None or a.suppression > 80:
+        return None
+    t = game.turn
+    if a.ai.get("assault_t", -99) > t - 2:
+        return None
+    it = assault_munition(game, a)
+    if it is None:
+        return None
+    v = None
+    for e in vis:
+        if getattr(e, "vt", None) is None or e.dead or e.abandoned or e.side == a.side:
+            continue
+        if can_hurt_vehicle(a, e) and a.weapon is not None and a.weapon.loaded > 0:
+            continue
+        d = dist(a, e)
+        if d > 14 or d < 1:
+            continue
+        if v is None or d < dist(a, v):
+            v = e
+    if v is None:
+        return None
+    if not roe_allows(game, a, v):
+        return None
+    a.ai["assault_t"] = t
+    d = dist(a, v)
+    if d <= 1.5:
+        if it.t.kind == "explosive":
+            game.msg(f"{game.name_of(a).capitalize()} slaps a charge on the {v.vt.name}!", "warn", v.pos)
+            return A.place_charge(game, a, it, v.x, v.y)
+        c = A.throw(game, a, it, v.x, v.y)
+        if c is None:
+            return None
+        a.ai["assault_t"] = t + 4
+        return c
+    # run in: keep low, and use what cover the way gives
+    fix_stance(game, a, 1)
+    maps = [((v.x, v.y), 1.0)]
+    safety = game.brains[a.side].safety
+    if safety is not None:
+        maps.append((safety, 0.4))
+    step = best_step(game, a, maps, exposure_w=1.5, spread=2)
+    c = do_step(game, a, step)
+    if c and d > 8:
+        fix_stance(game, a, 2)
+    return c
+
+
 def hide_from_tanks(game, a, vis) -> int | None:
     """A tank he can do nothing to, its machine guns sweeping: out of its sight or behind something solid
     first (the anti-tank men deal with it), and flat if there's nothing."""
@@ -1707,9 +1773,39 @@ def maneuver_step(game, a, sq, sstate, target) -> int | None:
     return c
 
 
+def _no_friends_near(game, a, x, y, r=3) -> bool:
+    for dx in range(-r, r + 1):
+        for dy in range(-r, r + 1):
+            o = game.soldier_at.get((x + dx, y + dy))
+            if o is not None and o.alive and o is not a and o.side == a.side:
+                return False
+    return True
+
+
 def maybe_grenade(game, a, near) -> int | None:
+    # a rifle grenade first: it reaches three times as far as an arm, and a tank will stop for one
+    rg = [g for g in a.grenades() if g.t.get("launch") and A.launching(a, g)]
+    if rg:
+        arm = min(A.throw_range(a, g) for g in rg)
+        seen_v = [e for e in a.visible if getattr(e, "vt", None) is not None and not e.dead and
+                  not e.abandoned and e.side != a.side and 3 < dist(a, e) <= arm]
+        for v in sorted(seen_v, key=lambda e: dist(a, e)):
+            g = next((g for g in rg if g.t.gtype == "rifle_at"), None)
+            if g is None:
+                continue
+            if _no_friends_near(game, a, v.x, v.y):
+                return A.throw(game, a, g, v.x, v.y)
     if not near:
         return None
+    he = next((g for g in a.grenades() if g.t.gtype == "rifle_he"), None)
+    if he is not None and A.launching(a, he):
+        for e in sorted(near, key=lambda e: dist(a, e)):
+            if not (8 <= dist(a, e) <= A.throw_range(a, he)):
+                continue
+            if game.map.pos_cover[e.x, e.y] > 40 or T.FLOOR[game.map.t[e.x, e.y]]:
+                if _no_friends_near(game, a, e.x, e.y) and game.rng.random() < 0.3:
+                    return A.throw(game, a, he, e.x, e.y)
+                break
     gr = [g for g in a.grenades() if g.t.gtype in ("frag", "stick", "gammon")]
     if not gr:
         return None

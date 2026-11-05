@@ -37,7 +37,7 @@ class ItemType(Template):
         feed="mag", bayonet=0,
         # launchers / explosives / grenades
         blast=0, blast_r=0, frags=0, frag_dmg=0, min_rng=0, backblast=False,
-        gtype="", fuse=0, dud=0.0, throw=0, smoke=0, fire=0, charge="",
+        gtype="", fuse=0, dud=0.0, throw=0, smoke=0, fire=0, charge="", launch=False,
         # melee
         cost=100,
         # stacking

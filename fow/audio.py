@@ -329,14 +329,18 @@ class Bank:
         return x
 
     def _glass(self, rng):
-        dur = 0.6
-        x = np.zeros(int(SR * dur), np.float32)
-        for _ in range(14):
-            p = int(rng.uniform(0, dur * 0.7) * SR)
-            t = _t(0.08)
-            f = rng.uniform(3000, 7000)
-            seg = np.sin(2 * np.pi * f * t) * np.exp(-t * 60)
-            x[p:p + len(seg)] += seg[: max(0, len(x) - p)] * rng.uniform(0.3, 1)
+        """A pane going: one broad crack of noise, then a few bright splinters - not a run of bell notes."""
+        dur = 0.5
+        t = _t(dur)
+        x = _filter(_noise(len(t), rng), lo=1800, hi=9000) * np.exp(-t * 28) * 0.8
+        crack = _filter(_noise(len(t), rng), lo=300, hi=2500) * np.exp(-t * 70) * 0.5
+        x += crack
+        for _ in range(7):
+            p = int(rng.uniform(0, dur * 0.55) * SR)
+            seg = _t(0.045)
+            f = rng.uniform(2400, 5200)
+            seg = np.sin(2 * np.pi * f * seg) * np.exp(-seg * 110)
+            x[p:p + len(seg)] += seg[: max(0, len(x) - p)] * rng.uniform(0.25, 0.6)
         return x
 
     def _officer_whistle(self):

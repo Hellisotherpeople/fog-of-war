@@ -106,6 +106,8 @@ SECTIONS = [
         ("k", "F", "fire mode (single / burst / auto), or AP / HE in a tank"),
         ("k", "r", "reload; clear a jam; on a full gun, count the rounds"),
         ("k", "t", "throw a grenade: pick the spot; {t}, {f} or {Enter} throws; {c} cooks it (0-3 s)"),
+        ("t", "A rifle grenade needs a rifle in your hands: it fires far, but won't arm inside a few yards. "
+              "A magnetic charge goes on a hull at arm's length."),
         ("k", "a", "use something: a medical item, a tool, or place a charge beside you"),
         ("k", "right-click", "fire at it, throw there, call artillery, fire a flare, order the squad there"),
         ("h", "Hand to hand"),

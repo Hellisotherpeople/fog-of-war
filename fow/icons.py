@@ -668,6 +668,10 @@ def grenade_key(t) -> str:
         return "grenade:smoke" + ("|wp" if g == "wp" else "")
     if g in ("frag", "stick", "gammon", "at", "molotov"):
         return "grenade:" + g
+    if g == "rifle_at":
+        return "grenade:at"
+    if g == "rifle_he":
+        return "grenade:frag"
     return "grenade:frag"
 
 
@@ -1786,6 +1790,81 @@ def _vehicle(c, arg):
         col = {"you": (255, 220, 90, 255), "on": (140, 220, 140, 255)}.get(st, (220, 70, 60, 255))
         px, py = hx0 + fx * hw, hy0 + fy * hh
         c.d.ellipse([px - r, py - r, px + r, py + r], fill=col, outline=BLACK, width=max(1, int(r * 0.25)))
+
+
+# ============================================================================ a face, for looking at a man
+@painter("face", 0.82)
+def _face(c, arg):
+    """His face, from a few paces: the helmet he wears, the blood and dirt on him, whether he's up or down.
+    arg: nation|role|flags|side  (flags comma: down dead blood bandage soot pale burn eyes medic)"""
+    from PIL import Image
+    bits = arg.split("|")
+    nat, role, flags, side = (bits + ["", "", "", ""])[:4]
+    f = set(x for x in flags.split(",") if x)
+    back = {"friend": (32, 42, 34, 255), "enemy": (44, 30, 28, 255), "own": (44, 40, 24, 255)}.get(side,
+                                                                                               (30, 30, 28, 255))
+    c.rect(0.0, 0.0, c.width, 1.0, back)
+    cloth = UNIFORM.get(nat, (70, 70, 66)) + (255,)
+    skin = (190, 152, 122, 255)
+    if "pale" in f or "dead" in f:
+        skin = (150, 158, 168, 255) if "dead" not in f else (142, 140, 138, 255)
+    c.rect(0.12, 0.74, 0.9, 1.0, cloth)                                     # shoulders and collar
+    c.rect(0.34, 0.58, 0.66, 0.8, skin)                                     # neck
+    c.ell(0.2, 0.16, 0.8, 0.7, skin)                                        # head
+    c.ell(0.15, 0.42, 0.28, 0.58, skin)                                     # ears
+    c.ell(0.72, 0.42, 0.85, 0.58, skin)
+    hel = "tank" if role == "tank_crew" else "peaked" if role in ("officer", "intel", "politruk", "surgeon") else \
+        "cap" if role in ("agent", "partisan") else NATION_HELMET.get(nat, "m1")
+    hw = paint(f"helmet:x|{hel}", int(c.s * 0.8 / SS * 1.6) + 4, int(c.s * 0.3 / SS) + 4)
+    if hw is not None:
+        im = Image.fromarray(hw).resize((int(c.s * 0.85 * 1.7), int(c.s * 0.32)), Image.LANCZOS)
+        x, y = c.p(0.08, 0.08)
+        c.img.alpha_composite(im, (max(0, int(x)), max(0, int(y))))
+    if "medic" in f:
+        c.rect(0.14, 0.9, 0.22, 0.98, WHITE)
+        c.rect(0.17, 0.91, 0.19, 0.97, RED)
+    # eyes: open, shut (down), or the X of the dead
+    eye = (40, 34, 30, 255)
+    for ex in (0.37, 0.62):
+        if "dead" in f:
+            c.line([(ex - 0.04, 0.39), (ex + 0.04, 0.47)], eye, 0.018)
+            c.line([(ex - 0.04, 0.47), (ex + 0.04, 0.39)], eye, 0.018)
+        elif "down" in f or "eyes" in f:
+            c.line([(ex - 0.05, 0.43), (ex + 0.05, 0.43)], eye, 0.02)
+        else:
+            c.ell(ex - 0.035, 0.395, ex + 0.035, 0.455, eye)
+    c.line([(0.5, 0.44), (0.47, 0.55)], (150, 116, 92, 255), 0.018)          # nose
+    if "dead" in f:
+        c.ell(0.43, 0.62, 0.57, 0.7, (90, 60, 60, 255))
+    elif "burn" in f:
+        c.ell(0.42, 0.6, 0.58, 0.7, (86, 52, 44, 255))
+    else:
+        c.line([(0.43, 0.63), (0.57, 0.63)], (120, 70, 62, 255), 0.02)
+    if "soot" in f:
+        for x, y in ((0.24, 0.3), (0.7, 0.24), (0.55, 0.5)):
+            c.ell(x, y, x + 0.14, y + 0.1, (58, 54, 50, 190))
+    if "blood" in f:
+        c.line([(0.7, 0.2), (0.62, 0.5), (0.68, 0.68)], (150, 22, 22, 230), 0.035)
+        c.line([(0.33, 0.28), (0.28, 0.42)], (150, 22, 22, 220), 0.025)
+    if "bandage" in f:
+        c.poly([(0.16, 0.24), (0.86, 0.18), (0.86, 0.3), (0.16, 0.36)], (226, 222, 208, 240))
+        c.poly([(0.32, 0.22), (0.42, 0.2), (0.4, 0.34), (0.3, 0.35)], (190, 40, 36, 200))
+    c.rect(0.0, 0.0, c.width, 1.0, None, outline=(20, 20, 18, 255), width=0.02)
+
+
+@painter("ground", 1.0)
+def _ground(c, arg):
+    """The ground itself, as a square of the battlefield looks: looked at from above, not named."""
+    from PIL import Image
+    from . import sprites
+    bits = arg.split("|")
+    try:
+        tid, var = int(bits[0]), int(bits[1]) % 4
+    except (ValueError, IndexError):
+        return
+    arr = sprites.paint_terrain(tid, var)
+    im = Image.fromarray(arr, "RGBA").resize((c.W, c.H), Image.LANCZOS)
+    c.img.alpha_composite(im, (0, 0))
 
 
 # ============================================================================ unit symbols, as on a 1940s staff map

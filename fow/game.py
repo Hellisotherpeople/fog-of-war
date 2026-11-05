@@ -2494,11 +2494,13 @@ class Game:
         if (item.data or {}).get("dud") or self.rng.random() < max(t.dud or 0, 1 - item.condition):
             item.data = dict(item.data or {}, dud=True)
             item.data.pop("live", None)
-            m.add_item(x, y, item)
+            if item not in m.items.get((x, y), ()):      # (an impact fuse: it's already lying there)
+                m.add_item(x, y, item)
             if self.can_see(x, y):
                 self.msg(f"The {t.name} fizzles. A dud.", "info", (x, y))
             return
         if t.kind == "grenade" and t.gtype == "molotov":
+            # the bottle bursts, the petrol flashes off, and the rest of it burns where it ran
             for dx in (-1, 0, 1):
                 for dy in (-1, 0, 1):
                     ignite(self, x + dx, y + dy, 3)
@@ -2509,11 +2511,20 @@ class Game:
                         a.body.burning = max(a.body.burning, 4)
                         hit_actor(self, a, self.rng.uniform(10, 30), "burn", thrower, "a Molotov cocktail")
             v = self.vehicle_at.get((x, y))
-            if v is not None and not v.dead and self.rng.random() < 0.35:
-                v.burning = max(v.burning, 25)
-                self.msg(f"Flames lick over the engine deck of {self.name_of_vehicle(v)}!", "combat", v.pos)
+            if v is not None and not v.dead:
+                vt = v.vt
+                # the engine deck (the rear) is where a bottle does its work; a truck burns from anywhere
+                from .combat import vehicle_face
+                rear = vt.vtype in ("truck", "car", "halftrack", "armcar") or \
+                    vehicle_face(v, x, y) == 2 or self.rng.random() < 0.35
+                if rear and self.rng.random() < 0.75:
+                    v.burning = max(v.burning, 30)
+                    self.msg(f"Flames run over the engine deck of {self.name_of_vehicle(v)}!", "combat", v.pos)
+                else:
+                    self.msg(f"Burning petrol sheets off the {vt.name}.", "combat", v.pos)
             self.emit_sound(x, y, 40, "glass", "a bottle smashing and the whoomp of fuel", None, thrower)
             self.effect_explosion(x, y, 1)
+            self.effect_splash(x, y)
             return
         if t.smoke:
             self.smoke_sources.append([x, y, 25, t.smoke / 10.0])
@@ -2523,6 +2534,18 @@ class Game:
                 for dy in (-1, 0, 1):
                     if self.rng.random() < 0.6:
                         ignite(self, x + dx, y + dy, t.fire)
+        if t.gtype == "wp":
+            # phosphorus clings: a man it catches keeps burning, and a truck's paint and canvas go up
+            for dx in range(-2, 3):
+                for dy in range(-2, 3):
+                    a = self.actor_at(x + dx, y + dy, int((item.data or {}).get("z", 0)))
+                    if a is not None and a.alive and self.rng.random() < 0.4:
+                        a.body.burning = max(a.body.burning, self.rng.randint(3, 8))
+                    v = self.vehicle_at.get((x + dx, y + dy))
+                    if v is not None and not v.dead and self.rng.random() < 0.25:
+                        v.burning = max(v.burning, 20)
+            if self.can_see(x, y):
+                self.msg("The phosphorus spits and clings.", "warn", (x, y))
         if t.blast > 0:
             pen = t.pen
             explode(self, x, y, t.blast, t.blast_r, frags=t.frags, frag_dmg=t.frag_dmg, pen=pen,
